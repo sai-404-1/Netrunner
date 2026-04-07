@@ -21,7 +21,7 @@ def main(host, port = "22", command: str = "cat /etc/os-release | grep PRETTY_NA
             encoding="utf-8",
             # errors="replace",
             # check=True,
-        ).stdout)
+        ).stdout.strip())
     except Exception as e:
         return f"Error: {e}"
 

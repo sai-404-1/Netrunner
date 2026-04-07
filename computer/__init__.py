@@ -31,3 +31,12 @@ class Computer():
         with open("./blacklist_program", "a") as f:
             f.write(f"\n{dir}")
         return folder_swipe(host=self.host, port=self.port, dir=dir)
+    
+
+from .module.local_executor import main as local_executor
+class LocalComputer():
+    def __init__(self):
+        ...
+
+    def local_executor(self, command="uname -a"):
+        return local_executor(command)
