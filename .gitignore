@@ -3,4 +3,5 @@ __pycache__
 keys/*
 docker_for_test
 other
+/config.py
 /hosts.json
