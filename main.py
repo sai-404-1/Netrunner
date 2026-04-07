@@ -16,8 +16,6 @@ match int(user_input):
     case 1:
         print("Включаю глушилку...")
         while True:
-            tryed+=1
-            print(f'{tryed}...')
             create_thread()
             sleep(5)
     case 2:
