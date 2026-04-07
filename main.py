@@ -1,3 +1,4 @@
+from installer import updater
 import computer.users_module as um
 from threading import Thread
 from config import HOSTS
@@ -8,7 +9,7 @@ def create_thread():
         th = Thread(target=um.blacklist.main, args=(host, ))
         th.start()
 
-print("Опции:\n1: \"Глушилка\"\n2: Массовый SSH\n")
+print("Опции:\n1: \"Глушилка\"\n2: Массовый SSH\n9: Обновиться")
 user_input = input("Введите цифру:")
 
 match int(user_input):
@@ -22,3 +23,6 @@ match int(user_input):
     case 2:
         command = input("Ожидаю ввод команды: ")
         um.ssh.main(command)
+
+    case 9:
+        updater.main()
