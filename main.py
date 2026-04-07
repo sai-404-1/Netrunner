@@ -9,15 +9,13 @@ def create_thread():
         th = Thread(target=um.blacklist.main, args=(host, ))
         th.start()
 
-print("Опции:\n1: \"Глушилка\"\n2: Массовый SSH\n9: Обновиться")
-user_input = input("Введите цифру:")
+print("Опции:\n1: \"Глушилка\"\n2: Массовый SSH\n9: Обновиться\n")
+user_input = input("Введите цифру: ")
 
 match int(user_input):
     case 1:
         print("Включаю глушилку...")
         while True:
-            tryed+=1
-            print(f'{tryed}...')
             create_thread()
             sleep(5)
     case 2:
