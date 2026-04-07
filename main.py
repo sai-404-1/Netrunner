@@ -8,7 +8,7 @@ def create_thread():
         th = Thread(target=um.blacklist.main, args=(host, ))
         th.start()
 
-print("Опции:\n1: \"Глушилка\"\n2: Массовый SSH")
+print("Опции:\n1: \"Глушилка\"\n2: Массовый SSH\n")
 user_input = input("Введите цифру:")
 
 match int(user_input):
