@@ -33,7 +33,7 @@ while True:
             except KeyboardInterrupt:
                 print("Остановлено...")
                 continue
-        # Под остальное...
+        # Под остальное... 
         case _:
             try: proj_functions[user_input-8]()
             except: print("Такого варианта нет!")
