@@ -27,9 +27,12 @@ while True:
                 print("Остановлено...")
                 continue
         case 2:
-            command = input("Ожидаю ввод команды: ")
-            um.ssh.main(command)
-
+            try:
+                command = input("Ожидаю ввод команды: ")
+                um.ssh.main(command)
+            except KeyboardInterrupt:
+                print("Остановлено...")
+                continue
         # Под остальное...
         case _:
             try: proj_functions[user_input-8]()
