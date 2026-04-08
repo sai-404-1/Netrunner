@@ -1,5 +1,10 @@
+from threading import Thread
+
 from computer import Computer
 from random import randint
+from config import HOSTS
+from time import sleep
+from . import UserModules
 
 targets = [
     ["java", [".tlauncher", ".minecraft", "Документ", "Загрузки", "PrismLauncher"]],
@@ -35,3 +40,23 @@ def main(host):
                             result = a.executor_ssh(f'sleep {randint(1, 5)}; sudo kill -9 {pids[i]}')
             except Exception as e:
                 print(e)
+
+class UserModule:
+    def __init__(self):
+        self.title = "Чёрные списки."
+        self.description = """Пример использования: exec("Hello world!")"""
+
+    def exec(self):
+        print("Включаю глушилку...")
+        try:
+            while True:
+                for host in HOSTS:
+                    th = Thread(target=main, args=(host, ))
+                    th.start()
+                sleep(5)
+        except KeyboardInterrupt:
+            print("Остановлено...")
+
+CustomModule = UserModule()
+
+UserModules.add_update("blacklist", CustomModule)
