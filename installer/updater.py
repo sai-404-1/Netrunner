@@ -1,5 +1,3 @@
-from os import system
-from time import sleep
 from computer import LocalComputer
 
 def main():
