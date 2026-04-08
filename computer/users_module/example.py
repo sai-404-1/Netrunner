@@ -10,4 +10,4 @@ class UserModule:
 
 CustomModule = UserModule()
 
-# UserModules.add_update("example", CustomModule)
+# UserModules.add_update("example", CustomModule) # <- подписать модуль

@@ -17,7 +17,7 @@ def get_update():
         # print("Кажется мы на последней версии...")
         ...
     else:
-        print("Есть обновления!")
+        print("\nЕсть обновления!")
         print("\nСообщение последнего коммита: ",
             LocalComputer().local_executor(
             "git --no-pager log -1 @{u} --pretty=%B"
