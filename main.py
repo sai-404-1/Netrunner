@@ -19,9 +19,13 @@ while True:
     match user_input:
         case 1:
             print("Включаю глушилку...")
-            while True:
-                create_thread()
-                sleep(5)
+            try:
+                while True:
+                    create_thread()
+                    sleep(5)
+            except KeyboardInterrupt:
+                print("Остановлено...")
+                continue
         case 2:
             command = input("Ожидаю ввод команды: ")
             um.ssh.main(command)
