@@ -7,55 +7,56 @@ from time import sleep
 from . import UserModules
 
 targets = [
-    ["java", [".tlauncher", ".minecraft", "Документ", "Загрузки", "PrismLauncher"]],
-    ["steam", [".steam"]],
+    ["java", [".tlauncher", ".minecraft", "PrismLauncher"]],
+    ["steam", [".steam", "share", ".var"]],
 ]
 
 def main(host):
-    for target in targets:
-        # print(f"Start cycle for {target}")
-        # print("Results:")
+    a = Computer(host)
+    for target_name, blacklist in targets:
+        cmd = (
+            f'for pid in $(pgrep -x {target_name} 2>/dev/null); do '
+            'ps -p "$pid" -o pid= -o args=; '
+            'done'
+        )
+        result = a.executor_ssh(cmd)
+        if not result:
+            continue
 
-        a = Computer(host)
-        # Получение id процессов, которые соответствуют целевым
-        pids = a.executor_ssh(f"for i in $(pgrep {target[0]}); do echo $i; done")
-        # print(f"for i in $(pgrep {target[0]}); do echo $i; done")
-        NEWLINE = "\n"
-        pids = pids.split(NEWLINE)
-        
-        # Отправка запроса на вывод информации о конкретном процессе (тот, который запущен под целевым процессом)
-        result = a.executor_ssh(f'for i in {" ".join(pids)}; do ps --format cmd -p $i; done')
+        lines = [line.strip() for line in result.splitlines() if line.strip()]
+        for line in lines:
+            parts = line.split(maxsplit=1)
+            if len(parts) != 2:
+                continue
 
-        # Парсинг выводов и поиск запрещённых
-        if len(target) > 1:
-            try:
-                result = result.split(NEWLINE)#.split(" ")[0].split("/")[3] # <–– path to parent folder
-                result = [x for x in result if x != "CMD"]
-                for i, process in enumerate(result):
-                    info = process[:100].split(NEWLINE)[0].split("/")[1:]
-                    for N in target[1]:
-                        if N in info:
-                            print(f"({host}) Найдена запрещёнка: {N} ({pids[i]})")
-                            print(f"Попытка завершить процесс... ({pids[i]}){result}")
-                            result = a.executor_ssh(f'sleep {randint(1, 5)}; sudo kill -9 {pids[i]}')
-            except Exception as e:
-                print(e)
+            pid, args = parts
+            for banned in blacklist:
+                if banned in args:
+                    print(f"({host}) Найдена запрещёнка: {banned} в процессе {target_name} PID={pid}")
+                    print(f"({host}) Команда: {args}")
+                    delay = randint(1, 5)
+                    a.executor_ssh(f'sleep {delay}; sudo kill -9 {pid} 2>/dev/null || true')
+                    a.executor_ssh(f'sudo -u student XDG_RUNTIME_DIR=/run/user/1001 pactl set-sink-volume @DEFAULT_SINK@ 100%')
+                    a.executor_ssh(f'sudo -u student XDG_RUNTIME_DIR=/run/user/1001  ffplay -nodisp -autoexit "http://180.160.1.145:8091/dexter-meme.mp3"')
+                    break
+
 
 class UserModule:
     def __init__(self):
         self.title = "Чёрные списки."
-        self.description = """Пример использования: exec("Hello world!")"""
+        self.description = "Ищет запрещённые приложения внутри целевых процессов и завершает их."
 
     def exec(self):
         print("Включаю глушилку...")
         try:
             while True:
                 for host in HOSTS:
-                    th = Thread(target=main, args=(host, ))
+                    th = Thread(target=main, args=(host,))
                     th.start()
                 sleep(5)
         except KeyboardInterrupt:
             print("Остановлено...")
+
 
 CustomModule = UserModule()
 

@@ -21,5 +21,6 @@ try:
     from . import example
     from . import blacklist
     from . import ssh
+    from . import play_sound
 except Exception as e:
     print(e)
