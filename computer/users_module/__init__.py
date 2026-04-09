@@ -21,5 +21,6 @@ try:
     from . import example
     from . import blacklist
     from . import ssh
+    from . import other_modules
 except Exception as e:
     print(e)

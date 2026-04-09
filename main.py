@@ -5,7 +5,6 @@ from threading import Thread
 Thread(target=updater.get_update).start()
 
 user_modules = [um.UserModules.get_all()]
-proj_functions = [updater.get_update, updater.main]
 
 # Парсинг модулей
 module = [
@@ -22,7 +21,7 @@ while True:
         print(f"Опции:\n{options}")
         user_input = int(input("Выберите цифру: "))
         if user_input == 0:
-            proj_functions[0](True)
+            updater.get_update(True)
         else:
             try: module[user_input-1].exec()
             except Exception as e:

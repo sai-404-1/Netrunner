@@ -1,0 +1,10 @@
+{
+  "repositories": [
+    {
+      "name": "core_modules",
+      "git": "https://github.com/sai-404-1/netrunner-repo.git",
+      "branch": "main",
+      "modules_path": "modules"
+    }
+  ]
+}

@@ -1,35 +1,44 @@
 from config import *
 import subprocess
+import shlex
 
-def main(host, port = "22", command: str = "cat /etc/os-release | grep PRETTY_NAME"):
-    # script = f"ssh -p {port} -o BatchMode=yes -o ConnectTimeout=1 -i ./{KEY_PATH}/{KEY_NAME} {host} '({command})'"
+
+def main(host, port="22", command: str = "uname -a"):
+    remote_cmd = f"sh -lc {shlex.quote(command)}"
+
     cmd = [
         "ssh",
         "-p", str(port),
         "-o", "BatchMode=yes",
-        "-o", "ConnectTimeout=1",
+        "-o", "ConnectTimeout=5",
         "-i", f"./{KEY_PATH}/{KEY_NAME}",
         host,
-        "sh", "-lc", f"'({command})'",
+        remote_cmd,
     ]
-    # print(cmd[-1])
+
     try:
-        return str(subprocess.run(
+        result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
             encoding="utf-8",
-            # errors="replace",
-            # check=True,
-        ).stdout.strip())
+        )
+
+        stdout = (result.stdout or "").strip()
+        stderr = (result.stderr or "").strip()
+
+        if result.returncode != 0:
+            return (
+                f"[ERROR] host={host}\n"
+                f"returncode={result.returncode}\n"
+                f"stderr:\n{stderr or '[empty]'}\n"
+                f"stdout:\n{stdout or '[empty]'}"
+            )
+
+        if stderr:
+            return f"{stdout}\n[stderr]\n{stderr}".strip()
+
+        return stdout or "[пустой stdout]"
+
     except Exception as e:
         return f"Error: {e}"
-
-# # TODO добавить валидацию
-# with open("ips.txt") as f:
-#     file = f.read()
-#     hosts = file.split("\n")
-#     print(f"{file}\n")
-# for host in hosts:
-#     print(host)
-#     main(host, command="sudo setfacl -m u:student:--- /usr/bin/captain")
