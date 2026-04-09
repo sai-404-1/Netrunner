@@ -1,8 +1,8 @@
 __pycache__
 .DS_Store
 keys/*
-users_module
+computer/users_module/*
 docker_for_test
 other
-/config.py
-/hosts.json
+config.py
+hosts.json
