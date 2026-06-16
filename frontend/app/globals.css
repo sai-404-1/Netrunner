@@ -1,0 +1,72 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #0f172a;
+  --bg-soft: #111827;
+  --panel: #ffffff;
+  --panel-soft: #f8fafc;
+  --text: #111827;
+  --muted: #64748b;
+  --line: #e2e8f0;
+  --brand: #2563eb;
+  --brand-dark: #1d4ed8;
+  --ok: #16a34a;
+  --warn: #f59e0b;
+  --error: #dc2626;
+  --shadow: 0 20px 60px rgba(15, 23, 42, 0.12);
+}
+
+body {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--text);
+  background: linear-gradient(135deg, #eef2ff 0%, #f8fafc 45%, #e0f2fe 100%);
+  min-height: 100vh;
+}
+
+pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-[10px] px-4 py-2.5 font-semibold text-white bg-brand hover:bg-brand-dark transition-colors;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-[10px] px-4 py-2.5 font-semibold text-gray-900 bg-white border border-gray-200 hover:bg-gray-50 transition-colors;
+  }
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 rounded-[10px] px-4 py-2.5 font-semibold text-white bg-error hover:bg-red-700 transition-colors;
+  }
+  .panel {
+    @apply rounded-[14px] border border-white/90 p-5 shadow-lg;
+    background: rgba(255, 255, 255, 0.92);
+  }
+  .card {
+    @apply rounded-[14px] border border-white/90 p-5 shadow-lg;
+    background: rgba(255, 255, 255, 0.92);
+  }
+  .input {
+    @apply w-full rounded-[10px] border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-brand focus:ring-4 focus:ring-brand/10;
+  }
+  .label {
+    @apply grid gap-1.5 text-sm font-semibold text-slate-700;
+  }
+  .badge {
+    @apply inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold bg-gray-200 text-slate-900;
+  }
+  .badge-success {
+    @apply bg-green-100 text-green-800;
+  }
+  .badge-error {
+    @apply bg-red-100 text-red-800;
+  }
+  .badge-running {
+    @apply bg-amber-100 text-amber-800;
+  }
+  .badge-warning {
+    @apply bg-orange-100 text-orange-800;
+  }
+}

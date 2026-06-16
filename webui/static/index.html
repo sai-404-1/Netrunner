@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NetRunner Web Console</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <!-- <div class="brand">
+        <div>
+          <h1>NetRunner</h1>
+        </div>
+      </div> -->
+      <nav>
+        <button class="nav-link active" data-view="dashboard">Обзор</button>
+        <button class="nav-link" data-view="hosts">Хосты</button>
+        <button class="nav-link" data-view="keys">Ключи</button>
+        <button class="nav-link" data-view="modules">Модули</button>
+        <button class="nav-link" data-view="run">Запуск задачи</button>
+        <button class="nav-link" data-view="history">История</button>
+        <button class="nav-link" data-view="schedule">Планировщик</button>
+        <button class="nav-link" data-view="reports">Отчёты</button>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <h2 id="page-title">Обзор</h2>
+          <p id="page-subtitle">Сводная панель состояния системы</p>
+        </div>
+      </header>
+
+      <section id="view-dashboard" class="view active">
+        <div class="cards" id="summary-cards"></div>
+        <div class="grid two">
+          <article class="panel">
+            <div class="panel-header" style="justify-content:space-between">
+              <h3>Статус хостов</h3>
+              <button class="secondary" onclick="switchView('hosts')">Подробнее...</button>
+            </div>
+            <div id="dashboard-hosts-status"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-header">
+              <h3>Последние задачи</h3>
+            </div>
+            <div class="table-wrap">
+              <table id="recent-runs-table"></table>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="view-hosts" class="view">
+        <div class="grid stacked">
+          <article class="panel">
+            <div class="panel-header"><h3>Добавить хост</h3></div>
+            <form id="host-form" class="form inline-add">
+              <label>Имя хоста<input name="name" placeholder="fedora-vm" required></label>
+              <label>Пользователь<input name="username" placeholder="admin" required></label>
+              <label>IP-адрес<input name="address" placeholder="192.168.1.10" required></label>
+              <label>Порт<input name="port" type="number" value="22" required></label>
+              <label>Группа<select name="group_id" id="host-group"><option value="">Без группы</option></select></label>
+              <label>SSH-ключ<select name="ssh_key_id" id="host-key"><option value="">По умолчанию</option></select></label>
+              <label class="file-input">Новый SSH-ключ
+                <input name="ssh_key_path" id="host-key-path-text" placeholder="Нажмите, чтобы выбрать приватный ключ" readonly>
+                <input type="file" id="host-key-file" accept="*/*" hidden>
+              </label>
+              <label>Пароль хоста
+                <input name="password" id="host-password" type="password" placeholder="Для автокопирования SSH-ключа">
+              </label>
+              <label class="wide">Описание<textarea name="description" placeholder="Рабочая станция / виртуальная машина"></textarea></label>
+              <div class="form-actions">
+                <button type="submit">
+                  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  <span>Добавить</span>
+                </button>
+                <button type="button" id="create-group-btn" class="secondary">
+                  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  <span>Создать группу</span>
+                </button>
+              </div>
+            </form>
+          </article>
+          <article class="panel">
+            <div class="panel-header" style="justify-content:space-between;flex-wrap:wrap;gap:10px">
+              <div>
+                <h3>Зарегистрированные хосты</h3>
+              </div>
+              <div class="host-toolbar">
+                <input id="host-search" placeholder="Поиск по имени">
+                <select id="host-group-filter"><option value="">Все группы</option></select>
+                <button id="check-all-hosts-btn" class="secondary" title="Проверить все хосты">
+                  <svg class="icon spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"></path></svg>
+                  <span>Проверить все</span>
+                </button>
+              </div>
+            </div>
+            <div class="table-wrap"><table id="hosts-table"></table></div>
+          </article>
+          <article class="panel">
+            <div class="panel-header" style="justify-content:space-between;flex-wrap:wrap;gap:10px">
+              <div>
+                <h3>Группы</h3>
+              </div>
+            </div>
+            <div class="table-wrap"><table id="groups-table"></table></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="view-keys" class="view">
+        <div class="grid two stacked">
+          <article class="panel">
+            <div class="panel-header"><h3>Сгенерировать SSH-ключ</h3></div>
+            <form id="key-generate-form" class="form inline-add four">
+              <label>Имя ключа
+                <input name="key_name" placeholder="my-key" required>
+              </label>
+              <label>Тип ключа
+                <select name="key_type" required>
+                  <option value="ed25519">Ed25519</option>
+                  <option value="rsa">RSA</option>
+                </select>
+              </label>
+              <label>Пароль ключа (опционально)
+                <input name="passphrase" type="password" placeholder="оставьте пустым, если не нужен">
+              </label>
+              <button type="submit">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                <span>Сгенерировать</span>
+              </button>
+              <div id="key-generate-result" class="wide"></div>
+            </form>
+          </article>
+          <article class="panel">
+            <div class="panel-header"><h3>Существующие ключи</h3></div>
+            <div class="table-wrap"><table id="keys-table"></table></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="view-modules" class="view">
+        <div class="grid two stacked">
+          <article class="panel">
+            <div class="panel-header"><h3>Добавить модуль</h3></div>
+            <form id="module-form" class="form inline-add four">
+              <label>Название<input name="name" placeholder="Название модуля" required></label>
+              <label>Slug<input name="slug" placeholder="my_module" required></label>
+              <label class="file-input">Файл модуля
+                <input name="module_path" id="module-path-text" placeholder="Нажмите, чтобы выбрать" required readonly>
+                <input type="file" id="module-file" accept=".py" hidden>
+              </label>
+              <button type="submit">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                <span>Добавить</span>
+              </button>
+              <label class="wide">Описание<textarea name="description" placeholder="Описание функции модуля"></textarea></label>
+            </form>
+          </article>
+          <article class="panel">
+            <div class="panel-header">
+              <h3>Существующие модули</h3>
+            </div>
+            <div id="modules-table" class="module-lists"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="view-run" class="view">
+        <div class="grid two stacked">
+          <article class="panel">
+            <div class="panel-header"><h3>Запуск модуля</h3></div>
+            <form id="run-form" class="form run-form">
+              <div class="form-row">
+                <label>Модуль<select name="module_slug" id="run-module"></select></label>
+                <label>Тип цели<select name="target_type" id="run-target-type"><option value="host">Хост</option><option value="group">Группа</option></select></label>
+                <label>Цель<select name="target_id" id="run-target"></select></label>
+                <button type="submit">Запустить</button>
+                <button type="button" id="cancel-run-btn" class="secondary" style="display:none;color:var(--error)">Отменить</button>
+              </div>
+              <div class="form-extra" id="command-field">
+                <label>Команда для mass_ssh<textarea name="command" placeholder="uname -a"></textarea></label>
+              </div>
+              <div class="form-extra" id="apt-field">
+                <div class="form-row">
+                  <label>Action
+                    <select name="apt_action" id="apt-action">
+                      <option value="update">Обновить список пакетов</option>
+                      <option value="install">Установить</option>
+                      <option value="remove">Удалить</option>
+                      <option value="autoremove">Автоочистка</option>
+                    </select>
+                  </label>
+                  <label>Пакеты<input name="apt_packages" id="apt-packages" placeholder="htop vim nginx"></label>
+                  <label>Пароль sudo<input name="apt_sudo_password" id="apt-sudo-password" type="password" placeholder="опционально"></label>
+                </div>
+              </div>
+            </form>
+          </article>
+          <article class="panel result-panel">
+            <div class="panel-header" style="justify-content:space-between">
+              <h3>Результат выполнения</h3>
+              <button id="expand-output-btn" class="secondary" style="display:none">Развернуть на весь экран</button>
+            </div>
+            <pre id="run-result">Здесь появится stdout/stderr последней задачи.</pre>
+          </article>
+        </div>
+      </section>
+
+      <section id="view-history" class="view">
+        <article class="panel">
+          <div class="panel-header" style="justify-content:space-between">
+            <h3>История выполненных задач</h3>
+            <button class="secondary" style="color:var(--error)" onclick="clearHistory()" title="Очистить историю">
+              <span>Очистить</span>
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            </button>
+          </div>
+          <div class="table-wrap"><table id="history-table" class="history-table"></table></div>
+        </article>
+      </section>
+
+      <section id="view-inventory" class="view">
+        <article class="panel">
+          <div class="panel-header"><h3>Снимки инвентаризации</h3></div>
+          <div class="table-wrap"><table id="inventory-table"></table></div>
+        </article>
+      </section>
+
+      <div id="output-modal" class="modal-overlay">
+        <div class="modal-panel">
+          <div class="modal-header">
+            <h3>Результат выполнения</h3>
+            <div class="modal-actions">
+              <button id="modal-copy-btn" class="secondary" title="Копировать в буфер">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                <span>Копировать</span>
+              </button>
+              <button id="modal-export-btn" class="secondary">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                <span>Сохранить</span>
+              </button>
+              <button id="modal-close-btn" class="secondary">Свернуть</button>
+            </div>
+          </div>
+          <div class="modal-body">
+            <pre id="modal-output"></pre>
+          </div>
+        </div>
+      </div>
+
+      <div id="module-edit-modal" class="modal-overlay">
+        <div class="modal-panel" style="width:640px; height:auto; max-height:90vh;">
+          <div class="modal-header">
+            <h3>Редактирование модуля</h3>
+            <div class="modal-actions">
+              <button id="module-edit-save-btn" class="secondary">Сохранить</button>
+              <button id="module-edit-close-btn" class="secondary">Отмена</button>
+            </div>
+          </div>
+          <div class="modal-body">
+            <form id="module-edit-form" class="form">
+              <input type="hidden" name="id" id="module-edit-id">
+              <label>Название<input name="name" id="module-edit-name" required></label>
+              <label>Slug<input name="slug" id="module-edit-slug" required></label>
+              <label class="wide">Описание<textarea name="description" id="module-edit-description"></textarea></label>
+              <label class="wide checkbox-label">
+                <input type="checkbox" name="is_enabled" id="module-edit-enabled">
+                <span>Активен</span>
+              </label>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <div id="schedule-edit-modal" class="modal-overlay">
+        <div class="modal-panel" style="width:640px; height:auto; max-height:90vh;">
+          <div class="modal-header">
+            <h3>Редактирование задачи</h3>
+            <div class="modal-actions">
+              <button id="schedule-edit-save-btn" class="secondary">Сохранить</button>
+              <button id="schedule-edit-close-btn" class="secondary">Отмена</button>
+            </div>
+          </div>
+          <div class="modal-body">
+            <form id="schedule-edit-form" class="form">
+              <input type="hidden" name="id" id="schedule-edit-id">
+              <label>Название<input name="name" id="schedule-edit-name" required></label>
+              <label>Шаблон<select name="template_id" id="schedule-edit-template"></select></label>
+              <label>Тип цели<select name="target_type" id="schedule-edit-target-type"><option value="host">Хост</option><option value="group">Группа</option></select></label>
+              <label>Цель<select name="target_id" id="schedule-edit-target"></select></label>
+              <label>Время запуска<input name="run_at" type="datetime-local" id="schedule-edit-run-at" required></label>
+              <label class="wide checkbox-label">
+                <input type="checkbox" name="is_enabled" id="schedule-edit-enabled">
+                <span>Активна</span>
+              </label>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <div id="host-edit-modal" class="modal-overlay">
+        <div class="modal-panel" style="width:640px; height:auto; max-height:90vh;">
+          <div class="modal-header">
+            <h3>Редактирование хоста</h3>
+            <div class="modal-actions">
+              <button id="host-edit-save-btn" class="secondary">Сохранить</button>
+              <button id="host-edit-close-btn" class="secondary">Отмена</button>
+            </div>
+          </div>
+          <div class="modal-body">
+            <form id="host-edit-form" class="form">
+              <input type="hidden" name="id" id="host-edit-id">
+              <label>Имя хоста<input name="name" id="host-edit-name" required></label>
+              <label>Пользователь<input name="username" id="host-edit-username" required></label>
+              <label>IP-адрес<input name="address" id="host-edit-address" required></label>
+              <label>Порт<input name="port" type="number" id="host-edit-port" value="22" required></label>
+              <label>Группа<select name="group_id" id="host-edit-group"></select></label>
+              <label>SSH-ключ<select name="ssh_key_id" id="host-edit-key"><option value="">По умолчанию</option></select></label>
+              <label class="file-input">Новый SSH-ключ
+                <input name="ssh_key_path" id="host-edit-key-path-text" placeholder="Нажмите, чтобы выбрать приватный ключ" readonly>
+                <input type="file" id="host-edit-key-file" accept="*/*" hidden>
+              </label>
+              <label>Пароль хоста
+                <input name="password" id="host-edit-password" type="password" placeholder="Для автокопирования SSH-ключа">
+              </label>
+              <label class="wide">Описание<textarea name="description" id="host-edit-description"></textarea></label>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <div id="group-create-modal" class="modal-overlay">
+        <div class="modal-panel" style="width:640px; height:auto; max-height:90vh;">
+          <div class="modal-header">
+            <h3>Создать группу</h3>
+            <div class="modal-actions">
+              <button id="group-create-save-btn" class="secondary">Создать</button>
+              <button id="group-create-close-btn" class="secondary">Отмена</button>
+            </div>
+          </div>
+          <div class="modal-body">
+            <form id="group-create-form" class="form">
+              <label>Название<input name="name" id="group-create-name" required></label>
+              <label class="wide">Описание<textarea name="description" id="group-create-description"></textarea></label>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <div id="reports-clear-modal" class="modal-overlay">
+        <div class="modal-panel" style="width:420px; height:auto; max-height:90vh;">
+          <div class="modal-header">
+            <h3>Подтверждение</h3>
+            <div class="modal-actions">
+              <button id="reports-clear-confirm-btn" class="danger">Очистить</button>
+              <button id="reports-clear-cancel-btn" class="secondary">Отмена</button>
+            </div>
+          </div>
+          <div class="modal-body">
+            <p>Все сформированные отчёты будут удалены. Продолжить?</p>
+          </div>
+        </div>
+      </div>
+
+      <div id="group-edit-modal" class="modal-overlay">
+        <div class="modal-panel" style="width:640px; height:auto; max-height:90vh;">
+          <div class="modal-header">
+            <h3>Редактирование группы</h3>
+            <div class="modal-actions">
+              <button id="group-edit-save-btn" class="secondary">Сохранить</button>
+              <button id="group-edit-close-btn" class="secondary">Отмена</button>
+            </div>
+          </div>
+          <div class="modal-body">
+            <form id="group-edit-form" class="form">
+              <input type="hidden" name="id" id="group-edit-id">
+              <label>Название<input name="name" id="group-edit-name" required></label>
+              <label class="wide">Описание<textarea name="description" id="group-edit-description"></textarea></label>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <section id="view-schedule" class="view">
+        <div class="grid two stacked">
+          <article class="panel">
+            <div class="panel-header"><h3>Создать запланированную задачу</h3></div>
+            <form id="schedule-form" class="form inline">
+              <label>Название<input name="name" placeholder="Плановая инвентаризация" required></label>
+              <label>Шаблон<select name="template_id" id="schedule-template"></select></label>
+              <label>Тип цели<select name="target_type" id="schedule-target-type"><option value="host">Хост</option><option value="group">Группа</option></select></label>
+              <label>Цель<select name="target_id" id="schedule-target"></select></label>
+              <label>Время запуска<input name="run_at" type="datetime-local" id="schedule-run-at" required></label>
+              <button type="submit">Создать</button>
+            </form>
+          </article>
+          <article class="panel">
+            <div class="panel-header" style="justify-content:space-between">
+              <h3>Запланированные задачи</h3>
+              <button id="scheduler-tick-btn" class="secondary">Прогнать планировщик</button>
+            </div>
+            <div class="table-wrap"><table id="scheduled-table"></table></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="view-reports" class="view">
+        <div class="grid two stacked">
+          <article class="panel">
+            <div class="panel-header"><h3>Экспорт отчёта</h3></div>
+            <form id="report-form" class="form compact">
+              <label>Исход задачи<select name="task_run_id" id="report-task-run"></select></label>
+              <label>Формат<select name="format"><option value="txt">TXT</option><option value="csv">CSV</option><option value="json">JSON</option></select></label>
+              <button type="submit">Сформировать</button>
+            </form>
+            <pre id="report-result">Выберите выполненную задачу и формат, чтобы сохранить её вывод как отчёт.</pre>
+          </article>
+          <article class="panel">
+            <div class="panel-header" style="justify-content:space-between">
+              <h3>Сформированные отчёты</h3>
+              <button id="reports-clear-btn" class="secondary" style="color:var(--error)" title="Очистить отчёты">
+                <span>Очистить</span>
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+              </button>
+            </div>
+            <div id="reports-list" class="reports-list"></div>
+          </article>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+# Python virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# macOS
+.DS_Store
+
+# Database files (generated, keep directory)
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# Frontend build artifacts
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Generated reports and keys (keep directories)
+reports/*
+keys/*
+
+# Docker
+Dockerfile.local
+docker-compose.override.yml
+
+# Environment / secrets
+.env
+.env.local
+*.pem
+*.key
+
+# Logs
+*.log

@@ -1,0 +1,26 @@
+__MACOSX
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.env
+.venv
+venv/
+.venv/
+.git
+.gitignore
+*.md
+!README.md
+!CHANGELOG.md
+!SSH_SECURITY_FIXES.md
+data/*.db
+keys/*
+reports/*
+modules/*.pyc
+.DS_Store
+
+# Frontend build artifacts
+frontend/node_modules
+frontend/.next
+frontend/out
+frontend/dist
