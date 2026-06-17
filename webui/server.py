@@ -415,6 +415,7 @@ async def api_run(request: web.Request) -> web.Response:
         return _error(f"Module '{module_slug}' not found", status=404)
 
     user = request.get("auth_user")
+    created_by = user.get("username") if user else None
     # Create a pending task-run row so the client can poll it immediately.
     task_run = ctx.db.task_runs.create(
         module_id=module_row.id,

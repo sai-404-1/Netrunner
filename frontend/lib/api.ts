@@ -52,6 +52,15 @@ export async function apiPostClient(path: string, body: unknown) {
   return payload.data;
 }
 
+export async function fetchWithAuthClient(path: string, options: RequestInit = {}) {
+  const res = await fetch(`/api/python${path}`, {
+    ...options,
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+  });
+  return res;
+}
+
 export async function fetchReportFile(fileName: string) {
   const token = await getToken();
   const headers: Record<string, string> = {};

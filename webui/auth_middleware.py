@@ -36,6 +36,8 @@ async def auth_middleware(request: web.Request, handler):
         token = auth_header[7:].strip()
     if not token:
         token = request.query.get("token", "")
+    if not token:
+        token = request.cookies.get("netrunner_token", "")
 
     auth_service = request.app.get("auth_service")
     if auth_service is None:
