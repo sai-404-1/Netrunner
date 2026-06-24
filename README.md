@@ -1,163 +1,156 @@
-# NetRunner — deployment package
+# NetRunner
 
-This folder contains everything needed to build and run NetRunner with three Alpine test hosts on any machine that has Docker.
+NetRunner — инструмент SSH-оркестрации для управления парком Linux-хостов.
+Операторы добавляют хосты, объединяют их в группы и запускают «модули» (наборы
+SSH-команд) по одному хосту или по группе — поштучно, с живым статусом, отменой,
+планированием и экспортом отчётов.
 
-NetRunner now serves both the new **Next.js frontend** and the existing **Python aiohttp backend** from a single container. The frontend listens on port **3000** and proxies requests to the Python backend internally on port **8000**. The backend is no longer exposed directly.
+Технологически это Python-бэкенд на `aiohttp` плюс фронтенд на Next.js, упакованные
+в один Docker-контейнер.
 
-## Quick start
+## Возможности
 
-```bash
-cd /home/justsai/Downloads/netrunner_extracted
-./setup.sh
-```
+- **Хосты и группы** — реестр управляемых узлов, группировка, проверка доступности.
+- **Модули** — наборы SSH-команд, исполняемые по хостам конкурентно; источников модулей
+  три: встроенные (`computer/module/`), комплектные пользовательские
+  (`computer/users_module/`) и загруженные с диска (`modules/`, том `netrunner_modules`).
+- **Запуск задач** — асинхронное исполнение по каждому хосту с живым статусом,
+  опросом результата и **отменой** выполняющейся задачи.
+- **Планировщик** — разовые и повторяющиеся задачи по расписанию.
+- **Инвентаризация** — сбор сведений о хостах (ОС, ядро, RAM, диски, пакеты) и история снимков.
+- **Отчёты** — экспорт результатов и инвентаризации в TXT/CSV/JSON.
+- **Аутентификация и доступы** — токены, роли пользователей, ограничение доступа к
+  группам и модулям, админ-панель; при первом запуске создаётся пользователь `admin/admin`.
+- **SSH-ключи** — генерация RSA/ED25519-пар прямо в веб-интерфейсе (с поддержкой
+  passphrase); приватный ключ хранится только на диске (права `0o600`) и не отдаётся через API.
+- **Пароли хостов и перепривязка ключа** — пароль хоста хранится в БД в зашифрованном
+  виде (соль на запись) и используется для повторной привязки SSH-ключа без
+  пересоздания хоста (на случай отвала/удаления ключа).
+- **Безопасность SSH** — по умолчанию включена проверка ключа хоста
+  (`StrictHostKeyChecking=yes`), удалённые команды собираются списком аргументов и
+  экранируются через `shlex.quote`, секреты не хардкодятся.
 
-Then open the web interface at **http://localhost:3000**.
-
-To stop everything:
-
-```bash
-docker compose down
-```
-
-To stop and remove all data volumes as well:
-
-```bash
-docker compose down -v
-```
-
-## What is included
-
-- `Dockerfile` — multi-stage build: builds the Next.js frontend (if present), then creates a Python 3.11 + Alpine image that runs both services.
-- `docker-compose.yml` — starts NetRunner and three test SSH hosts.
-- `startup.sh` — runs inside the container to generate an SSH key, initialize the database, start the Python backend on `127.0.0.1:8000`, and start the Next.js frontend on port 3000.
-- `host_startup.sh` — runs inside each Alpine host to create a user and install the public key from NetRunner.
-- `requirements.txt`, `config_docker.py`, `init_demo.py`, `web_main.py` — application code and dependencies.
-- `computer/`, `database/`, `services/`, `webui/` — NetRunner source directories.
-- `modules/` — empty folder. User-uploaded modules are persisted here via the `netrunner_modules` volume.
-- `.dockerignore` — keeps the build context small.
-- `setup.sh` — convenience script that runs `docker compose up --build -d`.
-- `frontend/` — Next.js frontend (created by another agent). When it is present, the container builds it as a standalone server and runs it alongside the Python backend.
-
-## Single entry point
-
-Only port **3000** is exposed by the container. The frontend is the single entry point for all traffic:
-
-- All browser requests go to **http://localhost:3000**.
-- The frontend proxies API calls to the Python backend under the path `/api/python/*`.
-- The Python backend runs on `127.0.0.1:8000` inside the container and is not reachable from outside directly.
-
-### Frontend configuration required
-
-For the proxy to work, `frontend/next.config.js` (or `.mjs`/`.ts`) must include these two settings:
-
-1. `output: 'standalone'` so the container can run `node server.js`.
-2. A rewrite that strips `/api/python` and forwards the rest to the Python backend:
-
-```js
-const nextConfig = {
-  output: 'standalone',
-  async rewrites() {
-    return [
-      {
-        source: '/api/python/:path*',
-        destination: 'http://127.0.0.1:8000/:path*',
-      },
-    ];
-  },
-};
-
-module.exports = nextConfig;
-```
-
-With this rewrite, a frontend request to `/api/python/api/hosts` reaches the backend as `/api/hosts`.
-
-> **Note:** Next.js rewrites handle HTTP requests. If the new frontend uses the WebSocket endpoint `/ws`, it must be proxied separately (for example, by connecting the browser through an API route or by using a dedicated reverse proxy). The backend exposes `/ws` on `127.0.0.1:8000` inside the container.
-
-## Test SSH hosts
-
-The Compose file creates three Alpine hosts for demonstration:
-
-| Host     | Container name      | Address from NetRunner | Port on host machine |
-|----------|---------------------|------------------------|----------------------|
-| host-1   | netrunner-host-1    | host-1:22              | 2221                 |
-| host-2   | netrunner-host-2    | host-2:22              | 2222                 |
-| host-3   | netrunner-host-3    | host-3:22              | 2223                 |
-
-NetRunner automatically generates an ED25519 SSH key on first start and makes the public key available to the test hosts via a shared volume. The hosts can be added in the NetRunner web UI as:
-
-- **username:** `admin`
-- **address:** `host-1` (or `host-2`, `host-3`)
-- **port:** `22`
-- **SSH key:** `id_ed25519` (default key created by NetRunner)
-
-The default password for the test users is `admin`.
-
-## Persistent data
-
-The following Docker volumes keep data across restarts:
-
-- `netrunner_data` — SQLite database (`/app/data`).
-- `netrunner_keys` — SSH keys (`/app/keys`).
-- `netrunner_reports` — generated reports (`/app/reports`).
-- `netrunner_modules` — user-uploaded modules (`/app/modules`).
-
-## Windows/macOS/Linux
-
-Because the application runs inside Docker, the same commands work on Windows, macOS, and Linux. On Windows, use PowerShell, WSL, or any terminal that has Docker installed.
-
-## Recent improvements
-
-- **Next.js frontend integration** — the container now builds and runs a Next.js frontend as the single entry point. Port 3000 is the only exposed port; the Python backend is proxied internally on `127.0.0.1:8000`.
-- **Asynchronous web server** — the web UI is served by an `aiohttp`-based server instead of the previous single-threaded `http.server`. Long-running SSH operations are dispatched as background `asyncio` tasks, so the HTTP API stays responsive and can be polled for status.
-- **Asynchronous task execution** — tasks run concurrently per host. Each host is handled in its own `asyncio` task, results are logged as soon as they arrive, and a task can be cancelled.
-- **SSH key generation in the Web UI** — generate RSA or ED25519 key pairs directly from the browser. Passphrase-protected keys are supported. Private key material is stored only on disk (with `0o600` permissions); the API never returns it.
-- **SSH security hardening** — host-key verification is enabled by default (`StrictHostKeyChecking=yes`), remote commands are built with list-style arguments and `shlex.quote`, and credentials are no longer hardcoded.
-- **APT package manager module** — install, remove, update or autoremove Debian/Ubuntu packages across hosts. The module logs each action, records which packages were changed or failed per host, and supports an optional sudo password.
-
-## API highlights
-
-- `GET /api/hosts` — list hosts.
-- `POST /api/run` — start a task. Returns immediately with `{run_id, status}`; execution happens in the background.
-- `GET /api/run/<id>/status` — poll task status and per-host results.
-- `POST /api/run/<id>/cancel` — cancel a running or pending task.
-- `GET /api/ssh-keys` — list stored SSH keys (private key excluded).
-- `POST /api/keys/generate` — generate a new SSH key pair (`rsa` or `ed25519`).
-- `WS /ws` — receive live task status updates.
-
-When calling the backend through the frontend, prefix these paths with `/api/python`, for example `GET /api/python/api/hosts`.
-
-## Web UI highlights
-
-- The task run page shows a live progress indicator, per-host results, and a **Cancel** button for active tasks.
-- History table displays per-host summaries and supports viewing full per-host output in the modal.
-- SSH key generation form creates RSA/ED25519 keys directly in the browser and shows the public key + fingerprint.
-- WebSocket updates refresh the dashboard and history automatically as task statuses change.
-
-## Configuration
-
-NetRunner reads deployment settings from `config.py`. In Docker the build copies `config_docker.py` to `config.py`. All security-relevant values can be overridden through environment variables:
-
-| Variable | Default | Meaning |
-|----------|---------|---------|
-| `NETRUNNER_KEY_NAME` | `id_ed25519` | SSH private key filename. |
-| `NETRUNNER_KEY_PATH` | `/app/keys` in Docker, `keys` locally | Directory that holds SSH keys. |
-| `NETRUNNER_SSH_STRICT_HOST_KEY_CHECKING` | `yes` | OpenSSH `StrictHostKeyChecking` value. Use `accept-new` only to trust new hosts on first use. |
-| `NETRUNNER_SSH_KNOWN_HOSTS_FILE` | `/app/keys/known_hosts` in Docker | Explicit `UserKnownHostsFile`. |
-| `NETRUNNER_SSH_CHECK_HOST_IP` | *(unset)* | Set to `no` when hosts are behind NAT. |
-
-## Files worth reading
-
-- Per-directory `README.md` files — document each directory's files and functions.
-- `tests_async_cancel.py` — example of concurrent task execution and cancellation.
-
-## Running outside Docker (local development)
+## Быстрый старт (Docker)
 
 ```bash
-cd /home/justsai/Downloads/netrunner_extracted
+./setup.sh            # эквивалент: docker compose up --build -d
+```
+
+Веб-интерфейс откроется на **http://localhost:3001**. Вход по умолчанию: `admin` / `admin`.
+
+Остановка:
+
+```bash
+docker compose down        # остановить
+docker compose down -v     # остановить и удалить тома с данными
+```
+
+## Архитектура запуска (единая точка входа)
+
+Наружу контейнер публикует только порт **3001** (compose маппит `3001:3000`); внутри
+на порту 3000 работает фронтенд Next.js, на `127.0.0.1:8000` — Python-бэкенд (наружу
+не доступен).
+
+- Все запросы браузера идут на фронтенд (`http://localhost:3001`).
+- Фронтенд проксирует API на бэкенд под путём `/api/python/*` (rewrite в
+  `frontend/next.config.js` срезает этот префикс). Запрос `/api/python/api/hosts`
+  доходит до бэкенда как `/api/hosts`.
+- WebSocket `/ws` rewrite'ом не проксируется — фронтенд работает с ним отдельно.
+
+Для работы прокси в `frontend/next.config.js` обязательны `output: 'standalone'`
+(чтобы контейнер запускал `node server.js`) и rewrite `/api/python/:path* →
+http://127.0.0.1:8000/:path*`.
+
+## Структура проекта
+
+Почти в каждой папке есть свой `README.md` с описанием файлов и их функций —
+обращайтесь к ним за документацией кода.
+
+- `computer/` — слой удалённого исполнения (фасад `Computer`, SSH/SCP) и встроенные модули.
+- `database/` — лёгкий ORM-подобный слой поверх `sqlite3` (схема, модели, репозитории).
+- `services/` — бизнес-логика: контекст приложения, task-runner, планировщик, auth,
+  реестр модулей, отчёты, шифрование секретов.
+- `webui/` — бэкенд-сервер на `aiohttp`: REST API `/api/*`, WebSocket `/ws`, админка, доски.
+- `frontend/` — фронтенд на Next.js (App Router, TypeScript, Tailwind).
+- `modules/` — пользовательские модули, загруженные с диска.
+
+Файлы в корне:
+- `Dockerfile` — многоступенчатая сборка: фронтенд Next.js → образ Python 3.11 (Alpine).
+- `docker-compose.yml` — запускает контейнер NetRunner с томами данных.
+- `setup.sh` — обёртка над `docker compose up --build -d`.
+- `startup.sh` — точка входа контейнера: генерирует SSH-ключ, инициализирует БД,
+  поднимает бэкенд на `127.0.0.1:8000` и фронтенд на порту 3000.
+- `host_startup.sh` — вспомогательный скрипт для подготовки целевого Alpine-хоста
+  (создаёт пользователя `admin`, ставит публичный ключ NetRunner). В комплектный
+  `docker-compose.yml` тестовые хосты не входят — скрипт оставлен для ручного развёртывания.
+- `web_main.py` — entrypoint бэкенда для локального запуска.
+- `init_demo.py` — наполнение демо-данными.
+- `config.py` / `config_docker.py` — конфигурация (в Docker `config_docker.py` копируется в `config.py`).
+- `requirements.txt` — зависимости Python.
+
+## Тома данных
+
+Сохраняются между перезапусками:
+
+- `netrunner_data` — база SQLite (`/app/data`).
+- `netrunner_keys` — SSH-ключи (`/app/keys`).
+- `netrunner_reports` — сгенерированные отчёты (`/app/reports`).
+- `netrunner_modules` — загруженные пользователем модули (`/app/modules`).
+
+## Основные эндпоинты API
+
+При обращении через фронтенд добавляйте префикс `/api/python`, например
+`GET /api/python/api/hosts`.
+
+- `GET /api/hosts` — список хостов.
+- `POST /api/hosts/reprovision` — заново скопировать SSH-ключ на хост (по сохранённому
+  или переданному паролю).
+- `POST /api/run` — запустить задачу; сразу возвращает `{run_id}`, исполнение идёт в фоне.
+- `GET /api/run/<id>/status` — опрос статуса задачи и результатов по хостам.
+- `POST /api/run/<id>/cancel` — отменить выполняющуюся или ожидающую задачу.
+- `GET /api/ssh-keys` — список сохранённых ключей (без приватной части).
+- `POST /api/keys/generate` — сгенерировать новую пару ключей (`rsa` или `ed25519`).
+- `WS /ws` — живые обновления статуса задач.
+
+## Конфигурация
+
+Настройки читаются из `config.py`; в Docker сборка копирует `config_docker.py` в
+`config.py`. Все значения, связанные с безопасностью, переопределяются через
+переменные окружения:
+
+| Переменная | По умолчанию | Назначение |
+|------------|--------------|------------|
+| `NETRUNNER_KEY_NAME` | `id_ed25519` | Имя файла приватного SSH-ключа. |
+| `NETRUNNER_KEY_PATH` | `/app/keys` в Docker, `keys` локально | Каталог с SSH-ключами. |
+| `NETRUNNER_SSH_STRICT_HOST_KEY_CHECKING` | `yes` | Значение OpenSSH `StrictHostKeyChecking`. `accept-new` — доверять новым хостам при первом подключении. |
+| `NETRUNNER_SSH_KNOWN_HOSTS_FILE` | `/app/keys/known_hosts` в Docker | Явный `UserKnownHostsFile`. |
+| `NETRUNNER_SSH_CHECK_HOST_IP` | *(не задано)* | `no`, если хосты за NAT. |
+| `NETRUNNER_SECRET_KEY` | *(не задано)* | Мастер-ключ шифрования паролей хостов. Если не задан — генерируется и хранится в `data/.secret_key`. |
+
+## Локальный запуск (без Docker)
+
+```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python3 web_main.py --host 127.0.0.1 --port 8000
+python3 web_main.py --host 127.0.0.1 --port 8000   # бэкенд; SQLite в data/netrunner.db
+
+cd frontend && npm install && npm run dev           # дев-сервер фронтенда на :3000
 ```
 
-The local SQLite database will be created at `data/netrunner.db` and SSH keys at `keys/`. The first start also imports `hosts.json` if it exists and creates the default key if needed.
+База SQLite создаётся в `data/netrunner.db`, ключи — в `keys/`. При первом запуске
+импортируется `hosts.json` (если есть) и создаётся ключ по умолчанию.
+
+## Тесты
+
+Полноценного pytest нет; тесты — отдельные скрипты:
+
+```bash
+python3 tests_async_cancel.py     # конкурентный запуск, отмена, async SSH-cancel
+python3 test_apt_module.py        # unittest + asyncio-моки
+```
+
+## Платформы
+
+Приложение работает в Docker, поэтому команды одинаковы на Windows, macOS и Linux.
+На Windows используйте PowerShell, WSL или любой терминал с установленным Docker.
