@@ -14,6 +14,10 @@ __MACOSX/
 # Internal dev-only docs (code review, security notes, tech debt, changelog)
 .internal/
 
+# Claude Code project instructions — kept at repo root so Claude Code auto-loads
+# it, but not published to the public repo.
+CLAUDE.md
+
 # Database files (generated, keep directory)
 data/*.db
 data/*.db-wal
