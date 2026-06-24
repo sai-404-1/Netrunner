@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # NetRunner deployment setup
-# Builds and starts the NetRunner web server + Alpine test hosts.
+# Builds and starts the NetRunner container.
 
 set -e
 
@@ -25,7 +25,6 @@ else
 fi
 
 echo "[NetRunner] Services are starting up."
-echo "[NetRunner] Web interface: http://localhost:3000"
-echo "[NetRunner] Test hosts:    host-1:2221, host-2:2222, host-3:2223"
+echo "[NetRunner] Web interface: http://localhost:3001  (login: admin / admin)"
 echo "[NetRunner] To view logs:  docker compose logs -f netrunner"
 echo "[NetRunner] To stop:       docker compose down"
