@@ -147,9 +147,7 @@ NetRunner reads deployment settings from `config.py`. In Docker the build copies
 
 ## Files worth reading
 
-- `REVIEW.md` — original code review with findings and recommendations.
-- `SSH_SECURITY_FIXES.md` — summary of SSH security fixes.
-- `CHANGELOG.md` — list of changes made during this improvement pass.
+- Per-directory `README.md` files — document each directory's files and functions.
 - `tests_async_cancel.py` — example of concurrent task execution and cancellation.
 
 ## Running outside Docker (local development)

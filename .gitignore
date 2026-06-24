@@ -9,6 +9,10 @@ __pycache__/
 
 # macOS
 .DS_Store
+__MACOSX/
+
+# Internal dev-only docs (code review, security notes, tech debt, changelog)
+.internal/
 
 # Database files (generated, keep directory)
 data/*.db

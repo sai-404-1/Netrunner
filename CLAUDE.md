@@ -71,7 +71,7 @@ A module implements **one of two execution interfaces** (detected via `hasattr`)
 - `async run_for_host(self, context, host, **kwargs) -> dict` — **preferred**; the runner calls it concurrently per host. Return a dict with host metadata + `output` (and optional `status`, `inventory_item`).
 - `run(self, context, targets, **kwargs)` — sync fallback, executed in a thread; return a dict with `summary_text` / `per_host_results`, a str, or any JSON-able value.
 
-For simple "run this SSH command with `$variable` substitution" modules, subclass `CommandModule` (`computer/module/base_module.py`) and just set `slug`, `title`, `description`, `command`, `schema` — it provides `run_for_host` and `shlex.quote`s substituted values. **Do not** route the four custom-parsing modules through `CommandModule`: `availability_check`, `inventory_collect`, `mass_ssh`, `apt_package_manager` each have bespoke `run_for_host`/`run` logic (see `TECHDEBT.md`). Schema field types currently supported: `text`, `textarea`, `password`, `select`.
+For simple "run this SSH command with `$variable` substitution" modules, subclass `CommandModule` (`computer/module/base_module.py`) and just set `slug`, `title`, `description`, `command`, `schema` — it provides `run_for_host` and `shlex.quote`s substituted values. **Do not** route the four custom-parsing modules through `CommandModule`: `availability_check`, `inventory_collect`, `mass_ssh`, `apt_package_manager` each have bespoke `run_for_host`/`run` logic (see `.internal/TECHDEBT.md`). Schema field types currently supported: `text`, `textarea`, `password`, `select`.
 
 ### Task execution & lifecycle
 `services/task_runner.py::TaskRunner` is async-first. `POST /api/run` creates a `pending` task_run row, returns immediately with `{run_id}`, and runs the work as a tracked background asyncio task; clients poll `GET /api/run/{id}/status` or subscribe over `/ws` (the server broadcasts on each update). The runner resolves the target (`host` or `group` via `HostService.resolve_targets`), runs per-host concurrently with `asyncio.gather`, stores results in `per_host_json`, and transitions status `pending → running → success | error | cancelled`. `cancel(run_id)` cancels the tracked task (which cancels in-flight per-host SSH subprocesses, since they're child tasks). A host result counts as an error if `status == "error"` or `output` starts with `[ERROR]`.
@@ -92,5 +92,8 @@ On the frontend, `frontend/middleware.ts` redirects unauthenticated requests to 
 
 ## Reference docs in repo
 - `README.md` — deployment, API endpoint list, env vars, test-host setup.
-- `TECHDEBT.md` — which modules can't use `CommandModule` and why; schema field-type roadmap.
-- `REVIEW.md`, `SSH_SECURITY_FIXES.md`, `CHANGELOG.md` — original code review, SSH hardening details, change history.
+- Per-directory `README.md` files document each directory's files and functions (see the section above).
+
+### Internal dev docs (`.internal/`, gitignored — local only, not published)
+- `.internal/TECHDEBT.md` — which modules can't use `CommandModule` and why; schema field-type roadmap.
+- `.internal/REVIEW.md`, `.internal/SSH_SECURITY_FIXES.md`, `.internal/CHANGELOG.md` — original code review, SSH hardening details, change history.
