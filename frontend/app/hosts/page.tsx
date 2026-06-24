@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { apiGetClient, apiPostClient } from "@/lib/api";
+import { apiGetClient, apiPostClient } from "@/lib/api-client";
 import { formatDate, readFileAsBase64 } from "@/lib/utils";
 import { BooleanBadge } from "@/components/Badge";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
-import { RefreshCw, Pencil, Trash2, Search, CheckCircle } from "lucide-react";
+import { RefreshCw, Pencil, Trash2, Search, CheckCircle, List, LayoutGrid, KeyRound } from "lucide-react";
+import { HostBoardView } from "@/components/HostBoardView";
+import { useAuth } from "@/components/AuthProvider";
 
 interface Host {
   id: number;
@@ -43,6 +45,8 @@ interface SshKey {
 }
 
 export default function HostsPage() {
+  const { user } = useAuth();
+  const isTeacher = user?.role === "teacher" && !user?.is_superuser;
   const showToast = useToast();
   const [hosts, setHosts] = useState<Host[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
@@ -51,10 +55,13 @@ export default function HostsPage() {
   const [groupFilter, setGroupFilter] = useState("");
   const [checkingAll, setCheckingAll] = useState(false);
   const [editHost, setEditHost] = useState<Host | null>(null);
+  const [reprovisionHost, setReprovisionHost] = useState<Host | null>(null);
+  const [reprovisioning, setReprovisioning] = useState(false);
   const [newKeyFile, setNewKeyFile] = useState<File | null>(null);
   const [editKeyFile, setEditKeyFile] = useState<File | null>(null);
   const [createGroupOpen, setCreateGroupOpen] = useState(false);
   const [editGroup, setEditGroup] = useState<Group | null>(null);
+  const [viewMode, setViewMode] = useState<"list" | "board">("list");
 
   async function load() {
     const [h, g, k] = await Promise.all([apiGetClient("/api/hosts"), apiGetClient("/api/groups"), apiGetClient("/api/ssh-keys")]);
@@ -87,64 +94,73 @@ export default function HostsPage() {
 
   async function onCreateHost(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const fd = new FormData(e.currentTarget);
-    let sshKeyId: number | null = null;
-    if (newKeyFile) {
-      const fileData = await readFileAsBase64(newKeyFile);
-      const key = await apiPostClient("/api/ssh-keys", { name: newKeyFile.name, file_data: fileData });
-      sshKeyId = key.id;
-      setNewKeyFile(null);
-    } else {
-      sshKeyId = fd.get("ssh_key_id") ? Number(fd.get("ssh_key_id")) : null;
+    const form = e.currentTarget;
+    const fd = new FormData(form);
+    try {
+      let sshKeyId: number | null = null;
+      if (newKeyFile) {
+        const fileData = await readFileAsBase64(newKeyFile);
+        const key = await apiPostClient("/api/ssh-keys", { name: newKeyFile.name, file_data: fileData });
+        sshKeyId = key.id;
+        setNewKeyFile(null);
+      } else {
+        sshKeyId = fd.get("ssh_key_id") ? Number(fd.get("ssh_key_id")) : null;
+      }
+      const data: any = {
+        name: fd.get("name"),
+        username: fd.get("username"),
+        address: fd.get("address"),
+        port: Number(fd.get("port") || 22),
+        ssh_key_id: sshKeyId,
+        description: fd.get("description") || null,
+        password: fd.get("password") || null,
+      };
+      if (!data.password) delete data.password;
+      const host = await apiPostClient("/api/hosts", data);
+      const groupId = fd.get("group_id") ? Number(fd.get("group_id")) : null;
+      if (groupId) {
+        await apiPostClient("/api/groups/add-host", { group_id: groupId, host_id: host.id });
+      }
+      showToast("Хост добавлен");
+      form.reset();
+      await load();
+    } catch (err: any) {
+      showToast(err.message, "error");
     }
-    const data: any = {
-      name: fd.get("name"),
-      username: fd.get("username"),
-      address: fd.get("address"),
-      port: Number(fd.get("port") || 22),
-      ssh_key_id: sshKeyId,
-      description: fd.get("description") || null,
-      password: fd.get("password") || null,
-    };
-    if (!data.password) delete data.password;
-    const host = await apiPostClient("/api/hosts", data);
-    const groupId = fd.get("group_id") ? Number(fd.get("group_id")) : null;
-    if (groupId) {
-      await apiPostClient("/api/groups/add-host", { group_id: groupId, host_id: host.id });
-    }
-    showToast("Хост добавлен");
-    e.currentTarget.reset();
-    await load();
   }
 
   async function onUpdateHost(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    let sshKeyId: number | null = null;
-    if (editKeyFile) {
-      const fileData = await readFileAsBase64(editKeyFile);
-      const key = await apiPostClient("/api/ssh-keys", { name: editKeyFile.name, file_data: fileData });
-      sshKeyId = key.id;
-      setEditKeyFile(null);
-    } else {
-      sshKeyId = fd.get("ssh_key_id") ? Number(fd.get("ssh_key_id")) : null;
+    try {
+      let sshKeyId: number | null = null;
+      if (editKeyFile) {
+        const fileData = await readFileAsBase64(editKeyFile);
+        const key = await apiPostClient("/api/ssh-keys", { name: editKeyFile.name, file_data: fileData });
+        sshKeyId = key.id;
+        setEditKeyFile(null);
+      } else {
+        sshKeyId = fd.get("ssh_key_id") ? Number(fd.get("ssh_key_id")) : null;
+      }
+      const data: any = {
+        id: Number(fd.get("id")),
+        name: fd.get("name"),
+        username: fd.get("username"),
+        address: fd.get("address"),
+        port: Number(fd.get("port") || 22),
+        ssh_key_id: sshKeyId,
+        description: fd.get("description") || null,
+        password: fd.get("password") || null,
+        group_id: fd.get("group_id") ? Number(fd.get("group_id")) : null,
+      };
+      if (!data.password) delete data.password;
+      await apiPostClient("/api/hosts/update", data);
+      showToast("Хост обновлён");
+      setEditHost(null);
+      await load();
+    } catch (err: any) {
+      showToast(err.message, "error");
     }
-    const data: any = {
-      id: Number(fd.get("id")),
-      name: fd.get("name"),
-      username: fd.get("username"),
-      address: fd.get("address"),
-      port: Number(fd.get("port") || 22),
-      ssh_key_id: sshKeyId,
-      description: fd.get("description") || null,
-      password: fd.get("password") || null,
-      group_id: fd.get("group_id") ? Number(fd.get("group_id")) : null,
-    };
-    if (!data.password) delete data.password;
-    await apiPostClient("/api/hosts/update", data);
-    showToast("Хост обновлён");
-    setEditHost(null);
-    await load();
   }
 
   async function checkHost(id: number, el?: HTMLElement) {
@@ -174,6 +190,28 @@ export default function HostsPage() {
     }
   }
 
+  async function reprovision(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!reprovisionHost) return;
+    const fd = new FormData(e.currentTarget);
+    const password = (fd.get("password") as string) || null;
+    setReprovisioning(true);
+    try {
+      const data: any = { id: reprovisionHost.id };
+      if (password) data.password = password;
+      const result = await apiPostClient("/api/hosts/reprovision", data);
+      showToast(
+        `Ключ заново привязан к ${result.host?.name}: ${result.is_active ? "хост доступен" : "хост недоступен"}`,
+      );
+      setReprovisionHost(null);
+      await load();
+    } catch (err: any) {
+      showToast(err.message, "error");
+    } finally {
+      setReprovisioning(false);
+    }
+  }
+
   async function deleteHost(id: number) {
     if (!confirm(`Удалить хост #${id}?`)) return;
     try {
@@ -187,12 +225,13 @@ export default function HostsPage() {
 
   async function createGroup(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const fd = new FormData(e.currentTarget);
+    const form = e.currentTarget;
+    const fd = new FormData(form);
     try {
       await apiPostClient("/api/groups", { name: fd.get("name"), description: fd.get("description") || null });
       showToast("Группа создана");
       setCreateGroupOpen(false);
-      e.currentTarget.reset();
+      form.reset();
       await load();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -226,12 +265,38 @@ export default function HostsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-3xl font-bold">Хосты</h2>
-        <p className="text-gray-500">Реестр управляемых узлов и добавление новых машин</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-3xl font-bold">Хосты</h2>
+          <p className="text-gray-500">Реестр управляемых узлов и добавление новых машин</p>
+        </div>
+        <div className="flex items-center border rounded-lg overflow-hidden shrink-0">
+          <button
+            className={`flex items-center gap-1.5 px-3 py-2 text-sm ${viewMode === "list" ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-100"}`}
+            onClick={() => setViewMode("list")}
+          >
+            <List size={15} />
+            Список
+          </button>
+          <button
+            className={`flex items-center gap-1.5 px-3 py-2 text-sm ${viewMode === "board" ? "bg-blue-600 text-white" : "text-gray-600 hover:bg-gray-100"}`}
+            onClick={() => setViewMode("board")}
+          >
+            <LayoutGrid size={15} />
+            Доска
+          </button>
+        </div>
       </div>
 
-      <div className="panel">
+      {viewMode === "board" && (
+        <div style={{ height: "calc(100vh - 180px)" }}>
+          <HostBoardView hosts={hosts} onBoardsChange={load} />
+        </div>
+      )}
+
+      {viewMode === "list" && (
+      <>
+      {!isTeacher && <div className="panel">
         <h3 className="font-semibold mb-4">Добавить хост</h3>
         <form onSubmit={onCreateHost} className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
           <label className="label">
@@ -297,7 +362,7 @@ export default function HostsPage() {
             </button>
           </div>
         </form>
-      </div>
+      </div>}
 
       <div className="panel">
         <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
@@ -343,6 +408,9 @@ export default function HostsPage() {
                   <button className="btn-secondary p-2" onClick={(e) => checkHost(h.id, e.currentTarget as HTMLElement)} title="Проверить доступность">
                     <RefreshCw size={16} />
                   </button>
+                  <button className="btn-secondary p-2" onClick={() => setReprovisionHost(h)} title="Заново привязать SSH-ключ">
+                    <KeyRound size={16} />
+                  </button>
                   <button className="btn-secondary p-2" onClick={() => setEditHost(h)} title="Редактировать">
                     <Pencil size={16} />
                   </button>
@@ -382,6 +450,8 @@ export default function HostsPage() {
           rows={groups}
         />
       </div>
+      </>
+      )}
 
       {editHost && (
         <Modal title="Редактирование хоста" onClose={() => setEditHost(null)}>
@@ -442,6 +512,34 @@ export default function HostsPage() {
                 Сохранить
               </button>
               <button type="button" className="btn-secondary" onClick={() => setEditHost(null)}>
+                Отмена
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {reprovisionHost && (
+        <Modal title="Перепривязка SSH-ключа" onClose={() => setReprovisionHost(null)}>
+          <form onSubmit={reprovision} className="grid gap-4">
+            <p className="text-sm text-gray-500">
+              Заново скопирует SSH-ключ на хост <b>{reprovisionHost.name}</b> ({reprovisionHost.username}@
+              {reprovisionHost.address}). Используйте при отвале или случайном удалении ключа — хост в базе пересоздавать не нужно.
+            </p>
+            <label className="label">
+              Пароль хоста
+              <input
+                className="input"
+                name="password"
+                type="password"
+                placeholder="Оставьте пустым, чтобы использовать сохранённый пароль"
+              />
+            </label>
+            <div className="flex gap-3">
+              <button className="btn" type="submit" disabled={reprovisioning}>
+                {reprovisioning ? "Привязка…" : "Привязать ключ"}
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => setReprovisionHost(null)}>
                 Отмена
               </button>
             </div>

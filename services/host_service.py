@@ -6,6 +6,7 @@ from typing import Iterable
 
 from computer import Computer
 from database.repos.base import utcnow_iso
+from services.secrets import decrypt_secret, encrypt_secret
 
 
 class HostService:
@@ -32,6 +33,7 @@ class HostService:
         port: int = 22,
         ssh_key_id: int | None = None,
         description: str | None = None,
+        password: str | None = None,
     ):
         return self.db.hosts.create(
             name=name,
@@ -40,10 +42,24 @@ class HostService:
             port=port,
             ssh_key_id=ssh_key_id,
             description=description,
+            password_encrypted=encrypt_secret(password) if password else None,
         )
 
     def remove_host(self, host_id: int) -> bool:
         return self.db.hosts.delete(host_id)
+
+    def set_host_password(self, host_id: int, password: str):
+        """Сохраняет (зашифрованный) пароль хоста для повторной привязки ключа."""
+        return self.db.hosts.update(
+            host_id, password_encrypted=encrypt_secret(password)
+        )
+
+    def get_host_password(self, host_id: int) -> str | None:
+        """Возвращает расшифрованный пароль хоста или None, если он не сохранён."""
+        host = self.get_host(host_id)
+        if not host or not getattr(host, "password_encrypted", None):
+            return None
+        return decrypt_secret(host.password_encrypted)
 
     def create_group(self, name: str, kind: str = "custom", description: str | None = None):
         return self.db.groups.create(name=name, kind=kind, description=description)
@@ -65,9 +81,15 @@ class HostService:
         raise ValueError(f"Unknown target_type: {target_type}")
 
     def to_computer(self, host):
+        key_path = None
+        if getattr(host, "ssh_key_id", None):
+            key_row = self.db.ssh_keys.get(host.ssh_key_id)
+            if key_row and getattr(key_row, "private_key_path", None):
+                key_path = key_row.private_key_path
         return Computer(
             host=f"{host.username}@{host.address}",
             port=str(host.port),
+            key_path=key_path,
         )
 
     def to_computers(self, hosts: Iterable):

@@ -33,3 +33,38 @@ host = db.hosts.create(
 ```python
 count = db.import_legacy_hosts_json('hosts.json', ssh_key_id=key.id)
 ```
+
+## Файлы
+
+### `__init__.py`
+Реэкспорт `open_database`/`init_database`.
+
+### `connection.py`
+- `connect(db_path)` — открывает соединение `sqlite3` с нужными PRAGMA (row_factory и т.п.).
+
+### `schema.py` — схема и миграции
+Полный `CREATE TABLE` SQL **и** идемпотентные миграции. При добавлении колонки в
+существующую таблицу её нужно прописывать и в `CREATE TABLE`, и в миграцию.
+- `create_schema(conn)` — создаёт таблицы/индексы и прогоняет все миграции.
+- `_add_column_if_missing(conn, table, column, definition)` — добавить колонку, если её нет.
+- `_migrate_ssh_keys/_migrate_scheduled_tasks/_migrate_users/_migrate_modules/_migrate_hosts(conn)`
+  — точечные миграции таблиц (например, `_migrate_hosts` добавляет `password_encrypted`
+  — зашифрованный пароль хоста для повторной привязки SSH-ключа).
+- `_create_new_tables(conn)` — досоздаёт новые таблицы (`user_group_access`, `boards`, `board_hosts`).
+
+### `orm.py` — фасад `Database`
+- `class Database` — открывает соединение, прогоняет `create_schema`, предоставляет
+  по одному репозиторию на таблицу как атрибут (`db.hosts`, `db.modules`, `db.users`, …).
+  Методы: `model(name)`, `commit()`, `close()`, `import_legacy_hosts_json(path, ssh_key_id)`.
+- `init_database(db_path)` / `open_database(db_path)` — фабрики соединения.
+
+### `db_transfer.py` — резервное копирование и восстановление
+- `list_tables_with_counts(db_path)` — список таблиц NetRunner с числом строк (для UI).
+- `export_tables(src_path, dest_path, tables)` — выгрузка выбранных таблиц в валидную
+  (полная схема) базу.
+- `merge_database(db_path, source_path, mode)` — слияние данных из другой базы в живую.
+- Вспомогательные: `_existing_tables`, `_columns`, `_insert`, `_dedupe`.
+
+## Подпапки
+- `models/` — dataclass-модели строк таблиц. См. `models/README.md`.
+- `repos/` — репозитории (CRUD и специальные запросы). См. `repos/README.md`.

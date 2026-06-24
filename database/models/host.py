@@ -19,5 +19,6 @@ class Host(BaseModel):
     description: str | None = None
     is_active: int = 1
     last_seen_at: str | None = None
+    password_encrypted: str | None = None
     created_at: str = ''
     updated_at: str = ''

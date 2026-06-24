@@ -15,6 +15,9 @@ data/*.db
 data/*.db-wal
 data/*.db-shm
 
+# Master key for host-password encryption (must never be committed)
+data/.secret_key
+
 # Frontend build artifacts
 frontend/node_modules/
 frontend/.next/

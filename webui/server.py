@@ -47,8 +47,30 @@ from database import open_database
 from database.repos.base import utcnow_iso
 from services import HostService
 from services.auth_service import AuthService
+from services.secrets import encrypt_secret
 from webui.auth_handlers import api_login, api_logout, api_me, api_register
 from webui.auth_middleware import auth_middleware
+from webui.admin_handlers import (
+    api_admin_users_list,
+    api_admin_users_create,
+    api_admin_users_update,
+    api_admin_users_delete,
+    api_admin_user_modules,
+    api_admin_user_modules_set,
+    api_admin_user_groups,
+    api_admin_user_groups_set,
+    api_admin_db_tables,
+    api_admin_backup,
+    api_admin_restore,
+)
+from webui.board_handlers import (
+    api_boards_list,
+    api_boards_create,
+    api_boards_get,
+    api_boards_update,
+    api_boards_delete,
+    api_boards_save_layout,
+)
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -61,7 +83,10 @@ def model_to_dict(value: Any) -> Any:
     if value is None:
         return None
     if is_dataclass(value):
-        return asdict(value)
+        data = asdict(value)
+        # Никогда не отдаём зашифрованный пароль хоста наружу.
+        data.pop("password_encrypted", None)
+        return data
     if isinstance(value, list):
         return [model_to_dict(item) for item in value]
     if isinstance(value, tuple):
@@ -150,7 +175,7 @@ async def reports_handler(request: web.Request) -> web.Response:
     report_path = request.match_info["path"]
     reports_dir = Path(_ctx(request).reports_dir).resolve()
     target = (reports_dir / report_path).resolve()
-    if not str(target).startswith(str(reports_dir)):
+    if not target.is_relative_to(reports_dir):
         return _error("Forbidden", status=403)
     if not target.exists() or target.is_dir():
         return _error("Not found", status=404)
@@ -183,8 +208,19 @@ async def api_summary(request: web.Request) -> web.Response:
 
 async def api_hosts(request: web.Request) -> web.Response:
     db = _ctx(request).db
+    user = request.get("auth_user")
+    all_hosts = db.hosts.all()
+    if user and not user.get("is_superuser"):
+        access_rows = db.user_group_access.by_user(int(user["id"]))
+        if access_rows:
+            allowed_group_ids = {row.group_id for row in access_rows}
+            allowed_host_ids: set[int] = set()
+            for gid in allowed_group_ids:
+                for h in db.groups.hosts(gid):
+                    allowed_host_ids.add(h.id)
+            all_hosts = [h for h in all_hosts if h.id in allowed_host_ids]
     hosts = []
-    for host in db.hosts.all():
+    for host in all_hosts:
         item = model_to_dict(host)
         item["last_seen"] = host.last_seen_at
         item["group_id"] = db.groups.first_group_id_for_host(host.id)
@@ -206,9 +242,17 @@ async def api_groups(request: web.Request) -> web.Response:
 
 async def api_modules(request: web.Request) -> web.Response:
     db = _ctx(request).db
+    user = request.get("auth_user")
+    denied_ids: set[int] = set()
+    if user and not user.get("is_superuser"):
+        for row in db.user_module_access.by_user(user["id"]):
+            if not row.allowed:
+                denied_ids.add(row.module_id)
     modules = []
     runtime_modules = {item.slug: item for item in _ctx(request).module_registry.all()}
     for row in db.modules.all():
+        if row.id in denied_ids:
+            continue
         item = model_to_dict(row)
         runtime = runtime_modules.get(row.slug)
         item["supports_task_runner"] = bool(runtime and runtime.supports_task_runner)
@@ -279,6 +323,7 @@ async def api_hosts_create(request: web.Request) -> web.Response:
         port=port,
         ssh_key_id=ssh_key_id,
         description=str(payload.get("description") or "").strip() or None,
+        password=password,
     )
     return _ok(host)
 
@@ -310,6 +355,8 @@ async def api_hosts_update(request: web.Request) -> web.Response:
                 password,
                 allowed.get("ssh_key_id") or host.ssh_key_id,
             )
+        # Сохраняем пароль (зашифрованным) для будущей перепривязки ключа.
+        allowed["password_encrypted"] = encrypt_secret(password)
     host = ctx.db.hosts.update(host_id, **allowed)
     new_group_id = payload.get("group_id")
     if new_group_id is not None:
@@ -360,14 +407,56 @@ async def api_hosts_check_all(request: web.Request) -> web.Response:
     return _ok(result)
 
 
-async def api_groups_create(request: web.Request) -> web.Response:
+async def api_hosts_reprovision(request: web.Request) -> web.Response:
+    """Заново копирует SSH-ключ на хост (при отвале/удалении ключа).
+
+    Использует сохранённый пароль хоста; если в запросе передан новый пароль —
+    берёт его и (при успехе) обновляет сохранённое значение.
+    """
     ctx = _ctx(request)
     payload = await _read_json(request)
-    group = ctx.host_service.create_group(
-        name=str(payload.get("name") or "").strip(),
-        kind=str(payload.get("kind") or "custom").strip() or "custom",
-        description=str(payload.get("description") or "").strip() or None,
+    host_id = _safe_int(payload.get("id"))
+    host = ctx.db.hosts.get(host_id)
+    if not host:
+        return _error("Хост не найден", status=404)
+
+    new_password = str(payload.get("password") or "").strip() or None
+    password = new_password or ctx.host_service.get_host_password(host_id)
+    if not password:
+        return _error(
+            "Для хоста не сохранён пароль — укажите пароль для перепривязки ключа",
+            status=400,
+        )
+
+    await _provision_ssh_key(
+        ctx, host.username, host.address, host.port, password, host.ssh_key_id
     )
+    # Перепривязка удалась — сохраняем пароль (если был передан новый) и
+    # проверяем доступность хоста по обновлённому ключу.
+    if new_password:
+        ctx.host_service.set_host_password(host_id, new_password)
+    check = await ctx.host_service.check_host_async(host_id)
+    item = model_to_dict(ctx.db.hosts.get(host_id))
+    item["last_seen"] = item["last_seen_at"]
+    item["group_id"] = ctx.db.groups.first_group_id_for_host(host_id)
+    return _ok({"host": item, "is_active": check.get("is_active")})
+
+
+async def api_groups_create(request: web.Request) -> web.Response:
+    import sqlite3 as _sqlite3
+    ctx = _ctx(request)
+    payload = await _read_json(request)
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        return _error("Название группы не может быть пустым")
+    try:
+        group = ctx.host_service.create_group(
+            name=name,
+            kind=str(payload.get("kind") or "custom").strip() or "custom",
+            description=str(payload.get("description") or "").strip() or None,
+        )
+    except _sqlite3.IntegrityError:
+        return _error(f"Группа с названием «{name}» уже существует")
     return _ok(group)
 
 
@@ -472,6 +561,8 @@ async def api_modules_create(request: web.Request) -> web.Response:
     description = str(payload.get("description") or "").strip() or None
     file_data = payload.get("file_data")
 
+    schema_json = payload.get("schema_json") or None
+
     module = ctx.db.modules.create(
         name=name,
         slug=slug,
@@ -480,6 +571,7 @@ async def api_modules_create(request: web.Request) -> web.Response:
         is_builtin=0,
         is_enabled=1,
         description=description,
+        schema_json=schema_json,
     )
 
     if file_data:
@@ -516,13 +608,20 @@ async def api_modules_delete(request: web.Request) -> web.Response:
 async def api_schedule_create(request: web.Request) -> web.Response:
     ctx = _ctx(request)
     payload = await _read_json(request)
+    run_at = str(payload.get("run_at") or "").strip()
+    if not run_at:
+        raise web.HTTPBadRequest(reason="run_at is required")
+    interval_raw = payload.get("interval_seconds")
+    max_runs_raw = payload.get("max_runs")
     scheduled = ctx.db.scheduled.create(
         name=str(payload.get("name") or "").strip(),
         template_id=_safe_int(payload.get("template_id")),
         target_type=str(payload.get("target_type") or "host").strip(),
         target_id=_safe_int(payload.get("target_id")),
-        run_at=str(payload.get("run_at") or "").strip(),
+        run_at=run_at,
         is_enabled=1 if payload.get("is_enabled", True) else 0,
+        interval_seconds=int(interval_raw) if interval_raw else None,
+        max_runs=int(max_runs_raw) if max_runs_raw else None,
     )
     return _ok(scheduled)
 
@@ -768,6 +867,37 @@ async def _provision_ssh_key(
         "TMPDIR": "/tmp",
         "SSHPASS": password,
     }
+
+    # Add the remote host key to known_hosts before attempting ssh-copy-id so
+    # StrictHostKeyChecking=yes does not reject the connection.
+    from computer.module.executor_ssh import SSH_KNOWN_HOSTS_FILE
+    known_hosts_path = SSH_KNOWN_HOSTS_FILE or str(Path.home() / ".ssh" / "known_hosts")
+    known_hosts_file = Path(known_hosts_path)
+    known_hosts_file.parent.mkdir(parents=True, exist_ok=True)
+    known_hosts_file.touch(mode=0o600, exist_ok=True)
+    try:
+        scan_result = await asyncio.to_thread(
+            subprocess.run,
+            ["ssh-keyscan", "-H", "-p", str(port), address],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if scan_result.stdout.strip():
+            with known_hosts_file.open("a") as kh:
+                kh.write(scan_result.stdout)
+    except Exception:
+        pass  # keyscan failure is non-fatal; ssh-copy-id will report auth error
+
+    # Build ssh-copy-id options manually: BatchMode=yes must be omitted so
+    # sshpass can inject the password; StrictHostKeyChecking is safe because
+    # we just ran ssh-keyscan above.
+    copy_id_opts = [
+        "-o", "ConnectTimeout=10",
+        "-o", "StrictHostKeyChecking=yes",
+        "-o", "LogLevel=ERROR",
+        "-o", f"UserKnownHostsFile={known_hosts_path}",
+    ]
     cmd = [
         "sshpass",
         "-e",
@@ -776,7 +906,7 @@ async def _provision_ssh_key(
         str(public_key),
         "-p",
         str(port),
-        *_ssh_common_options(),
+        *copy_id_opts,
         f"{username}@{address}",
     ]
     try:
@@ -920,10 +1050,7 @@ async def error_middleware(request: web.Request, handler):
         return _json_response({"ok": False, "error": error_text}, status=exc.status)
     except Exception as exc:
         logger.exception("Unhandled API error: %s", exc)
-        return _json_response(
-            {"ok": False, "error": str(exc), "traceback": traceback.format_exc()},
-            status=500,
-        )
+        return _json_response({"ok": False, "error": "Internal server error"}, status=500)
 
 
 # ---------------------------------------------------------------------------
@@ -967,6 +1094,7 @@ def _build_app(app_context) -> web.Application:
     app.router.add_post("/api/hosts/delete", api_hosts_delete)
     app.router.add_post("/api/hosts/check", api_hosts_check)
     app.router.add_post("/api/hosts/check-all", api_hosts_check_all)
+    app.router.add_post("/api/hosts/reprovision", api_hosts_reprovision)
     app.router.add_post("/api/groups", api_groups_create)
     app.router.add_post("/api/groups/update", api_groups_update)
     app.router.add_post("/api/groups/delete", api_groups_delete)
@@ -985,6 +1113,27 @@ def _build_app(app_context) -> web.Application:
     app.router.add_post("/api/reports/export", api_reports_export)
     app.router.add_post("/api/ssh-keys", api_ssh_keys_create)
     app.router.add_post("/api/keys/generate", api_keys_generate)
+
+    # Admin API
+    app.router.add_get("/api/admin/users", api_admin_users_list)
+    app.router.add_post("/api/admin/users", api_admin_users_create)
+    app.router.add_post("/api/admin/users/update", api_admin_users_update)
+    app.router.add_post("/api/admin/users/delete", api_admin_users_delete)
+    app.router.add_get("/api/admin/user-modules", api_admin_user_modules)
+    app.router.add_post("/api/admin/user-modules", api_admin_user_modules_set)
+    app.router.add_get("/api/admin/user-groups", api_admin_user_groups)
+    app.router.add_post("/api/admin/user-groups", api_admin_user_groups_set)
+    app.router.add_get("/api/admin/db-tables", api_admin_db_tables)
+    app.router.add_get("/api/admin/backup", api_admin_backup)
+    app.router.add_post("/api/admin/restore", api_admin_restore)
+
+    # Boards API
+    app.router.add_get("/api/boards", api_boards_list)
+    app.router.add_post("/api/boards", api_boards_create)
+    app.router.add_get("/api/boards/{id}", api_boards_get)
+    app.router.add_post("/api/boards/{id}", api_boards_update)
+    app.router.add_post("/api/boards/{id}/delete", api_boards_delete)
+    app.router.add_post("/api/boards/{id}/layout", api_boards_save_layout)
 
     # WebSocket
     app.router.add_get("/ws", websocket_handler)
@@ -1007,8 +1156,8 @@ async def _periodic_ping(app: web.Application, interval: int):
                 await host_service.check_all_hosts_async()
             finally:
                 db.close()
-        except Exception:
-            pass
+        except Exception as _ping_exc:
+            logger.warning("Periodic host ping failed: %s", _ping_exc)
 
 
 def run_web_server(
@@ -1023,6 +1172,7 @@ def run_web_server(
     app = _build_app(app_context)
 
     async def _on_startup(_app):
+        _app["auth_service"].create_default_user()
         if ping_interval > 0:
             ping_task = asyncio.create_task(_periodic_ping(_app, ping_interval))
             _app["ping_task"] = ping_task

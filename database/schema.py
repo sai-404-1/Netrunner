@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS hosts (
     description TEXT,
     is_active INTEGER NOT NULL DEFAULT 1,
     last_seen_at TEXT,
+    password_encrypted TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (ssh_key_id) REFERENCES ssh_keys(id) ON DELETE SET NULL
@@ -58,6 +59,7 @@ CREATE TABLE IF NOT EXISTS modules (
     is_builtin INTEGER NOT NULL DEFAULT 0,
     is_enabled INTEGER NOT NULL DEFAULT 1,
     description TEXT,
+    schema_json TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -154,13 +156,53 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash TEXT NOT NULL,
     is_active INTEGER NOT NULL DEFAULT 1,
     is_superuser INTEGER NOT NULL DEFAULT 0,
+    role TEXT NOT NULL DEFAULT 'user',
     token TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS user_group_access (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    UNIQUE(user_id, group_id)
+);
+CREATE INDEX IF NOT EXISTS idx_uga_user ON user_group_access (user_id);
+
+CREATE TABLE IF NOT EXISTS boards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    width INTEGER NOT NULL DEFAULT 1600,
+    height INTEGER NOT NULL DEFAULT 900,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+
+CREATE TABLE IF NOT EXISTS board_hosts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    board_id INTEGER NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+    host_id INTEGER NOT NULL REFERENCES hosts(id) ON DELETE CASCADE,
+    x REAL NOT NULL DEFAULT 0,
+    y REAL NOT NULL DEFAULT 0,
+    UNIQUE(board_id, host_id)
+);
+CREATE INDEX IF NOT EXISTS idx_bh_board ON board_hosts (board_id);
+
 CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);
 CREATE INDEX IF NOT EXISTS idx_reports_type_created_at ON reports (report_type, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS user_module_access (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    module_id INTEGER NOT NULL,
+    allowed INTEGER NOT NULL DEFAULT 1,
+    UNIQUE(user_id, module_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_uma_user ON user_module_access (user_id);
 """
 
 
@@ -180,7 +222,64 @@ def _migrate_ssh_keys(conn) -> None:
     _add_column_if_missing(conn, "ssh_keys", "fingerprint", "TEXT")
 
 
+def _migrate_scheduled_tasks(conn) -> None:
+    """Добавляет поля для поддержки повторяющихся задач."""
+    _add_column_if_missing(conn, "scheduled_tasks", "interval_seconds", "INTEGER DEFAULT NULL")
+    _add_column_if_missing(conn, "scheduled_tasks", "max_runs", "INTEGER DEFAULT NULL")
+    _add_column_if_missing(conn, "scheduled_tasks", "run_count", "INTEGER NOT NULL DEFAULT 0")
+
+
+def _migrate_users(conn) -> None:
+    _add_column_if_missing(conn, "users", "role", "TEXT NOT NULL DEFAULT 'user'")
+
+
+def _migrate_modules(conn) -> None:
+    _add_column_if_missing(conn, "modules", "schema_json", "TEXT")
+
+
+def _migrate_hosts(conn) -> None:
+    """Хранит зашифрованный пароль хоста для повторной привязки SSH-ключа."""
+    _add_column_if_missing(conn, "hosts", "password_encrypted", "TEXT")
+
+
+def _create_new_tables(conn) -> None:
+    conn.executescript("""
+CREATE TABLE IF NOT EXISTS user_group_access (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    UNIQUE(user_id, group_id)
+);
+CREATE INDEX IF NOT EXISTS idx_uga_user ON user_group_access (user_id);
+
+CREATE TABLE IF NOT EXISTS boards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    width INTEGER NOT NULL DEFAULT 1600,
+    height INTEGER NOT NULL DEFAULT 900,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+);
+
+CREATE TABLE IF NOT EXISTS board_hosts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    board_id INTEGER NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
+    host_id INTEGER NOT NULL REFERENCES hosts(id) ON DELETE CASCADE,
+    x REAL NOT NULL DEFAULT 0,
+    y REAL NOT NULL DEFAULT 0,
+    UNIQUE(board_id, host_id)
+);
+CREATE INDEX IF NOT EXISTS idx_bh_board ON board_hosts (board_id);
+""")
+
+
 def create_schema(conn) -> None:
     conn.executescript(SCHEMA_SQL)
     _migrate_ssh_keys(conn)
+    _migrate_scheduled_tasks(conn)
+    _migrate_users(conn)
+    _migrate_modules(conn)
+    _migrate_hosts(conn)
+    _create_new_tables(conn)
     conn.commit()
