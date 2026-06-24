@@ -105,6 +105,8 @@ class TaskRunner:
 
         if not module_row:
             raise RuntimeError(f"Module '{module_slug}' not found in database")
+        if not module_row.is_enabled:
+            raise RuntimeError(f"Module '{module_slug}' is disabled")
 
         if task_run_id is not None:
             task_run = self.db.task_runs.get(task_run_id)
@@ -148,6 +150,7 @@ class TaskRunner:
                 )
 
             instance = registry_item.instance
+            module_reported_error = False
             if hasattr(instance, "run_for_host"):
                 per_host_results, inventory_items = await self._run_per_host(
                     instance=instance,
@@ -169,10 +172,13 @@ class TaskRunner:
                 stdout_text = ""
                 per_host_results = None
                 inventory_items = []
+                module_reported_error = False
                 if isinstance(result, dict):
                     stdout_text = result.get("summary_text", json.dumps(result, ensure_ascii=False, default=str))
                     per_host_results = result.get("per_host_results")
                     inventory_items = result.get("inventory_items", [])
+                    if result.get("status") == "error":
+                        module_reported_error = True
                 elif isinstance(result, str):
                     stdout_text = result
                 else:
@@ -194,12 +200,19 @@ class TaskRunner:
                     for host in targets
                 ]
 
+            # Check if any per-host result reported an error
+            any_host_error = any(
+                r.get("status") == "error" or str(r.get("output", "")).startswith("[ERROR]")
+                for r in per_host_results
+            )
+            final_status = "error" if (module_reported_error or any_host_error) else "success"
+
             self.db.task_runs.finish(
                 run_id=task_run.id,
-                status="success",
+                status=final_status,
                 stdout_text=stdout_text,
                 stderr_text="",
-                exit_code=0,
+                exit_code=0 if final_status == "success" else 1,
                 per_host_json=json.dumps(per_host_results, ensure_ascii=False, default=str) if per_host_results else None,
             )
             return self.db.task_runs.get(task_run.id)

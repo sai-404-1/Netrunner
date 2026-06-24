@@ -19,3 +19,6 @@ class ScheduledTask(BaseModel):
     is_enabled: int = 1
     last_run_at: str | None = None
     created_at: str = ''
+    interval_seconds: int | None = None
+    max_runs: int | None = None
+    run_count: int = 0

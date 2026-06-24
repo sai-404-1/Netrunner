@@ -8,6 +8,8 @@ const state = {
   sshKeys: [],
   taskRuns: [],
   currentRunId: null,
+  currentUser: null,
+  token: null,
 };
 
 let wsConnection = null;
@@ -96,6 +98,7 @@ const viewMeta = {
   schedule: ["Планировщик", "Создание и запуск запланированных задач"],
   keys: ["Ключи", "Управление SSH-ключами"],
   reports: ["Отчёты", "Формирование и просмотр файлов отчётности"],
+  admin: ["Администрирование", "Управление пользователями и доступом к модулям"],
 };
 
 function byId(id) {
@@ -103,13 +106,13 @@ function byId(id) {
 }
 
 async function api(path, options = {}) {
-  const response = await fetch(path, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-  });
+  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+  if (state.token) headers["Authorization"] = `Bearer ${state.token}`;
+  const response = await fetch(path, { ...options, headers });
+  if (response.status === 401) {
+    showLoginScreen();
+    throw new Error("Не авторизован");
+  }
   const payload = await response.json();
   if (!payload.ok) {
     throw new Error(payload.error || "Неизвестная ошибка API");
@@ -221,7 +224,7 @@ function fillSelect(select, items, makeLabel) {
 }
 
 function fillModuleSelect(preselectedSlug) {
-  const runnable = state.modules.filter((item) => item.supports_task_runner);
+  const runnable = state.modules.filter((item) => item.supports_task_runner && item.is_enabled !== 0);
   byId("run-module").innerHTML = runnable
     .map((item) => `<option value="${escapeHtml(item.slug)}" ${item.slug === preselectedSlug ? "selected" : ""}>${escapeHtml(item.name)} (${escapeHtml(item.slug)})</option>`)
     .join("");
@@ -260,7 +263,8 @@ window.switchView = function switchView(view, opts = {}) {
   document.querySelectorAll(".view").forEach((el) => el.classList.remove("active"));
   document.querySelectorAll(".nav-link").forEach((el) => el.classList.remove("active"));
   byId(`view-${view}`).classList.add("active");
-  document.querySelector(`[data-view="${view}"]`).classList.add("active");
+  const navEl = document.querySelector(`[data-view="${view}"]`);
+  if (navEl) navEl.classList.add("active");
   const [title, subtitle] = viewMeta[view];
   byId("page-title").textContent = title;
   byId("page-subtitle").textContent = subtitle;
@@ -498,6 +502,10 @@ function renderScheduled(tableId, rows) {
       return `${r.target_type === "host" ? "хост" : "группа"}:${escapeHtml(targetName)}`;
     } },
     { title: "Запуск", render: (r) => formatDate(r.run_at) },
+    { title: "Интервал", render: (r) => r.interval_seconds ? `${r.interval_seconds}с` : "—" },
+    { title: "Запусков", render: (r) => r.interval_seconds
+        ? `${r.run_count || 0}${r.max_runs ? "/" + r.max_runs : ""}`
+        : (r.run_count ? "✓" : "—") },
     { title: "Активна", render: (r) => `
       <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-weight:650;">
         <input type="checkbox" ${r.is_enabled ? "checked" : ""} onchange="toggleSchedule(${r.id}, this.checked)">
@@ -703,6 +711,7 @@ async function loadCurrentView(opts = {}) {
     if (state.view === "inventory") await loadInventory();
     if (state.view === "schedule") await loadScheduled();
     if (state.view === "reports") await loadReports();
+    if (state.view === "admin") await loadAdminUsers();
   } catch (error) {
     showToast(error.message, "error");
   }
@@ -915,6 +924,145 @@ function scheduleRunAt() {
   if (!input.value) return "";
   return toLocalISO(new Date(input.value));
 }
+
+function showLoginScreen() {
+  byId("login-screen").classList.remove("hidden");
+}
+
+function hideLoginScreen() {
+  byId("login-screen").classList.add("hidden");
+}
+
+function updateAuthUI() {
+  const user = state.currentUser;
+  const adminLink = byId("admin-nav-link");
+  const sidebarUser = byId("sidebar-user");
+  if (adminLink) adminLink.style.display = (user && user.is_superuser) ? "" : "none";
+  if (sidebarUser) {
+    sidebarUser.textContent = user ? `${user.username}${user.is_superuser ? " (admin)" : ""}` : "";
+  }
+}
+
+async function loadCurrentUser() {
+  const saved = localStorage.getItem("netrunner_token");
+  if (saved) state.token = saved;
+  try {
+    const user = await api("/api/me");
+    state.currentUser = user;
+    hideLoginScreen();
+    updateAuthUI();
+    return true;
+  } catch {
+    state.currentUser = null;
+    state.token = null;
+    localStorage.removeItem("netrunner_token");
+    showLoginScreen();
+    return false;
+  }
+}
+
+async function loginUser(username, password) {
+  const resp = await fetch("/api/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  const payload = await resp.json();
+  if (!payload.ok) throw new Error(payload.error || "Неверные учётные данные");
+  state.token = payload.token;
+  state.currentUser = payload.user;
+  localStorage.setItem("netrunner_token", state.token);
+  hideLoginScreen();
+  updateAuthUI();
+}
+
+window.logoutUser = async function() {
+  try { await api("/api/logout", { method: "POST", body: "{}" }); } catch {}
+  state.token = null;
+  state.currentUser = null;
+  localStorage.removeItem("netrunner_token");
+  showLoginScreen();
+};
+
+async function loadAdminUsers() {
+  try {
+    const users = await api("/api/admin/users");
+    renderAdminUsers(users);
+  } catch (error) {
+    showToast(error.message, "error");
+  }
+}
+
+function renderAdminUsers(users) {
+  renderTable("admin-users-table",
+    ["ID", "Имя пользователя", "Email", "Роль", "Активен", ""],
+    users.map(u => [
+      u.id,
+      escapeHtml(u.username),
+      escapeHtml(u.email || "—"),
+      u.is_superuser ? labelBadge("admin", "success") : labelBadge("user"),
+      booleanBadge(u.is_active, "Да", "Нет"),
+      `<button class="secondary" onclick="openUserModulesModal(${u.id}, '${escapeHtml(u.username)}')" style="font-size:0.75rem">Модули</button>
+       ${!u.is_superuser ? `<button class="secondary" onclick="toggleUserActive(${u.id}, ${u.is_active})" style="font-size:0.75rem">${u.is_active ? "Отключить" : "Включить"}</button>` : ""}
+       <button class="secondary" onclick="deleteAdminUser(${u.id})" style="font-size:0.75rem;color:var(--error)">Удалить</button>`,
+    ])
+  );
+}
+
+window.toggleUserActive = async function(userId, currentActive) {
+  try {
+    await api("/api/admin/users/update", {
+      method: "POST",
+      body: JSON.stringify({ id: userId, is_active: currentActive ? 0 : 1 }),
+    });
+    showToast(currentActive ? "Пользователь отключён" : "Пользователь включён");
+    await loadAdminUsers();
+  } catch (error) {
+    showToast(error.message, "error");
+  }
+};
+
+window.deleteAdminUser = async function(userId) {
+  if (!confirm("Удалить пользователя?")) return;
+  try {
+    await api("/api/admin/users/delete", { method: "POST", body: JSON.stringify({ id: userId }) });
+    showToast("Пользователь удалён");
+    await loadAdminUsers();
+  } catch (error) {
+    showToast(error.message, "error");
+  }
+};
+
+window.openUserModulesModal = async function(userId, username) {
+  byId("user-modules-title").textContent = `Пользователь: ${username}`;
+  byId("user-modules-modal").classList.add("active");
+  byId("user-modules-list").innerHTML = "Загрузка...";
+  try {
+    const modules = await api(`/api/admin/user-modules?user_id=${userId}`);
+    byId("user-modules-list").innerHTML = modules.map(m => `
+      <label style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border,#2a2d3a);cursor:pointer">
+        <input type="checkbox" ${m.allowed ? "checked" : ""} data-user="${userId}" data-module="${m.module_id}"
+          onchange="setModuleAccess(${userId}, ${m.module_id}, this.checked)">
+        <span>${escapeHtml(m.name)} <code style="font-size:0.8rem;opacity:0.6">${escapeHtml(m.slug)}</code></span>
+        ${m.is_enabled ? "" : labelBadge("отключён")}
+      </label>
+    `).join("");
+  } catch (error) {
+    byId("user-modules-list").textContent = error.message;
+  }
+};
+
+window.setModuleAccess = async function(userId, moduleId, allowed) {
+  try {
+    await api("/api/admin/user-modules", {
+      method: "POST",
+      body: JSON.stringify({ user_id: userId, module_id: moduleId, allowed: allowed ? 1 : 0 }),
+    });
+    showToast(allowed ? "Доступ открыт" : "Доступ закрыт");
+  } catch (error) {
+    showToast(error.message, "error");
+  }
+};
 
 document.addEventListener("DOMContentLoaded", async () => {
   document.querySelectorAll(".nav-link").forEach((button) => {
@@ -1284,6 +1432,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     data.template_id = Number(data.template_id);
     data.target_id = Number(data.target_id);
     data.run_at = scheduleRunAt();
+    data.interval_seconds = data.interval_seconds ? Number(data.interval_seconds) : null;
+    data.max_runs = data.max_runs ? Number(data.max_runs) : null;
     try {
       await api("/api/schedule", { method: "POST", body: JSON.stringify(data) });
       showToast("Запланированная задача создана");
@@ -1354,6 +1504,43 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  await loadBaseLists();
-  await loadDashboard();
+  byId("login-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const username = byId("login-username").value.trim();
+    const password = byId("login-password").value;
+    byId("login-error").textContent = "";
+    try {
+      await loginUser(username, password);
+      await loadBaseLists();
+      await loadDashboard();
+    } catch (error) {
+      byId("login-error").textContent = error.message;
+    }
+  });
+
+  byId("user-modules-close-btn").addEventListener("click", () => {
+    byId("user-modules-modal").classList.remove("active");
+  });
+  byId("user-modules-modal").addEventListener("click", (e) => {
+    if (e.target === byId("user-modules-modal")) byId("user-modules-modal").classList.remove("active");
+  });
+
+  byId("admin-user-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = formDataObject(e.currentTarget);
+    try {
+      await api("/api/admin/users", { method: "POST", body: JSON.stringify(data) });
+      showToast("Пользователь создан");
+      e.currentTarget.reset();
+      await loadAdminUsers();
+    } catch (error) {
+      showToast(error.message, "error");
+    }
+  });
+
+  const authed = await loadCurrentUser();
+  if (authed) {
+    await loadBaseLists();
+    await loadDashboard();
+  }
 });

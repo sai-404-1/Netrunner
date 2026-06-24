@@ -5,6 +5,11 @@ from . import UserModules
 
 class UserModule:
     slug = "mass_ssh"
+    schema = {
+        "placeholders": [
+            ["command", "Команда", "uname -a", "textarea"],
+        ]
+    }
 
     def __init__(self):
         self.title = "Массовый SSH"

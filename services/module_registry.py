@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 
@@ -52,20 +53,30 @@ class ModuleRegistry:
         self._items[slug] = record
 
         existing = self.db.modules.by_slug(slug)
+        schema = getattr(instance, "schema", None)
+        command = getattr(instance, "command", None)
+        if schema or command:
+            merged = dict(schema) if schema else {}
+            if command:
+                merged["command"] = command
+            schema_json = json.dumps(merged, ensure_ascii=False)
+        else:
+            schema_json = None
         payload = {
             "name": title,
             "slug": slug,
             "module_path": module_path,
             "class_name": class_name,
             "is_builtin": 1 if is_builtin else 0,
-            "is_enabled": 1,
             "description": description,
+            "schema_json": schema_json,
         }
 
         if existing:
+            # Do not overwrite is_enabled — respect the operator's choice.
             self.db.modules.update(existing.id, **payload)
         else:
-            self.db.modules.create(**payload)
+            self.db.modules.create(**payload, is_enabled=1)
 
         return record
 

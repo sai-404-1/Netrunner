@@ -17,6 +17,7 @@ RUN if [ -f frontend/package.json ]; then \
       npm run build && \
       mkdir -p /built-frontend && \
       cp -a .next/standalone/. /built-frontend/ && \
+      cp -a .next/static /built-frontend/.next/static && \
       if [ -d public ]; then cp -a public/. /built-frontend/public/; fi; \
     else \
       mkdir -p /built-frontend; \

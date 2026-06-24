@@ -637,6 +637,14 @@ class CreateScheduledTaskAction(MenuAction):
             dt = datetime.now(timezone.utc) + timedelta(seconds=int(raw))
             return dt.replace(microsecond=0).isoformat()
 
+        # ISO 8601 with explicit timezone offset (e.g. from the web UI: "2026-06-15T12:00:00+03:00")
+        try:
+            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            return dt.astimezone(timezone.utc).replace(microsecond=0).isoformat()
+        except (ValueError, AttributeError):
+            pass
+
+        # Plain "YYYY-MM-DD HH:MM" entered in the TUI — treat as local time
         try:
             dt_local = datetime.strptime(raw, "%Y-%m-%d %H:%M")
             dt_utc = dt_local.astimezone(timezone.utc)

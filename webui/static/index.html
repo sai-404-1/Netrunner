@@ -5,8 +5,37 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>NetRunner Web Console</title>
   <link rel="stylesheet" href="/static/styles.css" />
+  <style>
+    #login-screen {
+      position: fixed; inset: 0; background: var(--bg, #0f1117);
+      display: flex; align-items: center; justify-content: center; z-index: 9999;
+    }
+    #login-screen.hidden { display: none; }
+    .login-card {
+      background: var(--surface, #1a1d27); border: 1px solid var(--border, #2a2d3a);
+      border-radius: 12px; padding: 40px; width: 360px;
+    }
+    .login-card h2 { margin: 0 0 24px; font-size: 1.4rem; }
+    .login-card .form { display: flex; flex-direction: column; gap: 14px; }
+    .login-card label { display: flex; flex-direction: column; gap: 6px; font-size: 0.875rem; }
+    .login-card input { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border, #2a2d3a); background: var(--bg, #0f1117); color: inherit; font-size: 0.875rem; }
+    .login-card button { margin-top: 8px; padding: 10px; border-radius: 8px; background: var(--accent, #5b6af0); color: #fff; border: none; cursor: pointer; font-size: 0.875rem; }
+    .login-card .login-error { color: var(--error, #e05555); font-size: 0.8rem; min-height: 18px; }
+  </style>
 </head>
 <body>
+  <div id="login-screen" class="hidden">
+    <div class="login-card">
+      <h2>NetRunner</h2>
+      <form id="login-form" class="form">
+        <label>Имя пользователя<input id="login-username" type="text" autocomplete="username" required></label>
+        <label>Пароль<input id="login-password" type="password" autocomplete="current-password" required></label>
+        <div id="login-error" class="login-error"></div>
+        <button type="submit">Войти</button>
+      </form>
+    </div>
+  </div>
+
   <div class="app-shell">
     <aside class="sidebar">
       <!-- <div class="brand">
@@ -21,9 +50,15 @@
         <button class="nav-link" data-view="modules">Модули</button>
         <button class="nav-link" data-view="run">Запуск задачи</button>
         <button class="nav-link" data-view="history">История</button>
+        <button class="nav-link" data-view="inventory">Инвентарь</button>
         <button class="nav-link" data-view="schedule">Планировщик</button>
         <button class="nav-link" data-view="reports">Отчёты</button>
+        <button class="nav-link" data-view="admin" id="admin-nav-link" style="display:none">Администрирование</button>
       </nav>
+      <div style="padding:12px 16px;border-top:1px solid var(--border,#2a2d3a);margin-top:auto">
+        <div id="sidebar-user" style="font-size:0.8rem;color:var(--muted,#888);margin-bottom:8px"></div>
+        <button class="secondary" style="width:100%;font-size:0.8rem" onclick="logoutUser()">Выйти</button>
+      </div>
     </aside>
 
     <main class="main">
@@ -397,6 +432,8 @@
               <label>Тип цели<select name="target_type" id="schedule-target-type"><option value="host">Хост</option><option value="group">Группа</option></select></label>
               <label>Цель<select name="target_id" id="schedule-target"></select></label>
               <label>Время запуска<input name="run_at" type="datetime-local" id="schedule-run-at" required></label>
+              <label title="Если заполнено, задача будет повторяться каждые N секунд">Интервал повтора (сек)<input name="interval_seconds" type="number" min="60" placeholder="Без повтора"></label>
+              <label title="Максимальное число запусков (только при заполненном интервале)">Макс. запусков<input name="max_runs" type="number" min="1" placeholder="Без ограничений"></label>
               <button type="submit">Создать</button>
             </form>
           </article>
@@ -433,7 +470,43 @@
           </article>
         </div>
       </section>
+      <section id="view-admin" class="view">
+        <div class="grid two stacked">
+          <article class="panel">
+            <div class="panel-header"><h3>Добавить пользователя</h3></div>
+            <form id="admin-user-form" class="form inline-add four">
+              <label>Имя пользователя<input name="username" placeholder="ivan" required></label>
+              <label>Пароль<input name="password" type="password" placeholder="••••••" required></label>
+              <label>Email (необяз.)<input name="email" type="email" placeholder="ivan@example.com"></label>
+              <button type="submit">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                <span>Добавить</span>
+              </button>
+            </form>
+          </article>
+          <article class="panel">
+            <div class="panel-header"><h3>Пользователи</h3></div>
+            <div class="table-wrap"><table id="admin-users-table"></table></div>
+          </article>
+        </div>
+      </section>
+
     </main>
+  </div>
+
+  <div id="user-modules-modal" class="modal-overlay">
+    <div class="modal-panel" style="width:640px;height:auto;max-height:90vh;">
+      <div class="modal-header">
+        <h3>Доступ к модулям</h3>
+        <div class="modal-actions">
+          <button id="user-modules-close-btn" class="secondary">Закрыть</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <p id="user-modules-title" style="margin:0 0 12px;font-size:0.875rem;color:var(--muted,#888)"></p>
+        <div id="user-modules-list"></div>
+      </div>
+    </div>
   </div>
 
   <div id="toast" class="toast hidden"></div>

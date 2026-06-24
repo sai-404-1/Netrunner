@@ -41,6 +41,18 @@ class UserModule:
     title = "APT package manager"
     description = "Устанавливает, удаляет или обновляет пакеты APT."
     web_ui_visible = True
+    schema = {
+        "placeholders": [
+            ["action", "Действие", "update", "select", [
+                ["update",     "Обновить список пакетов"],
+                ["install",    "Установить"],
+                ["remove",     "Удалить"],
+                ["autoremove", "Автоочистка"],
+            ]],
+            ["packages",      "Пакеты (через пробел)", "",  "text"],
+            ["sudo_password", "Пароль sudo",           "",  "password"],
+        ]
+    }
 
     def __init__(self):
         self._ssh_options = None

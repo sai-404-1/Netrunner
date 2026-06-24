@@ -19,4 +19,5 @@ class ModuleRecord(BaseModel):
     is_builtin: int = 0
     is_enabled: int = 1
     description: str | None = None
+    schema_json: str | None = None
     created_at: str = ''

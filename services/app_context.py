@@ -162,7 +162,8 @@ def _load_user_modules_from_disk(module_registry: ModuleRegistry) -> None:
             if spec is None or spec.loader is None:
                 continue
             module = importlib.util.module_from_spec(spec)
-            sys.modules[slug] = module
+            # Use a namespaced key to avoid shadowing stdlib or installed packages.
+            sys.modules[f"netrunner_user.{slug}"] = module
             spec.loader.exec_module(module)
             user_cls = getattr(module, "UserModule", None)
             if user_cls is None:

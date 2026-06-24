@@ -9,16 +9,18 @@ class Computer():
     def __init__(
             self,
             host: str = "root@localhost",
-            port: str = "22"
+            port: str = "22",
+            key_path: str | None = None,
         ):
         self.host = host
         self.port = port
+        self.key_path = key_path
 
     def executor_ssh(self, command):
-        return executor_ssh(host=self.host, port=self.port, command=command)
+        return executor_ssh(host=self.host, port=self.port, command=command, key_path=self.key_path)
 
     async def async_executor_ssh(self, command):
-        return await async_executor_ssh(host=self.host, port=self.port, command=command)
+        return await async_executor_ssh(host=self.host, port=self.port, command=command, key_path=self.key_path)
 
     def executor_scp(self, path_from, path_to):
         return executor_scp(host=self.host, port=self.port, path_from=path_from, path_to=path_to)
@@ -31,6 +33,4 @@ class Computer():
     
     def folder_swipe(self, dir):
         """Запрещает взаимодействие с папкой через присвоение её другому пользователю (chown -R)"""
-        with open("./blacklist_program", "a") as f:
-            f.write(f"\n{dir}")
-        return folder_swipe(host=self.host, port=self.port, dir=dir)
+        return folder_swipe(host=self.host, port=self.port, dir=dir, key_path=self.key_path)

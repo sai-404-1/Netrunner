@@ -10,12 +10,13 @@ import {
   Boxes,
   Play,
   History,
-  ClipboardList,
   CalendarClock,
   FileText,
   LogOut,
   Menu,
   X,
+  ShieldCheck,
+  Activity,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -26,15 +27,22 @@ const nav = [
   { href: "/modules", label: "Модули", icon: Boxes },
   { href: "/run", label: "Запуск задачи", icon: Play },
   { href: "/history", label: "История", icon: History },
-  { href: "/inventory", label: "Инвентаризация", icon: ClipboardList },
   { href: "/scheduled", label: "Планировщик", icon: CalendarClock },
   { href: "/reports", label: "Отчёты", icon: FileText },
 ];
+
+const adminNav = [
+  { href: "/admin", label: "Администрирование", icon: ShieldCheck },
+  { href: "/status", label: "Статус сервера", icon: Activity },
+];
+
+const TEACHER_ALLOWED = new Set(["/", "/hosts"]);
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const isTeacher = user?.role === "teacher" && !user?.is_superuser;
 
   return (
     <div className="min-h-screen flex flex-col lg:grid lg:grid-cols-[280px_1fr]">
@@ -50,6 +58,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </div>
         <nav className={`flex-col gap-2 ${mobileOpen ? "flex" : "hidden lg:flex"}`}>
           {nav.map((item) => {
+            if (isTeacher && !TEACHER_ALLOWED.has(item.href)) return null;
             const active = pathname === item.href || pathname.startsWith(item.href + "/");
             return (
               <Link
@@ -67,6 +76,29 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </Link>
             );
           })}
+          {(user?.is_superuser || pathname.startsWith("/status")) && (
+            <div className="mt-2 pt-2 border-t border-white/10 flex flex-col gap-2">
+              {adminNav.map((item) => {
+                if (item.href === "/admin" && !user?.is_superuser) return null;
+                const active = pathname === item.href || pathname.startsWith(item.href + "/");
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setMobileOpen(false)}
+                    className={`flex items-center gap-3 rounded-[14px] px-4 py-3 text-sm font-medium transition-colors ${
+                      active
+                        ? "text-white bg-white/15 border border-white/35 shadow"
+                        : "text-gray-300 hover:bg-white/10 hover:text-white"
+                    }`}
+                  >
+                    <item.icon size={18} />
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+          )}
         </nav>
         <div className="mt-auto hidden lg:flex flex-col gap-3">
           {user && (

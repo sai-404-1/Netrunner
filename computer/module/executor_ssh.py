@@ -40,9 +40,9 @@ def _ssh_common_options():
     return options
 
 
-def _build_ssh_cmd(host, port, command):
+def _build_ssh_cmd(host, port, command, key_path=None):
     remote_cmd = f"sh -lc {shlex.quote(command)}"
-    key_file = Path(KEY_PATH) / KEY_NAME
+    key_file = Path(key_path) if key_path else Path(KEY_PATH) / KEY_NAME
 
     return [
         "ssh",
@@ -69,10 +69,10 @@ def _format_result(host, returncode, stdout, stderr):
     return stdout or "[пустой stdout]"
 
 
-def main(host, port="22", command: str = "uname -a"):
+def main(host, port="22", command: str = "uname -a", key_path=None):
     import subprocess
 
-    cmd = _build_ssh_cmd(host, port, command)
+    cmd = _build_ssh_cmd(host, port, command, key_path=key_path)
 
     try:
         result = subprocess.run(
@@ -91,13 +91,13 @@ def main(host, port="22", command: str = "uname -a"):
         return f"Error: {e}"
 
 
-async def async_main(host, port="22", command: str = "uname -a"):
+async def async_main(host, port="22", command: str = "uname -a", key_path=None):
     """Async version of SSH command execution.
 
     Runs the SSH subprocess via asyncio and supports cancellation:
     cancelling the surrounding asyncio.Task terminates the subprocess.
     """
-    cmd = _build_ssh_cmd(host, port, command)
+    cmd = _build_ssh_cmd(host, port, command, key_path=key_path)
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -108,8 +108,20 @@ async def async_main(host, port="22", command: str = "uname -a"):
     except Exception as e:
         return f"Error: {e}"
 
+    SSH_COMMAND_TIMEOUT = 60  # seconds; covers the remote command execution after connect
+
+    async def _communicate():
+        return await proc.communicate()
+
     try:
-        stdout_bytes, stderr_bytes = await proc.communicate()
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(_communicate(), timeout=SSH_COMMAND_TIMEOUT)
+    except asyncio.TimeoutError:
+        proc.kill()
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=2)
+        except asyncio.TimeoutError:
+            pass
+        return f"[ERROR] host={host}\nSSH command timed out after {SSH_COMMAND_TIMEOUT}s"
     except asyncio.CancelledError:
         proc.kill()
         try:

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { apiGetClient, apiPostClient, fetchReportFile } from "@/lib/api";
+import { apiGetClient, apiPostClient, fetchReportFile } from "@/lib/api-client";
 import { formatDate } from "@/lib/utils";
 import { useToast } from "@/components/Toast";
 import { OutputModal } from "@/components/Modal";

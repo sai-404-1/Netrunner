@@ -16,6 +16,7 @@ class User(BaseModel):
     password_hash: str = ''
     is_active: int = 1
     is_superuser: int = 0
+    role: str = 'user'
     token: str | None = None
     created_at: str = ''
     updated_at: str = ''

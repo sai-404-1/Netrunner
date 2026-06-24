@@ -1,11 +1,21 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any
+
+_SAFE_IDENT_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*( (ASC|DESC))?$', re.IGNORECASE)
 
 
 def utcnow_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _safe_ident(name: str) -> str:
+    """Validate that a SQL identifier/order expression is safe (no injection)."""
+    if not _SAFE_IDENT_RE.match(name.strip()):
+        raise ValueError(f"Unsafe SQL identifier: {name!r}")
+    return name.strip()
 
 
 class BaseRepository:
@@ -29,7 +39,8 @@ class BaseRepository:
         return cur.fetchall()
 
     def all(self, order_by: str = 'id'):
-        rows = self._fetchall(f'SELECT * FROM {self.table_name} ORDER BY {order_by}')
+        safe_order = _safe_ident(order_by)
+        rows = self._fetchall(f'SELECT * FROM {self.table_name} ORDER BY {safe_order}')
         return [self._row_to_model(row) for row in rows]
 
     def get(self, item_id: int):
@@ -39,7 +50,8 @@ class BaseRepository:
     def filter(self, **filters):
         if not filters:
             return self.all()
-        where = ' AND '.join(f'{key} = ?' for key in filters.keys())
+        safe_keys = [_safe_ident(k) for k in filters.keys()]
+        where = ' AND '.join(f'{k} = ?' for k in safe_keys)
         rows = self._fetchall(
             f'SELECT * FROM {self.table_name} WHERE {where} ORDER BY id',
             tuple(filters.values()),
@@ -49,7 +61,8 @@ class BaseRepository:
     def get_one_by(self, **filters):
         if not filters:
             raise ValueError('get_one_by() requires at least one filter')
-        where = ' AND '.join(f'{key} = ?' for key in filters.keys())
+        safe_keys = [_safe_ident(k) for k in filters.keys()]
+        where = ' AND '.join(f'{k} = ?' for k in safe_keys)
         row = self._fetchone(
             f'SELECT * FROM {self.table_name} WHERE {where} LIMIT 1',
             tuple(filters.values()),
@@ -60,17 +73,18 @@ class BaseRepository:
         return self.get_one_by(**filters) is not None
 
     def create(self, **data):
-        columns = list(data.keys())
+        columns = [_safe_ident(c) for c in data.keys()]
         placeholders = ', '.join('?' for _ in columns)
         query = f"INSERT INTO {self.table_name} ({', '.join(columns)}) VALUES ({placeholders})"
-        cur = self.conn.execute(query, tuple(data[col] for col in columns))
+        cur = self.conn.execute(query, tuple(data[col] for col in data.keys()))
         self.conn.commit()
         return self.get(cur.lastrowid)
 
     def update(self, item_id: int, **data):
         if not data:
             return self.get(item_id)
-        assignments = ', '.join(f'{key} = ?' for key in data.keys())
+        safe_keys = [_safe_ident(k) for k in data.keys()]
+        assignments = ', '.join(f'{k} = ?' for k in safe_keys)
         query = f'UPDATE {self.table_name} SET {assignments} WHERE id = ?'
         self.conn.execute(query, tuple(data.values()) + (item_id,))
         self.conn.commit()

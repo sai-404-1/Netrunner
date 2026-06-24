@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { apiGetClient, apiPostClient } from "@/lib/api";
+import { apiGetClient, apiPostClient } from "@/lib/api-client";
 import { formatDate } from "@/lib/utils";
 import { BooleanBadge } from "@/components/Badge";
 import { DataTable } from "@/components/DataTable";

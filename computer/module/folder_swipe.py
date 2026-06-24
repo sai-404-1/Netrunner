@@ -7,8 +7,8 @@ from config import *
 from .executor_ssh import _ssh_common_options
 
 
-def _build_ssh_cmd(host, port, remote_command):
-    key_file = Path(KEY_PATH) / KEY_NAME
+def _build_ssh_cmd(host, port, remote_command, key_path=None):
+    key_file = Path(key_path) if key_path else Path(KEY_PATH) / KEY_NAME
     return [
         "ssh",
         "-p", str(port),
@@ -19,32 +19,32 @@ def _build_ssh_cmd(host, port, remote_command):
     ]
 
 
-def main(host, port="22", dir="$HOME"):
-    # Do not shadow the builtin dir(); quote the user-provided path for the
-    # remote shell to avoid command injection.
+def main(host, port="22", dir="$HOME", key_path=None):
     target_dir = shlex.quote(dir)
     try:
         result = subprocess.run(
-            _build_ssh_cmd(host, port, f"sudo rm -rf {target_dir}"),
+            _build_ssh_cmd(host, port, f"sudo rm -rf {target_dir}", key_path=key_path),
             capture_output=True,
             text=True,
+            timeout=30,
         )
         print(f"Deleting folder is {'success' if result.returncode == 0 else 'failure'}")
+        # Use $(id -un) to get the current remote user instead of a hardcoded account.
         result = subprocess.run(
-            _build_ssh_cmd(host, port, f"sudo mkdir {target_dir} || sudo chown -R rmk:rmk {target_dir}"),
+            _build_ssh_cmd(host, port, f"sudo mkdir -p {target_dir} && sudo chown -R $(id -un):$(id -gn) {target_dir}", key_path=key_path),
             capture_output=True,
             text=True,
+            timeout=30,
         )
-        print(f"Changing law is {'success' if result.returncode == 0 else 'failure'}")
+        print(f"Changing ownership is {'success' if result.returncode == 0 else 'failure'}")
+    except subprocess.TimeoutExpired:
+        print("Error: SSH command timed out")
     except Exception as e:
         print(f"Error was when key installing: {e}")
 
 
 if __name__ == "__main__":
-    # TODO добавить валидацию
     with open("ips.txt") as f:
-        file = f.read()
-        hosts = file.split("\n")
-        print(f"{file}\n")
-    for host in hosts:
-        main(host)
+        hosts = [h.strip() for h in f if h.strip()]
+    for h in hosts:
+        main(h)

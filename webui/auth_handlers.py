@@ -26,6 +26,10 @@ def _ctx(request: web.Request):
     return request.app["ctx"]
 
 
+def _db(request: web.Request):
+    return request.app["ctx"].db
+
+
 def _auth_service(request: web.Request):
     return request.app["auth_service"]
 
@@ -41,6 +45,23 @@ def _json_response(data: Any, status: int = 200) -> web.Response:
 
 
 async def api_register(request: web.Request) -> web.Response:
+    db = _db(request)
+    if db.users.all():
+        auth = _auth_service(request)
+        token = ""
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+        if not token:
+            token = request.query.get("token", "")
+        if not token:
+            token = request.cookies.get("netrunner_token", "")
+        caller = auth.me(token)
+        if not caller or not caller.get("is_superuser"):
+            return _json_response(
+                {"ok": False, "error": "Registration is closed. Contact an administrator."},
+                status=403,
+            )
     payload = await _read_json(request)
     auth = _auth_service(request)
     result = auth.register(

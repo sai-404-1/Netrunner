@@ -3,7 +3,7 @@
 import { createContext, ReactNode, useContext, useEffect, useState } from "react";
 
 interface AuthContextType {
-  user: { id: number; username: string; email?: string; is_superuser?: boolean } | null;
+  user: { id: number; username: string; is_superuser?: boolean; role?: "user" | "teacher" } | null;
   loading: boolean;
   login: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   logout: () => Promise<void>;
@@ -22,7 +22,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/python/me", { credentials: "include" })
+    fetch("/api/python/api/me", { credentials: "include" })
       .then((r) => r.json())
       .then((data) => {
         if (data.ok) setUser(data.user);

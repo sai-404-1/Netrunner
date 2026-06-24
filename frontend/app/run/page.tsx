@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { apiGetClient, apiPostClient } from "@/lib/api";
+import { apiGetClient, apiPostClient } from "@/lib/api-client";
 import { useToast } from "@/components/Toast";
 import { OutputModal } from "@/components/Modal";
 import { X, Maximize2 } from "lucide-react";
@@ -30,6 +30,7 @@ interface Module {
   name: string;
   slug: string;
   supports_task_runner?: boolean;
+  schema_json?: string;
 }
 
 interface TaskRun {
@@ -40,21 +41,50 @@ interface TaskRun {
   per_host_json?: string;
 }
 
+interface SelectOption {
+  value: string;
+  label: string;
+}
+
+interface Placeholder {
+  name: string;
+  label: string;
+  default: string;
+  type: string;
+  options: SelectOption[];
+}
+
+function parsePlaceholders(schema_json?: string): Placeholder[] {
+  if (!schema_json) return [];
+  try {
+    const schema = JSON.parse(schema_json);
+    return (schema.placeholders || []).map(([name, label, def, type, options]: any) => ({
+      name,
+      label,
+      default: String(def ?? ""),
+      type: type || "text",
+      options: (options || []).map((o: any) =>
+        Array.isArray(o) ? { value: String(o[0]), label: String(o[1]) } : { value: String(o), label: String(o) }
+      ),
+    }));
+  } catch {
+    return [];
+  }
+}
+
 function RunForm() {
   const showToast = useToast();
   const params = useSearchParams();
   const preselected = params.get("module") || "";
+  const preselectedHost = params.get("host") || "";
 
   const [modules, setModules] = useState<Module[]>([]);
   const [hosts, setHosts] = useState<Host[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [moduleSlug, setModuleSlug] = useState(preselected);
   const [targetType, setTargetType] = useState<"host" | "group">("host");
-  const [targetId, setTargetId] = useState("");
-  const [command, setCommand] = useState("");
-  const [aptAction, setAptAction] = useState("update");
-  const [aptPackages, setAptPackages] = useState("");
-  const [aptSudoPassword, setAptSudoPassword] = useState("");
+  const [targetId, setTargetId] = useState(preselectedHost);
+  const [dynArgs, setDynArgs] = useState<Record<string, string>>({});
   const [run, setRun] = useState<TaskRun | null>(null);
   const [polling, setPolling] = useState(false);
   const [outputModal, setOutputModal] = useState(false);
@@ -62,7 +92,11 @@ function RunForm() {
   const pollTimer = useRef<NodeJS.Timeout | null>(null);
 
   async function load() {
-    const [m, h, g] = await Promise.all([apiGetClient("/api/modules"), apiGetClient("/api/hosts"), apiGetClient("/api/groups")]);
+    const [m, h, g] = await Promise.all([
+      apiGetClient("/api/modules"),
+      apiGetClient("/api/hosts"),
+      apiGetClient("/api/groups"),
+    ]);
     const runnable = (m || []).filter((x: Module) => x.supports_task_runner);
     setModules(runnable);
     setHosts(h || []);
@@ -74,36 +108,37 @@ function RunForm() {
     }
   }
 
-  useEffect(() => {
-    load();
-  }, []);
+  useEffect(() => { load(); }, []);
 
   useEffect(() => {
     const targets = targetType === "host" ? hosts : groups;
     if (targets.length && !targetId) setTargetId(String(targets[0].id));
   }, [targetType, hosts, groups]);
 
+  // Reset dynamic args to defaults when module changes
+  useEffect(() => {
+    const m = modules.find((mod) => mod.slug === moduleSlug);
+    const placeholders = parsePlaceholders(m?.schema_json);
+    const defaults: Record<string, string> = {};
+    for (const p of placeholders) defaults[p.name] = p.default;
+    setDynArgs(defaults);
+  }, [moduleSlug, modules]);
+
   function connectWs(runId: number) {
     const wsUrl = `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/api/python/ws`;
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ action: "subscribe", run_id: runId }));
-    };
+    ws.onopen = () => ws.send(JSON.stringify({ action: "subscribe", run_id: runId }));
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         if (data.type === "task_status" && data.run) {
           setRun(data.run);
-          if (data.run.status !== "running" && data.run.status !== "pending") {
-            ws.close();
-          }
+          if (data.run.status !== "running" && data.run.status !== "pending") ws.close();
         }
       } catch {}
     };
-    ws.onclose = () => {
-      wsRef.current = null;
-    };
+    ws.onclose = () => { wsRef.current = null; };
   }
 
   async function pollStatus(runId: number) {
@@ -123,20 +158,12 @@ function RunForm() {
 
   async function startRun(e: React.FormEvent) {
     e.preventDefault();
-    const args: any = {};
-    if (moduleSlug === "mass_ssh") {
-      args.command = command || "uname -a";
-    } else if (moduleSlug === "apt_package_manager") {
-      args.action = aptAction;
-      args.packages = aptPackages || "";
-      args.sudo_password = aptSudoPassword || null;
-    }
     try {
       const result = await apiPostClient("/api/run", {
         module_slug: moduleSlug,
         target_type: targetType,
         target_id: Number(targetId),
-        args,
+        args: dynArgs,
       });
       setRun({ id: result.run_id, status: "pending" });
       setPolling(true);
@@ -152,11 +179,8 @@ function RunForm() {
     if (!run) return;
     try {
       const result = await apiPostClient(`/api/run/${run.id}/cancel`, {});
-      if (result.cancelled) {
-        showToast("Задача отменена");
-      } else {
-        showToast("Задача уже не активна", "error");
-      }
+      if (result.cancelled) showToast("Задача отменена");
+      else showToast("Задача уже не активна", "error");
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -168,6 +192,9 @@ function RunForm() {
       if (pollTimer.current) clearTimeout(pollTimer.current);
     };
   }, []);
+
+  const activeModule = modules.find((m) => m.slug === moduleSlug);
+  const placeholders = parsePlaceholders(activeModule?.schema_json);
 
   const perHost = run?.per_host_json ? JSON.parse(run.per_host_json) : [];
   const output = [run?.stdout_text || "", run?.stderr_text ? `--- stderr ---\n${run.stderr_text}` : ""]
@@ -183,74 +210,102 @@ function RunForm() {
 
       <div className="panel">
         <h3 className="font-semibold mb-4">Запуск модуля</h3>
-        <form onSubmit={startRun} className="grid lg:grid-cols-4 gap-4 items-end">
-          <label className="label">
-            Модуль
-            <select className="input" value={moduleSlug} onChange={(e) => setModuleSlug(e.target.value)}>
-              {modules.map((m) => (
-                <option key={m.slug} value={m.slug}>
-                  {m.name} ({m.slug})
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="label">
-            Тип цели
-            <select className="input" value={targetType} onChange={(e) => setTargetType(e.target.value as any)}>
-              <option value="host">Хост</option>
-              <option value="group">Группа</option>
-            </select>
-          </label>
-          <label className="label">
-            Цель
-            <select className="input" value={targetId} onChange={(e) => setTargetId(e.target.value)}>
-              {(targetType === "host" ? hosts : groups).map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} #{t.id}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="flex gap-3">
-            <button className="btn" type="submit" disabled={polling}>
-              Запустить
-            </button>
-            {run && (run.status === "running" || run.status === "pending") && (
-              <button type="button" className="btn-danger" onClick={cancelRun}>
-                <X size={16} /> Отменить
-              </button>
-            )}
-          </div>
-        </form>
-
-        {moduleSlug === "mass_ssh" && (
-          <label className="label block mt-4">
-            Команда для mass_ssh
-            <textarea className="input" rows={3} value={command} onChange={(e) => setCommand(e.target.value)} placeholder="uname -a" />
-          </label>
-        )}
-
-        {moduleSlug === "apt_package_manager" && (
-          <div className="grid md:grid-cols-3 gap-4 mt-4">
+        <form onSubmit={startRun} className="space-y-4">
+          <div className="grid lg:grid-cols-4 gap-4 items-end">
             <label className="label">
-              Action
-              <select className="input" value={aptAction} onChange={(e) => setAptAction(e.target.value)}>
-                <option value="update">Обновить список пакетов</option>
-                <option value="install">Установить</option>
-                <option value="remove">Удалить</option>
-                <option value="autoremove">Автоочистка</option>
+              Модуль
+              <select className="input" value={moduleSlug} onChange={(e) => setModuleSlug(e.target.value)}>
+                {modules.map((m) => (
+                  <option key={m.slug} value={m.slug}>
+                    {m.name} ({m.slug})
+                  </option>
+                ))}
               </select>
             </label>
             <label className="label">
-              Пакеты
-              <input className="input" value={aptPackages} onChange={(e) => setAptPackages(e.target.value)} placeholder="htop vim nginx" />
+              Тип цели
+              <select className="input" value={targetType} onChange={(e) => setTargetType(e.target.value as any)}>
+                <option value="host">Хост</option>
+                <option value="group">Группа</option>
+              </select>
             </label>
             <label className="label">
-              Пароль sudo
-              <input className="input" type="password" value={aptSudoPassword} onChange={(e) => setAptSudoPassword(e.target.value)} placeholder="опционально" />
+              Цель
+              <select className="input" value={targetId} onChange={(e) => setTargetId(e.target.value)}>
+                {(targetType === "host" ? hosts : groups).map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} #{t.id}
+                  </option>
+                ))}
+              </select>
             </label>
+            <div className="flex gap-3">
+              <button className="btn" type="submit" disabled={polling}>
+                Запустить
+              </button>
+              {run && (run.status === "running" || run.status === "pending") && (
+                <button type="button" className="btn-danger" onClick={cancelRun}>
+                  <X size={16} /> Отменить
+                </button>
+              )}
+            </div>
           </div>
-        )}
+
+          {placeholders.length > 0 && (
+            <div className="grid md:grid-cols-2 gap-4 pt-2 border-t border-gray-100">
+              {placeholders.map((p) => (
+                <label key={p.name} className={`label${p.type === "textarea" ? " md:col-span-2" : ""}`}>
+                  {p.label}
+                  {p.type === "textarea" ? (
+                    <textarea
+                      className="input font-mono"
+                      rows={3}
+                      value={dynArgs[p.name] ?? p.default}
+                      onChange={(e) => setDynArgs((prev) => ({ ...prev, [p.name]: e.target.value }))}
+                      placeholder={p.default}
+                    />
+                  ) : p.type === "radio" ? (
+                    <div className="flex gap-4 flex-wrap mt-1">
+                      {p.options.map((o) => (
+                        <label key={o.value} className="flex items-center gap-1.5 cursor-pointer text-sm">
+                          <input
+                            type="radio"
+                            name={p.name}
+                            value={o.value}
+                            checked={(dynArgs[p.name] ?? p.default) === o.value}
+                            onChange={() => setDynArgs((prev) => ({ ...prev, [p.name]: o.value }))}
+                            className="accent-blue-600"
+                          />
+                          {o.label}
+                        </label>
+                      ))}
+                    </div>
+                  ) : p.type === "select" ? (
+                    <select
+                      className="input"
+                      value={dynArgs[p.name] ?? p.default}
+                      onChange={(e) => setDynArgs((prev) => ({ ...prev, [p.name]: e.target.value }))}
+                    >
+                      {p.options.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      className="input"
+                      type={p.type === "password" ? "password" : "text"}
+                      value={dynArgs[p.name] ?? p.default}
+                      onChange={(e) => setDynArgs((prev) => ({ ...prev, [p.name]: e.target.value }))}
+                      placeholder={p.default}
+                    />
+                  )}
+                </label>
+              ))}
+            </div>
+          )}
+        </form>
       </div>
 
       <div className="panel">
@@ -287,7 +342,11 @@ function RunForm() {
       </div>
 
       {outputModal && run && (
-        <OutputModal text={output || `Задача #${run.id} завершена со статусом ${run.status}`} title={`Результат запуска #${run.id}`} onClose={() => setOutputModal(false)} />
+        <OutputModal
+          text={output || `Задача #${run.id} завершена со статусом ${run.status}`}
+          title={`Результат запуска #${run.id}`}
+          onClose={() => setOutputModal(false)}
+        />
       )}
     </div>
   );

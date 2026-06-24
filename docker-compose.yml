@@ -1,12 +1,11 @@
 services:
-  # Главный сервер NetRunner с Next.js frontend и Python backend
   netrunner:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: netrunner
     ports:
-      - "3000:3000"
+      - "3001:3000"
     volumes:
       - netrunner_data:/app/data
       - netrunner_keys:/app/keys
@@ -15,61 +14,9 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
-    networks:
-      - netrunner_net
-    depends_on:
-      - host-1
-      - host-2
-      - host-3
-
-  # Тестовый хост 1
-  host-1:
-    image: alpine:3.20
-    container_name: netrunner-host-1
-    hostname: host-1
-    volumes:
-      - netrunner_keys:/keys:ro
-      - ./host_startup.sh:/host_startup.sh:ro
-    command: ["/bin/sh", "/host_startup.sh"]
-    networks:
-      - netrunner_net
-    ports:
-      - "2221:22"
-
-  # Тестовый хост 2
-  host-2:
-    image: alpine:3.20
-    container_name: netrunner-host-2
-    hostname: host-2
-    volumes:
-      - netrunner_keys:/keys:ro
-      - ./host_startup.sh:/host_startup.sh:ro
-    command: ["/bin/sh", "/host_startup.sh"]
-    networks:
-      - netrunner_net
-    ports:
-      - "2222:22"
-
-  # Тестовый хост 3
-  host-3:
-    image: alpine:3.20
-    container_name: netrunner-host-3
-    hostname: host-3
-    volumes:
-      - netrunner_keys:/keys:ro
-      - ./host_startup.sh:/host_startup.sh:ro
-    command: ["/bin/sh", "/host_startup.sh"]
-    networks:
-      - netrunner_net
-    ports:
-      - "2223:22"
 
 volumes:
   netrunner_data:
   netrunner_keys:
   netrunner_reports:
   netrunner_modules:
-
-networks:
-  netrunner_net:
-    driver: bridge

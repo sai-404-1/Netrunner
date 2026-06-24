@@ -15,6 +15,9 @@ from .repos.inventory_repo import InventoryRepo
 from .repos.schedule_repo import ScheduledTaskRepo
 from .repos.report_repo import ReportRepo
 from .repos.user_repo import UserRepo
+from .repos.user_module_access_repo import UserModuleAccessRepo
+from .repos.user_group_access_repo import UserGroupAccessRepo
+from .repos.board_repo import BoardRepo
 
 
 class Database:
@@ -33,6 +36,9 @@ class Database:
         self.scheduled = ScheduledTaskRepo(self.conn)
         self.reports = ReportRepo(self.conn)
         self.users = UserRepo(self.conn)
+        self.user_module_access = UserModuleAccessRepo(self.conn)
+        self.user_group_access = UserGroupAccessRepo(self.conn)
+        self.boards = BoardRepo(self.conn)
 
         self._model_map = {
             'ssh_keys': self.ssh_keys,
@@ -45,6 +51,9 @@ class Database:
             'scheduled_tasks': self.scheduled,
             'reports': self.reports,
             'users': self.users,
+            'user_module_access': self.user_module_access,
+            'user_group_access': self.user_group_access,
+            'boards': self.boards,
         }
 
     def model(self, name: str):

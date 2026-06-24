@@ -206,6 +206,31 @@ class UserModule:
     async def _read_current_user_async(self, computer) -> str:
         return self._clean_value(await self._ssh_read_async(computer, 'whoami 2>/dev/null'))
 
+    _PACKAGE_COUNT_CMD = (
+        "("
+        "dpkg -l 2>/dev/null | grep -c '^ii' || "
+        "rpm -qa 2>/dev/null | wc -l || "
+        "apk list --installed 2>/dev/null | wc -l || "
+        "echo 0"
+        ") 2>/dev/null | tail -1"
+    )
+
+    def _read_package_count(self, computer) -> int | None:
+        value = self._clean_value(self._ssh_read(computer, self._PACKAGE_COUNT_CMD))
+        try:
+            n = int(value)
+            return n if n > 0 else None
+        except Exception:
+            return None
+
+    async def _read_package_count_async(self, computer) -> int | None:
+        value = self._clean_value(await self._ssh_read_async(computer, self._PACKAGE_COUNT_CMD))
+        try:
+            n = int(value)
+            return n if n > 0 else None
+        except Exception:
+            return None
+
     def _to_int(self, value, default=0):
         try:
             return int(str(value).strip())
@@ -219,6 +244,7 @@ class UserModule:
             return default
 
     def run(self, context, targets, **kwargs):
+        import json as _json
         inventory_items = []
         summary_lines = []
 
@@ -231,6 +257,20 @@ class UserModule:
             ram_mb = self._read_ram_mb(computer)
             disk_total_gb, disk_used_gb, disk_free_gb, disks_count = self._read_disk_stats(computer)
             current_user = self._read_current_user(computer)
+            package_count = self._read_package_count(computer)
+
+            raw = {
+                "hostname": hostname,
+                "os_name": os_name,
+                "kernel": kernel,
+                "ram_mb": ram_mb,
+                "disk_total_gb": disk_total_gb,
+                "disk_used_gb": disk_used_gb,
+                "disk_free_gb": disk_free_gb,
+                "disks_count": disks_count,
+                "current_user": current_user,
+                "package_count": package_count,
+            }
 
             item = {
                 "host_id": host.id,
@@ -244,8 +284,8 @@ class UserModule:
                 "disks_free_gb": self._to_float(disk_free_gb),
                 "disks_count": self._to_int(disks_count),
                 "current_user": current_user,
-                "package_count": None,
-                "raw_json": "",
+                "package_count": package_count,
+                "raw_json": _json.dumps(raw, ensure_ascii=False, default=str),
             }
             inventory_items.append(item)
 
@@ -280,6 +320,7 @@ class UserModule:
 
     async def run_for_host(self, context, host, **kwargs):
         """Per-host async execution used by TaskRunner."""
+        import json as _json
         computer = self._make_computer(context, host)
 
         hostname = await self._read_hostname_async(computer)
@@ -288,6 +329,20 @@ class UserModule:
         ram_mb = await self._read_ram_mb_async(computer)
         disk_total_gb, disk_used_gb, disk_free_gb, disks_count = await self._read_disk_stats_async(computer)
         current_user = await self._read_current_user_async(computer)
+        package_count = await self._read_package_count_async(computer)
+
+        raw = {
+            "hostname": hostname,
+            "os_name": os_name,
+            "kernel": kernel,
+            "ram_mb": ram_mb,
+            "disk_total_gb": disk_total_gb,
+            "disk_used_gb": disk_used_gb,
+            "disk_free_gb": disk_free_gb,
+            "disks_count": disks_count,
+            "current_user": current_user,
+            "package_count": package_count,
+        }
 
         item = {
             "host_id": host.id,
@@ -301,8 +356,8 @@ class UserModule:
             "disks_free_gb": self._to_float(disk_free_gb),
             "disks_count": self._to_int(disks_count),
             "current_user": current_user,
-            "package_count": None,
-            "raw_json": "",
+            "package_count": package_count,
+            "raw_json": _json.dumps(raw, ensure_ascii=False, default=str),
         }
 
         summary = (
