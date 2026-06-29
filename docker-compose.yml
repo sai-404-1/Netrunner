@@ -11,6 +11,7 @@ services:
       - netrunner_keys:/app/keys
       - netrunner_reports:/app/reports
       - netrunner_modules:/app/modules
+      - netrunner_uploads:/app/uploads
     environment:
       - PYTHONUNBUFFERED=1
     restart: unless-stopped
@@ -20,3 +21,4 @@ volumes:
   netrunner_keys:
   netrunner_reports:
   netrunner_modules:
+  netrunner_uploads:

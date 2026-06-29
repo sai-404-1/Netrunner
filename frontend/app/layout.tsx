@@ -1,10 +1,16 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import Providers from "@/components/Providers";
 
 export const metadata: Metadata = {
   title: "NetRunner Web Console",
   description: "NetRunner management console",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 0.75,
+  maximumScale: 1.5,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -32,6 +32,7 @@ import re
 import subprocess
 import sys
 import traceback
+import uuid
 import webbrowser
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
@@ -191,9 +192,28 @@ async def api_summary(request: web.Request) -> web.Response:
     task_runs = db.task_runs.list_recent(10)
     inventory = db.inventory.all(order_by="collected_at DESC")
     reports = db.reports.latest(5)
+
+    # Per-group stats
+    all_hosts = db.hosts.all()
+    all_groups = db.groups.all()
+    group_stats = []
+    for group in all_groups:
+        hosts = db.groups.hosts(group.id)
+        total = len(hosts)
+        online = sum(1 for h in hosts if getattr(h, 'is_active', False))
+        group_stats.append({
+            "id": group.id,
+            "name": group.name,
+            "kind": group.kind,
+            "total": total,
+            "online": online,
+            "offline": total - online,
+        })
+
     data = {
-        "hosts": len(db.hosts.all()),
-        "groups": len(db.groups.all()),
+        "hosts": len(all_hosts),
+        "hosts_online": sum(1 for h in all_hosts if h.is_active),
+        "groups": len(all_groups),
         "modules": len(db.modules.all()),
         "task_runs": len(db.task_runs.all()),
         "inventory": len(inventory),
@@ -202,6 +222,7 @@ async def api_summary(request: web.Request) -> web.Response:
         "recent_task_runs": task_runs,
         "latest_inventory": inventory[:5],
         "latest_reports": reports,
+        "group_stats": group_stats,
     }
     return _ok(data)
 
@@ -253,10 +274,15 @@ async def api_modules(request: web.Request) -> web.Response:
     for row in db.modules.all():
         if row.id in denied_ids:
             continue
-        item = model_to_dict(row)
         runtime = runtime_modules.get(row.slug)
+        admin_only = bool(getattr(runtime.instance, "admin_only", False)) if runtime else False
+        # Модули «только для админа» обычным пользователям не показываем.
+        if admin_only and not (user and user.get("is_superuser")):
+            continue
+        item = model_to_dict(row)
         item["supports_task_runner"] = bool(runtime and runtime.supports_task_runner)
         item["web_ui_visible"] = getattr(runtime, "web_ui_visible", True) if runtime else True
+        item["admin_only"] = admin_only
         modules.append(item)
     return _ok(modules)
 
@@ -271,11 +297,25 @@ async def api_task_runs(request: web.Request) -> web.Response:
 
 
 async def api_task_run_status(request: web.Request) -> web.Response:
+    ctx = _ctx(request)
     run_id = _safe_int(request.match_info["id"])
-    run = _ctx(request).db.task_runs.get(run_id)
+    run = ctx.db.task_runs.get(run_id)
     if run is None:
         return _error("Task run not found", status=404)
-    return _ok(model_to_dict(run))
+    data = model_to_dict(run)
+    # Прогресс: сколько хостов уже обработано из общего числа целей.
+    done = 0
+    if run.per_host_json:
+        try:
+            done = len(json.loads(run.per_host_json))
+        except Exception:
+            done = 0
+    try:
+        total = len(ctx.host_service.resolve_targets(run.target_type, run.target_id))
+    except Exception:
+        total = 0
+    data["progress"] = {"done": done, "total": total}
+    return _ok(data)
 
 
 async def api_inventory(request: web.Request) -> web.Response:
@@ -442,6 +482,112 @@ async def api_hosts_reprovision(request: web.Request) -> web.Response:
     return _ok({"host": item, "is_active": check.get("is_active")})
 
 
+# ---------------------------------------------------------------------------
+# Загруженные файлы (для модуля рассылки файлов). Только для администратора.
+# ---------------------------------------------------------------------------
+
+def _require_admin(request: web.Request) -> bool:
+    user = request.get("auth_user")
+    return bool(user and user.get("is_superuser"))
+
+
+def _uploads_dir() -> Path:
+    try:
+        from config import UPLOADS_PATH
+    except Exception:
+        UPLOADS_PATH = "uploads"
+    directory = Path(UPLOADS_PATH)
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def _upload_to_dict(row) -> dict:
+    return {
+        "id": row.id,
+        "name": row.original_name,
+        "size_bytes": row.size_bytes,
+        "uploaded_by": row.uploaded_by,
+        "created_at": row.created_at,
+    }
+
+
+async def api_uploads_list(request: web.Request) -> web.Response:
+    if not _require_admin(request):
+        return _error("Только для администратора", status=403)
+    rows = _ctx(request).db.uploaded_files.recent(500)
+    return _ok([_upload_to_dict(r) for r in rows])
+
+
+async def api_uploads_create(request: web.Request) -> web.Response:
+    if not _require_admin(request):
+        return _error("Только для администратора", status=403)
+    ctx = _ctx(request)
+    user = request.get("auth_user")
+    uploaded_by = user.get("username") if user else None
+    uploads_dir = _uploads_dir()
+
+    reader = await request.multipart()
+    saved = []
+    async for part in reader:
+        filename = part.filename
+        if not filename:
+            await part.read()  # сливаем не-файловые поля
+            continue
+        safe = Path(filename).name or "file"
+        target = uploads_dir / f"{uuid.uuid4().hex}_{safe}"
+        size = 0
+        with target.open("wb") as fh:
+            while True:
+                chunk = await part.read_chunk()
+                if not chunk:
+                    break
+                size += len(chunk)
+                fh.write(chunk)
+        row = ctx.db.uploaded_files.create(
+            original_name=safe,
+            stored_path=str(target),
+            size_bytes=size,
+            uploaded_by=uploaded_by,
+        )
+        saved.append(_upload_to_dict(row))
+
+    if not saved:
+        return _error("Файлы не получены", status=400)
+    return _ok(saved)
+
+
+async def api_uploads_download(request: web.Request) -> web.Response:
+    if not _require_admin(request):
+        return _error("Только для администратора", status=403)
+    row = _ctx(request).db.uploaded_files.get(_safe_int(request.match_info["id"]))
+    if not row:
+        return _error("Файл не найден", status=404)
+    target = Path(row.stored_path)
+    if not target.exists():
+        return _error("Файл отсутствует на диске", status=404)
+    return web.FileResponse(
+        target,
+        headers={"Content-Disposition": f'attachment; filename="{row.original_name}"'},
+    )
+
+
+async def api_uploads_delete(request: web.Request) -> web.Response:
+    if not _require_admin(request):
+        return _error("Только для администратора", status=403)
+    ctx = _ctx(request)
+    payload = await _read_json(request)
+    file_id = _safe_int(payload.get("id"))
+    row = ctx.db.uploaded_files.get(file_id)
+    if not row:
+        return _error("Файл не найден", status=404)
+    try:
+        Path(row.stored_path).unlink(missing_ok=True)
+    except OSError:
+        pass
+    ctx.db.uploaded_files.delete(file_id)
+    return _ok({"deleted": file_id})
+
+
 async def api_groups_create(request: web.Request) -> web.Response:
     import sqlite3 as _sqlite3
     ctx = _ctx(request)
@@ -504,6 +650,14 @@ async def api_run(request: web.Request) -> web.Response:
         return _error(f"Module '{module_slug}' not found", status=404)
 
     user = request.get("auth_user")
+    # Модули «только для админа» запускает лишь суперпользователь.
+    try:
+        runtime = ctx.module_registry.get(module_slug)
+    except KeyError:
+        runtime = None
+    if runtime and getattr(runtime.instance, "admin_only", False):
+        if not (user and user.get("is_superuser")):
+            return _error("Этот модуль доступен только администратору", status=403)
     created_by = user.get("username") if user else None
     # Create a pending task-run row so the client can poll it immediately.
     task_run = ctx.db.task_runs.create(
@@ -1057,6 +1211,93 @@ async def error_middleware(request: web.Request, handler):
 # Application setup and server entry point
 # ---------------------------------------------------------------------------
 
+# ── Scenarios API ───────────────────────────────────────────────────────
+
+
+async def api_scenarios_list(request: web.Request) -> web.Response:
+    db = _ctx(request).db
+    scenarios = []
+    for sc in db.scenarios.all():
+        item = model_to_dict(sc)
+        item["steps"] = db.scenario_steps.by_scenario(sc.id)
+        item["step_count"] = len(item["steps"])
+        item["run_count"] = len(db.scenario_runs.by_scenario(sc.id))
+        scenarios.append(item)
+    return _ok(scenarios)
+
+
+async def api_scenarios_runs(request: web.Request) -> web.Response:
+    db = _ctx(request).db
+    runs = db.scenario_runs.all(order_by="id DESC")
+    query = request.query
+    limit = _safe_int(query.get("limit", 50), 50)
+    result = []
+    for r in runs[:limit]:
+        item = model_to_dict(r)
+        sc = db.scenarios.get(r.scenario_id)
+        item["scenario_name"] = sc.name if sc else f"#{r.scenario_id}"
+        step_runs = db.scenario_step_runs.by_run(r.id)
+        item["step_runs"] = step_runs
+        result.append(item)
+    return _ok(result)
+
+
+async def api_scenarios_create(request: web.Request) -> web.Response:
+    db = _ctx(request).db
+    payload = await _read_json(request)
+    now = utcnow_iso()
+    sc = db.scenarios.create(
+        name=str(payload.get("name", "")).strip(),
+        description=str(payload.get("description", "")).strip() or None,
+        target_type="group",
+        created_at=now,
+        updated_at=now,
+    )
+    steps_data = payload.get("steps", [])
+    for i, step_data in enumerate(steps_data, start=1):
+        db.scenario_steps.create(
+            scenario_id=sc.id,
+            module_id=_safe_int(step_data.get("module_id")),
+            step_order=i,
+            step_name=str(step_data.get("step_name", f"Шаг {i}")).strip(),
+            config_json=json.dumps(step_data.get("config", {}), ensure_ascii=False),
+            on_failure=str(step_data.get("on_failure", "stop")).strip(),
+            created_at=now,
+        )
+    return _ok(sc)
+
+
+async def api_scenarios_run(request: web.Request) -> web.Response:
+    ctx = _ctx(request)
+    payload = await _read_json(request)
+    scenario_id = _safe_int(payload.get("scenario_id"))
+    target_type = str(payload.get("target_type", "group")).strip()
+    target_id = _safe_int(payload.get("target_id"))
+
+    run = await ctx.scenario_runner.run_scenario_async(
+        scenario_id=scenario_id,
+        target_type=target_type,
+        target_id=target_id,
+        trigger_type="manual",
+    )
+    result = model_to_dict(run)
+    sc = ctx.db.scenarios.get(scenario_id)
+    result["scenario_name"] = sc.name if sc else f"#{scenario_id}"
+    step_runs = ctx.db.scenario_step_runs.by_run(run.id)
+    result["step_runs"] = step_runs
+
+    await _broadcast_task_update(request.app, run.id)
+    return _ok(result)
+
+
+async def api_scenarios_delete(request: web.Request) -> web.Response:
+    db = _ctx(request).db
+    payload = await _read_json(request)
+    scenario_id = _safe_int(payload.get("id"))
+    db.scenarios.delete(scenario_id)
+    return _ok({"deleted": scenario_id})
+
+
 def _build_app(app_context) -> web.Application:
     app = web.Application(middlewares=[auth_middleware, error_middleware])
     app["ctx"] = app_context
@@ -1095,6 +1336,10 @@ def _build_app(app_context) -> web.Application:
     app.router.add_post("/api/hosts/check", api_hosts_check)
     app.router.add_post("/api/hosts/check-all", api_hosts_check_all)
     app.router.add_post("/api/hosts/reprovision", api_hosts_reprovision)
+    app.router.add_get("/api/uploads", api_uploads_list)
+    app.router.add_post("/api/uploads", api_uploads_create)
+    app.router.add_get("/api/uploads/{id}/download", api_uploads_download)
+    app.router.add_post("/api/uploads/delete", api_uploads_delete)
     app.router.add_post("/api/groups", api_groups_create)
     app.router.add_post("/api/groups/update", api_groups_update)
     app.router.add_post("/api/groups/delete", api_groups_delete)
@@ -1135,10 +1380,106 @@ def _build_app(app_context) -> web.Application:
     app.router.add_post("/api/boards/{id}/delete", api_boards_delete)
     app.router.add_post("/api/boards/{id}/layout", api_boards_save_layout)
 
+    # Scenarios API
+    app.router.add_get("/api/scenarios", api_scenarios_list)
+    app.router.add_get("/api/scenarios/runs", api_scenarios_runs)
+    app.router.add_post("/api/scenarios", api_scenarios_create)
+    app.router.add_post("/api/scenarios/run", api_scenarios_run)
+    app.router.add_post("/api/scenarios/delete", api_scenarios_delete)
+
+    # Update API
+    app.router.add_get("/api/update/check", api_update_check)
+    app.router.add_get("/api/update/diff", api_update_diff)
+    app.router.add_post("/api/update/pull", api_update_pull)
+
     # WebSocket
     app.router.add_get("/ws", websocket_handler)
 
     return app
+
+
+
+async def api_update_check(request: web.Request) -> web.Response:
+    """Проверить наличие обновлений через git."""
+    RUNNER_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    try:
+        result = subprocess.run(
+            ["git", "fetch"],
+            cwd=RUNNER_DIR, capture_output=True, text=True, timeout=30
+        )
+        result2 = subprocess.run(
+            ["git", "rev-list", "--count", "HEAD..@{u}"],
+            cwd=RUNNER_DIR, capture_output=True, text=True, timeout=15
+        )
+        behind = result2.stdout.strip()
+        if behind and behind.isdigit() and int(behind) > 0:
+            log = subprocess.run(
+                ["git", "--no-pager", "log", "-1", "@{u}", "--pretty=%B"],
+                cwd=RUNNER_DIR, capture_output=True, text=True, timeout=15
+            )
+            diff = subprocess.run(
+                ["git", "diff", "--stat", "HEAD..@{u}"],
+                cwd=RUNNER_DIR, capture_output=True, text=True, timeout=15
+            )
+            return _ok({
+                "behind": int(behind),
+                "last_message": log.stdout.strip()[:500],
+                "diff_stats": diff.stdout.strip()[:2000],
+                "has_upstream": True,
+            })
+        elif behind and behind.isdigit() and int(behind) == 0:
+            return _ok({"behind": 0, "has_upstream": True, "message": "Всё актуально"})
+        else:
+            return _ok({"has_upstream": False, "message": "Нет upstream-ветки. Репа без пулла."})
+    except subprocess.TimeoutExpired:
+        return _ok({"error": "Таймаут git fetch"})
+    except Exception as e:
+        return _ok({"error": str(e)[:200]})
+
+
+async def api_update_diff(request: web.Request) -> web.Response:
+    """Показать diff того, что изменится."""
+    RUNNER_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    try:
+        subprocess.run(["git", "fetch"], cwd=RUNNER_DIR, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(
+            ["git", "diff", "HEAD..@{u}", "--stat"],
+            cwd=RUNNER_DIR, capture_output=True, text=True, timeout=15
+        )
+        result2 = subprocess.run(
+            ["git", "diff", "HEAD..@{u}", "-p", "--", "*.py", "*.ts", "*.tsx", "*.json", "*.sh", "Dockerfile", "*.yml"],
+            cwd=RUNNER_DIR, capture_output=True, text=True, timeout=15
+        )
+        changed_files = subprocess.run(
+            ["git", "diff", "--name-only", "HEAD..@{u}"],
+            cwd=RUNNER_DIR, capture_output=True, text=True, timeout=15
+        )
+        return _ok({
+            "stat": result.stdout.strip()[:3000],
+            "diff": result2.stdout.strip()[:15000],
+            "files": changed_files.stdout.strip()[:2000],
+        })
+    except Exception as e:
+        return _ok({"error": str(e)[:200]})
+
+
+async def api_update_pull(request: web.Request) -> web.Response:
+    """Применить обновления (git pull)."""
+    RUNNER_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    try:
+        result = subprocess.run(
+            ["git", "pull"],
+            cwd=RUNNER_DIR, capture_output=True, text=True, timeout=60
+        )
+        return _ok({
+            "stdout": result.stdout.strip()[:1000],
+            "stderr": result.stderr.strip()[:500],
+            "returncode": result.returncode,
+        })
+    except subprocess.TimeoutExpired:
+        return _ok({"error": "Таймаут git pull"})
+    except Exception as e:
+        return _ok({"error": str(e)[:200]})
 
 
 async def _periodic_ping(app: web.Application, interval: int):

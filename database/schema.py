@@ -203,6 +203,16 @@ CREATE TABLE IF NOT EXISTS user_module_access (
     FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_uma_user ON user_module_access (user_id);
+
+CREATE TABLE IF NOT EXISTS uploaded_files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    original_name TEXT NOT NULL,
+    stored_path TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL DEFAULT 0,
+    uploaded_by TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_uploaded_files_created_at ON uploaded_files (created_at DESC);
 """
 
 
@@ -271,6 +281,65 @@ CREATE TABLE IF NOT EXISTS board_hosts (
     UNIQUE(board_id, host_id)
 );
 CREATE INDEX IF NOT EXISTS idx_bh_board ON board_hosts (board_id);
+
+CREATE TABLE IF NOT EXISTS scenarios (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT,
+    target_type TEXT NOT NULL DEFAULT 'group',
+    target_id INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS scenario_steps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scenario_id INTEGER NOT NULL,
+    module_id INTEGER NOT NULL,
+    step_order INTEGER NOT NULL,
+    step_name TEXT,
+    config_json TEXT NOT NULL DEFAULT '{}',
+    depends_on_step_id INTEGER,
+    on_failure TEXT NOT NULL DEFAULT 'stop',
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (scenario_id) REFERENCES scenarios(id) ON DELETE CASCADE,
+    FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE,
+    FOREIGN KEY (depends_on_step_id) REFERENCES scenario_steps(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS scenario_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scenario_id INTEGER NOT NULL,
+    target_type TEXT NOT NULL,
+    target_id INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    started_at TEXT,
+    finished_at TEXT,
+    trigger_type TEXT NOT NULL DEFAULT 'manual',
+    FOREIGN KEY (scenario_id) REFERENCES scenarios(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS scenario_step_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scenario_run_id INTEGER NOT NULL,
+    step_id INTEGER NOT NULL,
+    host_id INTEGER NOT NULL,
+    module_id INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    output_text TEXT,
+    error_text TEXT,
+    exit_code INTEGER,
+    started_at TEXT,
+    finished_at TEXT,
+    FOREIGN KEY (scenario_run_id) REFERENCES scenario_runs(id) ON DELETE CASCADE,
+    FOREIGN KEY (step_id) REFERENCES scenario_steps(id) ON DELETE CASCADE,
+    FOREIGN KEY (host_id) REFERENCES hosts(id) ON DELETE CASCADE,
+    FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_scenario_steps_scenario ON scenario_steps (scenario_id);
+CREATE INDEX IF NOT EXISTS idx_scenario_runs_scenario ON scenario_runs (scenario_id);
+CREATE INDEX IF NOT EXISTS idx_scenario_step_runs_run ON scenario_step_runs (scenario_run_id);
 """)
 
 

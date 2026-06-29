@@ -14,6 +14,7 @@ class ModuleContext:
     logger: object
     task_run_id: int
     to_computer: object | None = None
+    db: object | None = None
 
 
 class TaskRunner:
@@ -137,6 +138,7 @@ class TaskRunner:
             logger=self.logger,
             task_run_id=task_run.id,
             to_computer=self.host_service.to_computer,
+            db=self.db,
         )
 
         current = asyncio.current_task()
@@ -245,44 +247,76 @@ class TaskRunner:
         Returns (per_host_results, inventory_items). Each completed host response is
         logged immediately via the context logger. Exceptions from individual hosts
         are recorded as failed results instead of failing the whole task.
+
+        Если у модуля задан атрибут ``max_parallel`` (> 0), число одновременно
+        обрабатываемых хостов ограничивается семафором — чтобы не нагружать сеть
+        (например, при рассылке файлов). Иначе все хосты обрабатываются сразу.
         """
+        max_parallel = getattr(instance, "max_parallel", None)
+        semaphore = (
+            asyncio.Semaphore(max_parallel)
+            if isinstance(max_parallel, int) and max_parallel > 0
+            else None
+        )
+
+        async def _run_limited(host):
+            # Исключения отдельного хоста превращаем в результат с ошибкой, чтобы не
+            # ронять всю задачу. Отмену (CancelledError) пробрасываем наверх.
+            try:
+                if semaphore is None:
+                    return await self._run_one_host(instance, context, host, args)
+                async with semaphore:
+                    return await self._run_one_host(instance, context, host, args)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self.logger.warning("Host %s (%s) failed: %s", host.name, host.address, exc)
+                return {
+                    "host_id": host.id,
+                    "name": host.name,
+                    "address": host.address,
+                    "port": host.port,
+                    "username": host.username,
+                    "output": f"[ERROR] {exc}",
+                }
+
         tasks = [
-            asyncio.create_task(
-                self._run_one_host(instance, context, host, args),
-                name=f"host-{host.id}",
-            )
+            asyncio.create_task(_run_limited(host), name=f"host-{host.id}")
             for host in targets
         ]
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
         per_host_results = []
         inventory_items = []
-        for host, result in zip(targets, results):
-            if isinstance(result, BaseException):
-                self.logger.warning(
-                    "Host %s (%s) failed: %s",
-                    host.name,
-                    host.address,
-                    result,
-                )
-                per_host_results.append(
-                    {
-                        "host_id": host.id,
-                        "name": host.name,
-                        "address": host.address,
-                        "port": host.port,
-                        "username": host.username,
-                        "output": f"[ERROR] {result}",
-                    }
-                )
-            else:
+        try:
+            # Обрабатываем хосты по мере готовности и после каждого сохраняем
+            # промежуточный результат — чтобы клиент видел прогресс при опросе статуса.
+            for coro in asyncio.as_completed(tasks):
+                result = await coro
                 per_host_results.append(result)
                 inventory_item = result.get("inventory_item")
                 if inventory_item is not None:
                     inventory_items.append(inventory_item)
+                self._save_progress(context.task_run_id, per_host_results)
+        except asyncio.CancelledError:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            raise
 
         return per_host_results, inventory_items
+
+    def _save_progress(self, task_run_id, per_host_results):
+        """Сохраняет промежуточные результаты по хостам для отображения прогресса.
+
+        Прогресс — вспомогательная информация: ошибка записи не должна валить задачу.
+        """
+        try:
+            self.db.task_runs.update(
+                task_run_id,
+                per_host_json=json.dumps(per_host_results, ensure_ascii=False, default=str),
+            )
+        except Exception:
+            pass
 
     async def _run_one_host(self, instance, context, host, args):
         """Run a module for a single host and log the result as soon as it arrives."""

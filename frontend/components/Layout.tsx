@@ -17,6 +17,8 @@ import {
   X,
   ShieldCheck,
   Activity,
+  ListOrdered,
+  RefreshCw,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -29,11 +31,13 @@ const nav = [
   { href: "/history", label: "История", icon: History },
   { href: "/scheduled", label: "Планировщик", icon: CalendarClock },
   { href: "/reports", label: "Отчёты", icon: FileText },
+  { href: "/scenarios", label: "Сценарии", icon: ListOrdered },
 ];
 
 const adminNav = [
   { href: "/admin", label: "Администрирование", icon: ShieldCheck },
   { href: "/status", label: "Статус сервера", icon: Activity },
+  { href: "/update", label: "Обновление", icon: RefreshCw },
 ];
 
 const TEACHER_ALLOWED = new Set(["/", "/hosts"]);

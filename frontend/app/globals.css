@@ -70,3 +70,21 @@ pre {
     @apply bg-orange-100 text-orange-800;
   }
 }
+
+/* Мобильные: таблицы с горизонтальным скроллом, меньшие паддинги */
+@media (max-width: 768px) {
+  .panel {
+    @apply p-3;
+  }
+  .panel table,
+  .panel .overflow-auto {
+    @apply text-xs;
+  }
+  .panel table th,
+  .panel table td {
+    @apply px-2 py-2;
+  }
+  main {
+    @apply p-3;
+  }
+}

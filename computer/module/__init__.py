@@ -20,6 +20,7 @@ from . import get_update
 from . import availability_check
 from . import inventory_collect
 from . import apt_package_manager
+from . import file_distribute
 # try:
 # except Exception as e:
 #     print(e)

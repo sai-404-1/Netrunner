@@ -7,7 +7,7 @@ import { BooleanBadge } from "@/components/Badge";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
-import { RefreshCw, Pencil, Trash2, Search, CheckCircle, List, LayoutGrid, KeyRound } from "lucide-react";
+import { RefreshCw, Pencil, Trash2, Search, CheckCircle, List, LayoutGrid, KeyRound, CheckSquare, Square, Play } from "lucide-react";
 import { HostBoardView } from "@/components/HostBoardView";
 import { useAuth } from "@/components/AuthProvider";
 
@@ -63,6 +63,12 @@ export default function HostsPage() {
   const [editGroup, setEditGroup] = useState<Group | null>(null);
   const [viewMode, setViewMode] = useState<"list" | "board">("list");
 
+  // Bulk selection
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkReprovisionOpen, setBulkReprovisionOpen] = useState(false);
+  const [bulkPassword, setBulkPassword] = useState("");
+
   async function load() {
     const [h, g, k] = await Promise.all([apiGetClient("/api/hosts"), apiGetClient("/api/groups"), apiGetClient("/api/ssh-keys")]);
     setHosts(h || []);
@@ -92,6 +98,106 @@ export default function HostsPage() {
     return rows;
   }, [hosts, groups, search, groupFilter]);
 
+  const allSelected = filteredHosts.length > 0 && filteredHosts.every((h) => selectedIds.has(h.id));
+  const someSelected = selectedIds.size > 0;
+
+  function toggleSelect(id: number) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredHosts.map((h) => h.id)));
+    }
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+  }
+
+  // Bulk check
+  async function bulkCheck() {
+    if (selectedIds.size === 0) return;
+    setBulkLoading(true);
+    let ok = 0, fail = 0;
+    for (const id of selectedIds) {
+      try {
+        const r = await apiPostClient("/api/hosts/check", { id });
+        if (r.host?.is_active) ok++; else fail++;
+      } catch {
+        fail++;
+      }
+    }
+    showToast(`Проверено: ${ok} доступно, ${fail} недоступно`);
+    setBulkLoading(false);
+    clearSelection();
+    await load();
+  }
+
+  // Bulk reprovision
+  async function bulkReprovision() {
+    if (selectedIds.size === 0) return;
+    setBulkLoading(true);
+    let ok = 0, fail = 0;
+    for (const id of selectedIds) {
+      try {
+        const data: any = { id };
+        if (bulkPassword) data.password = bulkPassword;
+        const r = await apiPostClient("/api/hosts/reprovision", data);
+        if (r.is_active) ok++; else fail++;
+      } catch {
+        fail++;
+      }
+    }
+    showToast(`Перепривязка: ${ok} успешно, ${fail} ошибок`);
+    setBulkLoading(false);
+    setBulkReprovisionOpen(false);
+    setBulkPassword("");
+    clearSelection();
+    await load();
+  }
+
+  // Bulk delete
+  async function bulkDelete() {
+    if (selectedIds.size === 0) return;
+    const msg = selectedIds.size === 1
+      ? `Удалить хост?`
+      : `Удалить ${selectedIds.size} хостов?`;
+    if (!confirm(msg)) return;
+    setBulkLoading(true);
+    let ok = 0, fail = 0;
+    for (const id of selectedIds) {
+      try {
+        await apiPostClient("/api/hosts/delete", { id });
+        ok++;
+      } catch {
+        fail++;
+      }
+    }
+    showToast(`Удалено: ${ok}, ошибок: ${fail}`);
+    setBulkLoading(false);
+    clearSelection();
+    await load();
+  }
+
+  async function checkHost(id: number) {
+    try {
+      const result = await apiPostClient("/api/hosts/check", { id });
+      showToast(`Хост ${result.host?.name}: ${result.host?.is_active ? "доступен" : "недоступен"}`);
+      await load();
+    } catch (err: any) {
+      showToast(err.message, "error");
+    }
+  }
+
+  // ... existing functions unchanged
   async function onCreateHost(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = e.currentTarget;
@@ -163,20 +269,6 @@ export default function HostsPage() {
     }
   }
 
-  async function checkHost(id: number, el?: HTMLElement) {
-    const icon = el?.querySelector("svg");
-    icon?.classList.add("animate-spin");
-    try {
-      const result = await apiPostClient("/api/hosts/check", { id });
-      showToast(`Хост ${result.host?.name}: ${result.host?.is_active ? "доступен" : "недоступен"}`);
-      await load();
-    } catch (err: any) {
-      showToast(err.message, "error");
-    } finally {
-      icon?.classList.remove("animate-spin");
-    }
-  }
-
   async function checkAll() {
     setCheckingAll(true);
     try {
@@ -200,9 +292,7 @@ export default function HostsPage() {
       const data: any = { id: reprovisionHost.id };
       if (password) data.password = password;
       const result = await apiPostClient("/api/hosts/reprovision", data);
-      showToast(
-        `Ключ заново привязан к ${result.host?.name}: ${result.is_active ? "хост доступен" : "хост недоступен"}`,
-      );
+      showToast(`Ключ заново привязан к ${result.host?.name}: ${result.is_active ? "хост доступен" : "хост недоступен"}`);
       setReprovisionHost(null);
       await load();
     } catch (err: any) {
@@ -320,9 +410,7 @@ export default function HostsPage() {
             <select className="input" name="group_id">
               <option value="">Без группы</option>
               {groups.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.name}
-                </option>
+                <option key={g.id} value={g.id}>{g.name}</option>
               ))}
             </select>
           </label>
@@ -331,19 +419,13 @@ export default function HostsPage() {
             <select className="input" name="ssh_key_id">
               <option value="">По умолчанию</option>
               {keys.map((k) => (
-                <option key={k.id} value={k.id}>
-                  {k.name} ({k.key_type || k.private_key_path})
-                </option>
+                <option key={k.id} value={k.id}>{k.name} ({k.key_type || k.private_key_path})</option>
               ))}
             </select>
           </label>
           <label className="label">
             Новый SSH-ключ
-            <input
-              type="file"
-              className="input py-1.5"
-              onChange={(e) => setNewKeyFile(e.target.files?.[0] || null)}
-            />
+            <input type="file" className="input py-1.5" onChange={(e) => setNewKeyFile(e.target.files?.[0] || null)} />
           </label>
           <label className="label">
             Пароль хоста
@@ -354,12 +436,8 @@ export default function HostsPage() {
             <textarea className="input" name="description" rows={3} />
           </label>
           <div className="flex gap-3 md:col-span-2 lg:col-span-4">
-            <button className="btn" type="submit">
-              Добавить
-            </button>
-            <button type="button" className="btn-secondary" onClick={() => setCreateGroupOpen(true)}>
-              Создать группу
-            </button>
+            <button className="btn" type="submit">Добавить</button>
+            <button type="button" className="btn-secondary" onClick={() => setCreateGroupOpen(true)}>Создать группу</button>
           </div>
         </form>
       </div>}
@@ -370,29 +448,57 @@ export default function HostsPage() {
           <div className="flex flex-wrap items-center gap-3">
             <div className="relative">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                className="input pl-9"
-                placeholder="Поиск по имени"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
+              <input className="input pl-9" placeholder="Поиск по имени" value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
             <select className="input" value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}>
               <option value="">Все группы</option>
               <option value="none">Без группы</option>
-              {groups.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.name}
-                </option>
-              ))}
+              {groups.map((g) => (<option key={g.id} value={g.id}>{g.name}</option>))}
             </select>
             <button className="btn-secondary" onClick={checkAll} disabled={checkingAll}>
               <RefreshCw size={16} className={checkingAll ? "animate-spin" : ""} /> Проверить все
             </button>
           </div>
         </div>
+
+        {/* Bulk actions toolbar */}
+        {someSelected && (
+          <div className="flex flex-wrap items-center gap-2 mb-4 p-3 bg-blue-50 border border-blue-200 rounded-xl">
+            <span className="text-sm font-semibold text-blue-800 mr-2">
+              <CheckSquare size={16} className="inline mr-1" />
+              Выбрано: {selectedIds.size}
+            </span>
+            <button className="btn-secondary py-1.5 px-3 text-sm" onClick={bulkCheck} disabled={bulkLoading}>
+              <RefreshCw size={14} className={bulkLoading ? "animate-spin" : ""} /> Проверить
+            </button>
+            <button className="btn-secondary py-1.5 px-3 text-sm" onClick={() => setBulkReprovisionOpen(true)} disabled={bulkLoading}>
+              <KeyRound size={14} /> Привязать ключ
+            </button>
+            <button className="btn-danger py-1.5 px-3 text-sm" onClick={bulkDelete} disabled={bulkLoading}>
+              <Trash2 size={14} /> Удалить
+            </button>
+            <button className="btn-secondary py-1.5 px-3 text-sm ml-auto" onClick={toggleSelectAll}>
+              {allSelected ? "Снять все" : "Выбрать все"}
+            </button>
+            <button className="btn-secondary py-1.5 px-3 text-sm" onClick={clearSelection}>
+              Отменить
+            </button>
+          </div>
+        )}
+
         <DataTable
           columns={[
+            {
+              title: "",
+              render: (h) => (
+                <button onClick={() => toggleSelect(h.id)} className="p-0.5">
+                  {selectedIds.has(h.id)
+                    ? <CheckSquare size={18} className="text-blue-600" />
+                    : <Square size={18} className="text-gray-400 hover:text-gray-600" />
+                  }
+                </button>
+              ),
+            },
             { title: "Имя", key: "name" },
             { title: "Пользователь", key: "username" },
             { title: "IP-адрес", key: "address" },
@@ -404,18 +510,18 @@ export default function HostsPage() {
             {
               title: "",
               render: (h) => (
-                <div className="flex gap-2 justify-end">
-                  <button className="btn-secondary p-2" onClick={(e) => checkHost(h.id, e.currentTarget as HTMLElement)} title="Проверить доступность">
-                    <RefreshCw size={16} />
+                <div className="flex gap-1 justify-end">
+                  <button className="btn-secondary p-1.5" onClick={() => checkHost(h.id)} title="Проверить">
+                    <RefreshCw size={15} />
                   </button>
-                  <button className="btn-secondary p-2" onClick={() => setReprovisionHost(h)} title="Заново привязать SSH-ключ">
-                    <KeyRound size={16} />
+                  <button className="btn-secondary p-1.5" onClick={() => setReprovisionHost(h)} title="Перепривязать SSH-ключ">
+                    <KeyRound size={15} />
                   </button>
-                  <button className="btn-secondary p-2" onClick={() => setEditHost(h)} title="Редактировать">
-                    <Pencil size={16} />
+                  <button className="btn-secondary p-1.5" onClick={() => setEditHost(h)} title="Редактировать">
+                    <Pencil size={15} />
                   </button>
-                  <button className="btn-secondary p-2 text-red-600" onClick={() => deleteHost(h.id)} title="Удалить">
-                    <Trash2 size={16} />
+                  <button className="btn-secondary p-1.5 text-red-600" onClick={() => deleteHost(h.id)} title="Удалить">
+                    <Trash2 size={15} />
                   </button>
                 </div>
               ),
@@ -457,63 +563,24 @@ export default function HostsPage() {
         <Modal title="Редактирование хоста" onClose={() => setEditHost(null)}>
           <form onSubmit={onUpdateHost} className="grid md:grid-cols-2 gap-4">
             <input type="hidden" name="id" value={editHost.id} />
-            <label className="label">
-              Имя хоста
-              <input className="input" name="name" defaultValue={editHost.name} required />
-            </label>
-            <label className="label">
-              Пользователь
-              <input className="input" name="username" defaultValue={editHost.username} required />
-            </label>
-            <label className="label">
-              IP-адрес
-              <input className="input" name="address" defaultValue={editHost.address} required />
-            </label>
-            <label className="label">
-              Порт
-              <input className="input" name="port" type="number" defaultValue={editHost.port} required />
-            </label>
-            <label className="label">
-              Группа
-              <select className="input" name="group_id" defaultValue={editHost.group_id || ""}>
-                <option value="">Без группы</option>
-                {groups.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="label">
-              SSH-ключ
-              <select className="input" name="ssh_key_id" defaultValue={editHost.ssh_key_id || ""}>
-                <option value="">По умолчанию</option>
-                {keys.map((k) => (
-                  <option key={k.id} value={k.id}>
-                    {k.name} ({k.key_type || k.private_key_path})
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="label">
-              Новый SSH-ключ
-              <input type="file" className="input py-1.5" onChange={(e) => setEditKeyFile(e.target.files?.[0] || null)} />
-            </label>
-            <label className="label">
-              Пароль хоста
-              <input className="input" name="password" type="password" placeholder="Для автокопирования SSH-ключа" />
-            </label>
-            <label className="label md:col-span-2">
-              Описание
-              <textarea className="input" name="description" rows={3} defaultValue={editHost.description || ""} />
-            </label>
+            <label className="label">Имя хоста<input className="input" name="name" defaultValue={editHost.name} required /></label>
+            <label className="label">Пользователь<input className="input" name="username" defaultValue={editHost.username} required /></label>
+            <label className="label">IP-адрес<input className="input" name="address" defaultValue={editHost.address} required /></label>
+            <label className="label">Порт<input className="input" name="port" type="number" defaultValue={editHost.port} required /></label>
+            <label className="label">Группа<select className="input" name="group_id" defaultValue={editHost.group_id || ""}>
+              <option value="">Без группы</option>
+              {groups.map((g) => (<option key={g.id} value={g.id}>{g.name}</option>))}
+            </select></label>
+            <label className="label">SSH-ключ<select className="input" name="ssh_key_id" defaultValue={editHost.ssh_key_id || ""}>
+              <option value="">По умолчанию</option>
+              {keys.map((k) => (<option key={k.id} value={k.id}>{k.name}</option>))}
+            </select></label>
+            <label className="label">Новый SSH-ключ<input type="file" className="input py-1.5" onChange={(e) => setEditKeyFile(e.target.files?.[0] || null)} /></label>
+            <label className="label">Пароль хоста<input className="input" name="password" type="password" /></label>
+            <label className="label md:col-span-2">Описание<textarea className="input" name="description" rows={3} defaultValue={editHost.description || ""} /></label>
             <div className="flex gap-3 md:col-span-2">
-              <button className="btn" type="submit">
-                Сохранить
-              </button>
-              <button type="button" className="btn-secondary" onClick={() => setEditHost(null)}>
-                Отмена
-              </button>
+              <button className="btn" type="submit">Сохранить</button>
+              <button type="button" className="btn-secondary" onClick={() => setEditHost(null)}>Отмена</button>
             </div>
           </form>
         </Modal>
@@ -522,49 +589,42 @@ export default function HostsPage() {
       {reprovisionHost && (
         <Modal title="Перепривязка SSH-ключа" onClose={() => setReprovisionHost(null)}>
           <form onSubmit={reprovision} className="grid gap-4">
-            <p className="text-sm text-gray-500">
-              Заново скопирует SSH-ключ на хост <b>{reprovisionHost.name}</b> ({reprovisionHost.username}@
-              {reprovisionHost.address}). Используйте при отвале или случайном удалении ключа — хост в базе пересоздавать не нужно.
-            </p>
-            <label className="label">
-              Пароль хоста
-              <input
-                className="input"
-                name="password"
-                type="password"
-                placeholder="Оставьте пустым, чтобы использовать сохранённый пароль"
-              />
-            </label>
+            <p className="text-sm text-gray-500">Заново скопирует SSH-ключ на хост <b>{reprovisionHost.name}</b> ({reprovisionHost.username}@{reprovisionHost.address}).</p>
+            <label className="label">Пароль хоста<input className="input" name="password" type="password" placeholder="Оставьте пустым, чтобы использовать сохранённый" /></label>
             <div className="flex gap-3">
-              <button className="btn" type="submit" disabled={reprovisioning}>
-                {reprovisioning ? "Привязка…" : "Привязать ключ"}
-              </button>
-              <button type="button" className="btn-secondary" onClick={() => setReprovisionHost(null)}>
-                Отмена
-              </button>
+              <button className="btn" type="submit" disabled={reprovisioning}>{reprovisioning ? "Привязка…" : "Привязать ключ"}</button>
+              <button type="button" className="btn-secondary" onClick={() => setReprovisionHost(null)}>Отмена</button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {/* Bulk reprovision modal */}
+      {bulkReprovisionOpen && (
+        <Modal title="Массовая перепривязка SSH-ключа" onClose={() => setBulkReprovisionOpen(false)}>
+          <div className="grid gap-4">
+            <p className="text-sm text-gray-500">
+              Перепривязать SSH-ключ для <b>{selectedIds.size}</b> хостов.
+            </p>
+            <label className="label">Пароль хоста<input className="input" type="password" value={bulkPassword} onChange={(e) => setBulkPassword(e.target.value)} placeholder="Для всех выбранных хостов" /></label>
+            <div className="flex gap-3">
+              <button className="btn" onClick={bulkReprovision} disabled={bulkLoading}>
+                {bulkLoading ? "Привязка…" : "Привязать для всех"}
+              </button>
+              <button type="button" className="btn-secondary" onClick={() => setBulkReprovisionOpen(false)}>Отмена</button>
+            </div>
+          </div>
         </Modal>
       )}
 
       {createGroupOpen && (
         <Modal title="Создать группу" onClose={() => setCreateGroupOpen(false)}>
           <form onSubmit={createGroup} className="grid gap-4">
-            <label className="label">
-              Название
-              <input className="input" name="name" required />
-            </label>
-            <label className="label">
-              Описание
-              <textarea className="input" name="description" rows={3} />
-            </label>
+            <label className="label">Название<input className="input" name="name" required /></label>
+            <label className="label">Описание<textarea className="input" name="description" rows={3} /></label>
             <div className="flex gap-3">
-              <button className="btn" type="submit">
-                Создать
-              </button>
-              <button type="button" className="btn-secondary" onClick={() => setCreateGroupOpen(false)}>
-                Отмена
-              </button>
+              <button className="btn" type="submit">Создать</button>
+              <button type="button" className="btn-secondary" onClick={() => setCreateGroupOpen(false)}>Отмена</button>
             </div>
           </form>
         </Modal>
@@ -574,21 +634,11 @@ export default function HostsPage() {
         <Modal title="Редактирование группы" onClose={() => setEditGroup(null)}>
           <form onSubmit={updateGroup} className="grid gap-4">
             <input type="hidden" name="id" value={editGroup.id} />
-            <label className="label">
-              Название
-              <input className="input" name="name" defaultValue={editGroup.name} required />
-            </label>
-            <label className="label">
-              Описание
-              <textarea className="input" name="description" rows={3} defaultValue={editGroup.description || ""} />
-            </label>
+            <label className="label">Название<input className="input" name="name" defaultValue={editGroup.name} required /></label>
+            <label className="label">Описание<textarea className="input" name="description" rows={3} defaultValue={editGroup.description || ""} /></label>
             <div className="flex gap-3">
-              <button className="btn" type="submit">
-                Сохранить
-              </button>
-              <button type="button" className="btn-secondary" onClick={() => setEditGroup(null)}>
-                Отмена
-              </button>
+              <button className="btn" type="submit">Сохранить</button>
+              <button type="button" className="btn-secondary" onClick={() => setEditGroup(null)}>Отмена</button>
             </div>
           </form>
         </Modal>

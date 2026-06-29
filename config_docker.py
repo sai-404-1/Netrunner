@@ -18,4 +18,10 @@ SSH_KNOWN_HOSTS_FILE = os.environ.get(
 )
 SSH_CHECK_HOST_IP = os.environ.get("NETRUNNER_SSH_CHECK_HOST_IP")
 
+# Каталог для загруженных файлов (том netrunner_uploads).
+UPLOADS_PATH = os.environ.get("NETRUNNER_UPLOADS_PATH", "/app/uploads")
+
+# Максимум одновременных передач файлов на хосты за одну задачу (<=0 — без лимита).
+MAX_PARALLEL_TRANSFERS = int(os.environ.get("NETRUNNER_MAX_PARALLEL_TRANSFERS", "3"))
+
 HOSTS = []

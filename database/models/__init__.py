@@ -10,6 +10,7 @@ from .ssh_key import SSHKey
 from .task_run import TaskRun
 from .user import User
 from .task_template import TaskTemplate
+from .scenario import Scenario, ScenarioStep, ScenarioRun, ScenarioStepRun
 
 __all__ = [
     'BaseModel',
@@ -24,4 +25,8 @@ __all__ = [
     'TaskRun',
     'TaskTemplate',
     'User',
+    'Scenario',
+    'ScenarioStep',
+    'ScenarioRun',
+    'ScenarioStepRun',
 ]

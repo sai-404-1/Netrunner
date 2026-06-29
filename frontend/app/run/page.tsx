@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { apiGetClient, apiPostClient } from "@/lib/api-client";
 import { useToast } from "@/components/Toast";
 import { OutputModal } from "@/components/Modal";
+import { FileManager } from "@/components/FileManager";
 import { X, Maximize2 } from "lucide-react";
 
 export default function RunPage() {
@@ -39,6 +40,7 @@ interface TaskRun {
   stdout_text?: string;
   stderr_text?: string;
   per_host_json?: string;
+  progress?: { done: number; total: number };
 }
 
 interface SelectOption {
@@ -85,6 +87,7 @@ function RunForm() {
   const [targetType, setTargetType] = useState<"host" | "group">("host");
   const [targetId, setTargetId] = useState(preselectedHost);
   const [dynArgs, setDynArgs] = useState<Record<string, string>>({});
+  const [selectedFileIds, setSelectedFileIds] = useState<number[]>([]);
   const [run, setRun] = useState<TaskRun | null>(null);
   const [polling, setPolling] = useState(false);
   const [outputModal, setOutputModal] = useState(false);
@@ -158,12 +161,19 @@ function RunForm() {
 
   async function startRun(e: React.FormEvent) {
     e.preventDefault();
+    const isFileModule = moduleSlug === "file_distribute";
+    if (isFileModule && selectedFileIds.length === 0) {
+      showToast("Выберите хотя бы один файл для рассылки", "error");
+      return;
+    }
     try {
+      const args: Record<string, unknown> = { ...dynArgs };
+      if (isFileModule) args.file_ids = selectedFileIds;
       const result = await apiPostClient("/api/run", {
         module_slug: moduleSlug,
         target_type: targetType,
         target_id: Number(targetId),
-        args: dynArgs,
+        args,
       });
       setRun({ id: result.run_id, status: "pending" });
       setPolling(true);
@@ -305,6 +315,10 @@ function RunForm() {
               ))}
             </div>
           )}
+
+          {moduleSlug === "file_distribute" && (
+            <FileManager selectedIds={selectedFileIds} onSelectionChange={setSelectedFileIds} />
+          )}
         </form>
       </div>
 
@@ -317,6 +331,22 @@ function RunForm() {
             </button>
           )}
         </div>
+        {run && (run.status === "running" || run.status === "pending") && (run.progress?.total ?? 0) > 0 && (
+          <div className="mb-4">
+            <div className="flex justify-between text-sm text-gray-500 mb-1">
+              <span>Обработка хостов…</span>
+              <span>
+                {run.progress!.done} из {run.progress!.total}
+              </span>
+            </div>
+            <div className="h-2.5 w-full bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-blue-600 transition-all duration-300"
+                style={{ width: `${Math.round((run.progress!.done / run.progress!.total) * 100)}%` }}
+              />
+            </div>
+          </div>
+        )}
         <pre className="bg-slate-950 text-gray-200 rounded-[10px] p-4 text-sm min-h-[260px] h-[calc(100vh-420px)] overflow-auto">
           {run
             ? output || `Задача #${run.id} завершена со статусом ${run.status}`

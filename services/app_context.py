@@ -14,6 +14,7 @@ from database import open_database
 from services import HostService, ModuleRegistry, TaskRunner, Scheduler
 from services.auth_service import AuthService
 from services.report_service import ReportService
+from services.scenario_runner import ScenarioRunner
 
 
 logger = logging.getLogger("netrunner")
@@ -35,6 +36,7 @@ class AppContext:
     scheduler: Scheduler
     auth_service: AuthService
     report_service: ReportService
+    scenario_runner: ScenarioRunner
     db_path: str
     reports_dir: str
 
@@ -125,6 +127,7 @@ def create_app_context(
     auth_service = AuthService(db=db)
     auth_service.create_default_user()
     report_service = ReportService(db=db, reports_dir=reports_dir)
+    scenario_runner = ScenarioRunner(db=db, host_service=host_service, module_registry=module_registry, logger=logger)
 
     if run_scheduler_on_start:
         scheduler.tick()
@@ -137,6 +140,7 @@ def create_app_context(
         scheduler=scheduler,
         auth_service=auth_service,
         report_service=report_service,
+        scenario_runner=scenario_runner,
         db_path=db_path,
         reports_dir=reports_dir,
     )

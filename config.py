@@ -28,5 +28,13 @@ SSH_KNOWN_HOSTS_FILE = os.environ.get("NETRUNNER_SSH_KNOWN_HOSTS_FILE")
 # are behind NAT and the recorded IP does not match the hostname.
 SSH_CHECK_HOST_IP = os.environ.get("NETRUNNER_SSH_CHECK_HOST_IP")
 
+# Каталог для файлов, загруженных пользователем для рассылки на хосты.
+UPLOADS_PATH = os.environ.get("NETRUNNER_UPLOADS_PATH", "uploads")
+
+# Максимум одновременных передач файлов на хосты за одну задачу.
+# Ограничивает нагрузку на сеть: файлы шлются не на все машины сразу, а пачками
+# по этому числу. Значение <= 0 означает «без ограничения».
+MAX_PARALLEL_TRANSFERS = int(os.environ.get("NETRUNNER_MAX_PARALLEL_TRANSFERS", "3"))
+
 # Legacy hosts list used by the interactive mass-SSH module.
 HOSTS = []

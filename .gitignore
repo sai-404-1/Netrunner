@@ -30,10 +30,17 @@ data/.secret_key
 frontend/node_modules/
 frontend/.next/
 frontend/out/
+*.tsbuildinfo
+
+# Stray cache dir accidentally created with HOME set to a coordinate string
+/frontend/45.0116417 41.9025255/
 
 # Generated reports and keys (keep directories)
 reports/*
 keys/*
+
+# User-uploaded files for the file-distribution module (keep directory)
+uploads/*
 
 # Docker
 Dockerfile.local

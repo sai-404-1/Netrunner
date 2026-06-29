@@ -18,6 +18,8 @@ from .repos.user_repo import UserRepo
 from .repos.user_module_access_repo import UserModuleAccessRepo
 from .repos.user_group_access_repo import UserGroupAccessRepo
 from .repos.board_repo import BoardRepo
+from .repos.uploaded_file_repo import UploadedFileRepo
+from .repos.scenario_repo import ScenarioRepo, ScenarioStepRepo, ScenarioRunRepo, ScenarioStepRunRepo
 
 
 class Database:
@@ -39,6 +41,11 @@ class Database:
         self.user_module_access = UserModuleAccessRepo(self.conn)
         self.user_group_access = UserGroupAccessRepo(self.conn)
         self.boards = BoardRepo(self.conn)
+        self.uploaded_files = UploadedFileRepo(self.conn)
+        self.scenarios = ScenarioRepo(self.conn)
+        self.scenario_steps = ScenarioStepRepo(self.conn)
+        self.scenario_runs = ScenarioRunRepo(self.conn)
+        self.scenario_step_runs = ScenarioStepRunRepo(self.conn)
 
         self._model_map = {
             'ssh_keys': self.ssh_keys,
@@ -54,6 +61,11 @@ class Database:
             'user_module_access': self.user_module_access,
             'user_group_access': self.user_group_access,
             'boards': self.boards,
+            'uploaded_files': self.uploaded_files,
+            'scenarios': self.scenarios,
+            'scenario_steps': self.scenario_steps,
+            'scenario_runs': self.scenario_runs,
+            'scenario_step_runs': self.scenario_step_runs,
         }
 
     def model(self, name: str):
