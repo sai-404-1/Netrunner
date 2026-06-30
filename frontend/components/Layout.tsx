@@ -16,8 +16,9 @@ import {
   X,
   ShieldCheck,
   ListOrdered,
+  Loader2,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const nav = [
   { href: "/", label: "Обзор", icon: LayoutDashboard },
@@ -41,6 +42,22 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
   const isTeacher = user?.role === "teacher" && !user?.is_superuser;
+
+  // Спиннер на время перехода между вкладками: включается по клику на пункт меню,
+  // гаснет, когда смонтировалась новая страница (pathname поменялся). Закрывает
+  // задержку RSC-навигации по локальной сети.
+  const [navigating, setNavigating] = useState(false);
+  const navTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startNav = (href: string) => {
+    if (href !== pathname) setNavigating(true);
+  };
+  useEffect(() => {
+    if (navTimer.current) clearTimeout(navTimer.current);
+    navTimer.current = setTimeout(() => setNavigating(false), 220);
+    return () => {
+      if (navTimer.current) clearTimeout(navTimer.current);
+    };
+  }, [pathname]);
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[280px_1fr]">
@@ -70,7 +87,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <Link
                 key={item.href}
                 href={item.href}
-                onClick={() => setMobileOpen(false)}
+                onClick={() => {
+                  setMobileOpen(false);
+                  startNav(item.href);
+                }}
                 className={`flex items-center gap-3 rounded-[14px] px-4 py-3 text-sm font-medium transition-colors ${
                   active
                     ? "text-white bg-white/15 border border-white/35 shadow"
@@ -91,7 +111,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   <Link
                     key={item.href}
                     href={item.href}
-                    onClick={() => setMobileOpen(false)}
+                    onClick={() => {
+                  setMobileOpen(false);
+                  startNav(item.href);
+                }}
                     className={`flex items-center gap-3 rounded-[14px] px-4 py-3 text-sm font-medium transition-colors ${
                       active
                         ? "text-white bg-white/15 border border-white/35 shadow"
@@ -114,7 +137,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           )}
           <Link
             href="/account"
-            onClick={() => setMobileOpen(false)}
+            onClick={() => {
+              setMobileOpen(false);
+              startNav("/account");
+            }}
             className={`flex items-center gap-3 rounded-[14px] px-4 py-3 text-sm font-medium transition-colors ${
               pathname.startsWith("/account")
                 ? "text-white bg-white/15 border border-white/35 shadow"
@@ -126,7 +152,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </Link>
         </div>
       </aside>
-      <div className="min-w-0 flex flex-col">
+      <div className="min-w-0 flex flex-col relative">
+        {/* Спиннер перехода между вкладками (только правая область) */}
+        {navigating && (
+          <div className="pointer-events-none absolute top-3 right-3 z-[60]">
+            <span className="inline-flex items-center gap-2 rounded-full bg-blue-600 text-white text-xs font-medium px-2.5 py-1 shadow-lg">
+              <Loader2 size={14} className="animate-spin" />
+              Загрузка…
+            </span>
+          </div>
+        )}
         {/* Мобильная шапка с бургером */}
         <div className="lg:hidden sticky top-0 z-30 flex items-center gap-3 px-4 py-3 bg-blue-900 text-white">
           <button className="p-1.5" onClick={() => setMobileOpen(true)} aria-label="Открыть меню">
