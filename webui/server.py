@@ -637,6 +637,30 @@ async def api_update_set_config(request: web.Request) -> web.Response:
     return _ok(cfg)
 
 
+async def api_update_incidents(request: web.Request) -> web.Response:
+    """Последние инциденты супервизора (краши/recovery) и хвост его лога."""
+    if not _require_admin(request):
+        return _error("Только для администратора", status=403)
+    from services.update_service import DATA_DIR
+
+    incidents = []
+    inc_dir = DATA_DIR / "incidents"
+    if inc_dir.exists():
+        for f in sorted(inc_dir.glob("*.log"), reverse=True)[:20]:
+            try:
+                incidents.append({"name": f.name, "content": f.read_text(encoding="utf-8")[:4000]})
+            except OSError:
+                pass
+    log_tail = ""
+    log_file = DATA_DIR / "supervisor.log"
+    if log_file.exists():
+        try:
+            log_tail = "\n".join(log_file.read_text(encoding="utf-8").splitlines()[-100:])
+        except OSError:
+            pass
+    return _ok({"incidents": incidents, "log_tail": log_tail})
+
+
 async def api_update_apply(request: web.Request) -> web.Response:
     if not _require_admin(request):
         return _error("Только для администратора", status=403)
@@ -1470,6 +1494,7 @@ def _build_app(app_context) -> web.Application:
     app.router.add_post("/api/update/recheck", api_update_recheck)
     app.router.add_post("/api/update/config", api_update_set_config)
     app.router.add_post("/api/update/apply", api_update_apply)
+    app.router.add_get("/api/update/incidents", api_update_incidents)
 
     # WebSocket
     app.router.add_get("/ws", websocket_handler)
