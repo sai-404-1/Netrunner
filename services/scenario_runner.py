@@ -23,6 +23,7 @@ class ScenarioRunner:
         target_type: str,
         target_id: int,
         trigger_type: str = "manual",
+        scenario_run_id: int | None = None,
     ):
         scenario = self.db.scenarios.get(scenario_id)
         if not scenario:
@@ -36,12 +37,17 @@ class ScenarioRunner:
         if not targets:
             raise RuntimeError("Нет хостов для выполнения")
 
-        scenario_run = self.db.scenario_runs.start(
-            scenario_id=scenario_id,
-            target_type=target_type,
-            target_id=target_id,
-            trigger_type=trigger_type,
-        )
+        # Если run-строка уже создана (фоновый запуск через API) — используем её,
+        # чтобы клиент мог опрашивать прогресс по run_id. Иначе создаём новую.
+        if scenario_run_id is not None:
+            scenario_run = self.db.scenario_runs.get(scenario_run_id)
+        else:
+            scenario_run = self.db.scenario_runs.start(
+                scenario_id=scenario_id,
+                target_type=target_type,
+                target_id=target_id,
+                trigger_type=trigger_type,
+            )
         self.logger.info(
             "ScenarioRun #%d: '%s' на %d хостах, %d шагов",
             scenario_run.id, scenario.name, len(targets), len(steps),

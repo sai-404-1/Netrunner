@@ -1370,26 +1370,53 @@ async def api_scenarios_create(request: web.Request) -> web.Response:
 
 
 async def api_scenarios_run(request: web.Request) -> web.Response:
+    """Запускает сценарий в фоне и сразу возвращает run_id для опроса прогресса."""
     ctx = _ctx(request)
     payload = await _read_json(request)
     scenario_id = _safe_int(payload.get("scenario_id"))
     target_type = str(payload.get("target_type", "group")).strip()
     target_id = _safe_int(payload.get("target_id"))
 
-    run = await ctx.scenario_runner.run_scenario_async(
+    # Создаём run-строку заранее, чтобы вернуть run_id немедленно.
+    run = ctx.db.scenario_runs.start(
         scenario_id=scenario_id,
         target_type=target_type,
         target_id=target_id,
         trigger_type="manual",
     )
-    result = model_to_dict(run)
-    sc = ctx.db.scenarios.get(scenario_id)
-    result["scenario_name"] = sc.name if sc else f"#{scenario_id}"
-    step_runs = ctx.db.scenario_step_runs.by_run(run.id)
-    result["step_runs"] = step_runs
 
-    await _broadcast_task_update(request.app, run.id)
-    return _ok(result)
+    async def _bg():
+        try:
+            await ctx.scenario_runner.run_scenario_async(
+                scenario_id=scenario_id,
+                target_type=target_type,
+                target_id=target_id,
+                trigger_type="manual",
+                scenario_run_id=run.id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Scenario run %s failed: %s", run.id, exc)
+            try:
+                ctx.db.scenario_runs.finish(run.id, status="failed")
+            except Exception:
+                pass
+
+    await _run_background(request.app, _bg())
+    return _ok({"run_id": run.id, "status": run.status})
+
+
+async def api_scenarios_run_status(request: web.Request) -> web.Response:
+    """Статус одного запуска сценария + его step_runs (для живого опроса)."""
+    ctx = _ctx(request)
+    run_id = _safe_int(request.match_info["id"])
+    run = ctx.db.scenario_runs.get(run_id)
+    if run is None:
+        return _error("Scenario run not found", status=404)
+    item = model_to_dict(run)
+    sc = ctx.db.scenarios.get(run.scenario_id)
+    item["scenario_name"] = sc.name if sc else f"#{run.scenario_id}"
+    item["step_runs"] = ctx.db.scenario_step_runs.by_run(run_id)
+    return _ok(item)
 
 
 async def api_scenarios_delete(request: web.Request) -> web.Response:
@@ -1489,6 +1516,7 @@ def _build_app(app_context) -> web.Application:
     # Scenarios API
     app.router.add_get("/api/scenarios", api_scenarios_list)
     app.router.add_get("/api/scenarios/runs", api_scenarios_runs)
+    app.router.add_get("/api/scenarios/runs/{id}", api_scenarios_run_status)
     app.router.add_post("/api/scenarios", api_scenarios_create)
     app.router.add_post("/api/scenarios/run", api_scenarios_run)
     app.router.add_post("/api/scenarios/delete", api_scenarios_delete)
