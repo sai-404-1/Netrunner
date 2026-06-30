@@ -168,6 +168,11 @@ async def _broadcast_task_update(app: web.Application, run_id: int):
 # Static files and reports
 # ---------------------------------------------------------------------------
 
+async def healthz_handler(request: web.Request) -> web.Response:
+    """Публичный health-check для супервизора (см. supervise.py)."""
+    return web.json_response({"ok": True})
+
+
 async def index_handler(request: web.Request) -> web.Response:
     return web.FileResponse(STATIC_DIR / "index.html")
 
@@ -1311,6 +1316,9 @@ def _build_app(app_context) -> web.Application:
     app.router.add_post("/api/logout", api_logout)
     app.router.add_get("/api/me", api_me)
     app.router.add_post("/api/me/update", api_me_update)
+
+    # Health check (public, used by the supervisor)
+    app.router.add_get("/healthz", healthz_handler)
 
     # Static files
     app.router.add_get("/", index_handler)

@@ -9,6 +9,7 @@ from aiohttp import web
 _PUBLIC_PATHS = {
     "/api/login",
     "/api/register",
+    "/healthz",
 }
 
 
