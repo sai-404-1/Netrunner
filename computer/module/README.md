@@ -52,6 +52,13 @@
 ### `availability_check.py` — проверка доступности хостов (кастомный парсинг)
 - `class UserModule`: `exec`, `_parse_ping_result`, `run`, `async run_for_host`.
 
+### `file_distribute.py` — массовая рассылка файлов (только админ, монолитный)
+- `class UserModule` (slug `file_distribute`, `admin_only=True`, `max_parallel` из конфига):
+  копирует выбранные загруженные файлы на хост/группу по scp (безопасный билдер с ключом
+  хоста), по файлам — по очереди, по хостам — с лимитом параллелизма. Методы:
+  `run_for_host`, `_resolve_files`/`_resolve_key_path` (через `context.db`), `_scp_cmd`,
+  `_run_cmd`. Файлы берутся из таблицы `uploaded_files` (эндпоинты `/api/uploads*`).
+
 ### `inventory_collect.py` — сбор инвентаризации (кастомный парсинг)
 - `class UserModule` — читает hostname, ОС, ядро, RAM, диски, пользователя, число
   пакетов (для каждого показателя есть sync- и async-версия `_read_*`), формирует

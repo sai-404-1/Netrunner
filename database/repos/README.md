@@ -35,3 +35,10 @@
   `set_access`, `clear_user`.
 - `board_repo.py` — `BoardRepo`: `by_owner`, `all_boards`, `create_board`,
   `get_with_hosts(board_id)`, `save_layout(board_id, positions)`.
+- `uploaded_file_repo.py` — `UploadedFileRepo`: `create`, `recent(limit)` (для модуля
+  рассылки файлов).
+- `app_settings_repo.py` — `AppSettingsRepo`: key/value-хранилище настроек
+  (`get(key, default)`, `set(key, value)`, `as_dict()`). Используется конфигом
+  самообновления (`db.app_settings`); без dataclass-модели.
+- `scenario_repo.py` — `ScenarioRepo`/`ScenarioStepRepo`/`ScenarioRunRepo`/
+  `ScenarioStepRunRepo`: сценарии и их запуски (добавлены отдельной фичей).

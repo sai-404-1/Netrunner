@@ -35,12 +35,16 @@
 - `_load_master_secret()`, `_fernet_for_salt(salt)` — служебные.
 
 ### `task_runner.py` — исполнение модулей по целям
-- `class ModuleContext` — контекст, передаваемый модулю.
+- `class ModuleContext` — контекст, передаваемый модулю (несёт `logger`, `task_run_id`,
+  `to_computer` и `db` — модуль может резолвить данные, напр. загруженные файлы).
 - `class TaskRunner` — async-first исполнение по хостам с отменой:
   - `run(...)` / `async run_async(...)` — запуск модуля по `host`/`group`;
   - `run_template(...)` / `async run_template_async(...)` — запуск по шаблону;
   - `cancel(run_id)` — отмена одного/всех запусков;
-  - `_run_per_host`/`_run_one_host` — конкурентное исполнение `run_for_host` по целям.
+  - `_run_per_host` — конкурентное исполнение `run_for_host` через `asyncio.as_completed`;
+    результаты по хостам пишутся в `per_host_json` **инкрементально** (`_save_progress`)
+    для живого прогресса; число одновременных хостов ограничивается семафором, если у
+    модуля задан `max_parallel` (напр. рассылка файлов).
 
 ### `scheduler.py` — планировщик
 - `class Scheduler`: `tick()` / `async tick_async()` — найти просроченные задачи и запустить их.
@@ -52,8 +56,19 @@
   `all()`, `menu_items(...)`, `_slugify`.
 
 ### `auth_service.py` — аутентификация
-- `class AuthService`: `register`, `login`, `logout`, `me(token)`, `create_default_user`.
+- `class AuthService`: `register`, `login`, `logout`, `me(token)`, `create_default_user`,
+  `update_profile(user_id, new_username, current_password, new_password)` — self-service
+  смена своего имени/пароля (смена пароля требует подтверждения текущим).
 - Хелперы: `_hash_password`/`_verify_password` (PBKDF2-SHA256), `create_access_token`.
+
+### `update_service.py` — самообновление кода через git (Phase 2)
+- `class UpdateService(db)` — хранит конфиг в таблице `app_settings` (git-remote, ветка,
+  deploy-токен в шифре, интервал, авто-флаг):
+  - `get_config()` / `set_config(...)` — чтение/запись конфига (токен шифруется через `secrets.py`);
+  - `check()` — `git fetch` + сравнение HEAD с `origin/<branch>` (behind-count), read-only;
+  - `apply()` — снимок БД (`netrunner.db.pre_update`) + `git reset --hard origin/<branch>` +
+    маркер `.updating`; реальный перезапуск/пересборку делает супервизор (`supervise.py`).
+  - git-операции — graceful no-op без git-чекаута.
 
 ### `report_service.py` — генерация отчётов
 - `class ReportService` — экспорт в TXT/CSV/JSON: `export_task_runs`, `export_inventory`,

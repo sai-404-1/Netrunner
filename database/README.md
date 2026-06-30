@@ -51,6 +51,8 @@ count = db.import_legacy_hosts_json('hosts.json', ssh_key_id=key.id)
   — точечные миграции таблиц (например, `_migrate_hosts` добавляет `password_encrypted`
   — зашифрованный пароль хоста для повторной привязки SSH-ключа).
 - `_create_new_tables(conn)` — досоздаёт новые таблицы (`user_group_access`, `boards`, `board_hosts`).
+- В `SCHEMA_SQL` также есть таблицы `uploaded_files` (загруженные файлы для рассылки) и
+  `app_settings` (key/value-настройки, в т.ч. конфиг самообновления).
 
 ### `orm.py` — фасад `Database`
 - `class Database` — открывает соединение, прогоняет `create_schema`, предоставляет

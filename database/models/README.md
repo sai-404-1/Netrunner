@@ -31,3 +31,10 @@ Dataclass-модели строк таблиц NetRunner. Каждая моде�
 - `user_module_access.py` — `UserModuleAccess`: доступ пользователя к модулю.
 - `board.py` — `Board`: доска для визуального размещения хостов.
 - `board_host.py` — `BoardHost`: позиция хоста на доске (x, y).
+- `uploaded_file.py` — `UploadedFile`: загруженный файл для рассылки (имя, путь на диске,
+  размер, кто загрузил). Таблица `uploaded_files`.
+- `scenario.py` — `Scenario`/`ScenarioStep`/`ScenarioRun`/`ScenarioStepRun`: сценарии
+  (цепочки модулей) и их запуски (добавлены отдельной фичей).
+
+> Таблица `app_settings` (key/value-настройки, напр. конфиг самообновления) модели не
+> имеет — с ней работают напрямую через `db.app_settings` (см. `repos/app_settings_repo.py`).

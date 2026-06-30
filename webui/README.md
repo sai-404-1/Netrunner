@@ -13,7 +13,16 @@
 - Утилиты: `model_to_dict` (сериализация dataclass'ов; **скрывает** `password_encrypted`),
   `_ok`/`_error`/`_json_response`, `_read_json`, `_ctx`, `_safe_int`.
 - Фоновые задачи и WebSocket: `_run_background`, `_broadcast_task_update`,
-  `websocket_handler`, `_periodic_ping` (демон периодической проверки хостов).
+  `websocket_handler`, `_periodic_ping` (демон проверки хостов),
+  `_update_monitor` (демон git-монитора самообновления — кэширует статус в `app["update_status"]`).
+- `healthz_handler` — публичный `/healthz` (200) для health-check супервизора.
+- **Загруженные файлы (только админ):** `api_uploads_list/create/download/delete` —
+  хранилище файлов для модуля рассылки (`_require_admin`, `_uploads_dir`, `_upload_to_dict`).
+- **Обновление кода (только админ, Phase 2/3):** `api_update_status`, `api_update_recheck`,
+  `api_update_set_config`, `api_update_apply` (после ответа завершает процесс → супервизор
+  пересобирает/перезапускает), `api_update_incidents` (читает `data/incidents/*` и хвост
+  `supervisor.log`). Старые `api_update_check/diff/pull` (git в контейнере) ещё есть, но UI
+  на них не ходит.
 - **Хосты:** `api_hosts`, `api_hosts_create`, `api_hosts_update`, `api_hosts_delete`,
   `api_hosts_check`, `api_hosts_check_all`,
   `api_hosts_reprovision` — заново копирует SSH-ключ на хост (при отвале/удалении ключа),
@@ -33,10 +42,11 @@
 
 ### `auth_middleware.py` — защита маршрутов
 - `auth_middleware(request, handler)` — требует валидный токен для всех `/api/*`, кроме
-  публичных; `_is_public(path)` — список исключений (login/register).
+  публичных; `_is_public(path)` — исключения: `login`/`register`/`/healthz`.
 
 ### `auth_handlers.py` — публичные эндпоинты аутентификации
-- `api_register`, `api_login`, `api_logout`, `api_me`.
+- `api_register`, `api_login`, `api_logout`, `api_me`, `api_me_update` (self-service смена
+  своего имени/пароля → `AuthService.update_profile`).
 
 ### `admin_handlers.py` — админ-API (только суперпользователь)
 - Пользователи: `api_admin_users_list/create/update/delete`.
