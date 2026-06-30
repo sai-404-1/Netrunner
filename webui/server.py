@@ -49,7 +49,7 @@ from database.repos.base import utcnow_iso
 from services import HostService
 from services.auth_service import AuthService
 from services.secrets import encrypt_secret
-from webui.auth_handlers import api_login, api_logout, api_me, api_register
+from webui.auth_handlers import api_login, api_logout, api_me, api_me_update, api_register
 from webui.auth_middleware import auth_middleware
 from webui.admin_handlers import (
     api_admin_users_list,
@@ -1310,6 +1310,7 @@ def _build_app(app_context) -> web.Application:
     app.router.add_post("/api/register", api_register)
     app.router.add_post("/api/logout", api_logout)
     app.router.add_get("/api/me", api_me)
+    app.router.add_post("/api/me/update", api_me_update)
 
     # Static files
     app.router.add_get("/", index_handler)

@@ -96,3 +96,18 @@ async def api_me(request: web.Request) -> web.Response:
     if not user:
         return _json_response({"ok": False, "error": "not authenticated"}, status=401)
     return _json_response({"ok": True, "user": user})
+
+
+async def api_me_update(request: web.Request) -> web.Response:
+    """Самообслуживание профиля: смена своего имени и/или пароля."""
+    user = request.get("auth_user")
+    if not user:
+        return _json_response({"ok": False, "error": "not authenticated"}, status=401)
+    payload = await _read_json(request)
+    result = _auth_service(request).update_profile(
+        user_id=user.get("id"),
+        new_username=str(payload.get("username") or "").strip() or None,
+        current_password=payload.get("current_password") or None,
+        new_password=payload.get("new_password") or None,
+    )
+    return _json_response(result, status=200 if result.get("ok") else 400)

@@ -112,6 +112,54 @@ class AuthService:
             "role": user.role,
         }
 
+    def update_profile(
+        self,
+        user_id: int,
+        new_username: str | None = None,
+        current_password: str | None = None,
+        new_password: str | None = None,
+    ) -> dict:
+        """Самообслуживание: пользователь меняет своё имя и/или пароль.
+
+        Смена пароля требует подтверждения текущим паролем.
+        """
+        if user_id is None or user_id < 0:
+            return {"ok": False, "error": "Профиль сервисного аккаунта изменять нельзя"}
+        user = self.db.users.get(user_id)
+        if not user:
+            return {"ok": False, "error": "Пользователь не найден"}
+
+        updates: dict = {}
+
+        if new_username:
+            new_username = new_username.strip()
+            if new_username and new_username != user.username:
+                existing = self.db.users.by_username(new_username)
+                if existing and existing.id != user.id:
+                    return {"ok": False, "error": "Имя пользователя уже занято"}
+                updates["username"] = new_username
+
+        if new_password:
+            if not current_password or not _verify_password(current_password, user.password_hash):
+                return {"ok": False, "error": "Неверный текущий пароль"}
+            if len(new_password) < 4:
+                return {"ok": False, "error": "Новый пароль слишком короткий (минимум 4 символа)"}
+            updates["password_hash"] = _hash_password(new_password)
+
+        if not updates:
+            return {"ok": False, "error": "Нет изменений"}
+
+        updated = self.db.users.update(user.id, **updates)
+        return {
+            "ok": True,
+            "user": {
+                "id": updated.id,
+                "username": updated.username,
+                "is_superuser": updated.is_superuser,
+                "role": updated.role,
+            },
+        }
+
     def create_default_user(self, username: str = "admin", password: str = "admin") -> bool:
         """Create a default user if no users exist."""
         if self.db.users.all():
