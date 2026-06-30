@@ -54,6 +54,12 @@
 - Бэкап/восстановление БД: `api_admin_db_tables`, `api_admin_backup`, `api_admin_restore`
   (+ `_do_backup`, `_restart_backend`); `_require_superuser`, `_user_safe`.
 
+### Сценарии (в `server.py`)
+- `api_scenarios_list`, `api_scenarios_create`, `api_scenarios_delete`, `api_scenarios_runs`
+  (история), `api_scenarios_run` (запуск **в фоне** → возвращает `run_id`),
+  `api_scenarios_run_status` (`GET /api/scenarios/runs/{id}` — статус запуска + `step_runs`
+  для живого опроса прогресса/активного шага).
+
 ### `board_handlers.py` — доски размещения хостов
 - `api_boards_list/create/get/update/delete`, `api_boards_save_layout`; `_board_safe`, `_require_auth`.
 

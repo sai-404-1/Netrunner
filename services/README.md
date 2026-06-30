@@ -49,6 +49,13 @@
 ### `scheduler.py` — планировщик
 - `class Scheduler`: `tick()` / `async tick_async()` — найти просроченные задачи и запустить их.
 
+### `scenario_runner.py` — исполнение сценариев (цепочек модулей)
+- `class ScenarioRunner`: `run_scenario_async(scenario_id, target_type, target_id, trigger_type, scenario_run_id=None)`
+  — последовательно прогоняет шаги сценария, каждый шаг — по хостам конкурентно
+  (семафор), пишет live-статусы в `scenario_step_runs` (running → completed/failed) и
+  `scenario_runs`. Параметр `scenario_run_id` позволяет переиспользовать заранее
+  созданную run-строку (фоновый запуск через API с немедленным возвратом `run_id`).
+
 ### `module_registry.py` — реестр модулей
 - `class RegisteredModule` — обёртка над runtime-экземпляром модуля.
 - `class ModuleRegistry` — сводит builtin/пользовательские/дисковые модули в одно место и
