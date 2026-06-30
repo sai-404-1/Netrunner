@@ -213,6 +213,12 @@ CREATE TABLE IF NOT EXISTS uploaded_files (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_uploaded_files_created_at ON uploaded_files (created_at DESC);
+
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    updated_at TEXT NOT NULL
+);
 """
 
 

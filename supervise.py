@@ -276,17 +276,16 @@ def run() -> int:
         f"порог падений={CRASH_THRESHOLD}")
 
     state = load_state()
+    pending_rebuild = False
 
     while not _stop_requested:
-        commit = current_commit()
-        intentional = UPDATING_MARKER.exists()
-        if intentional:
-            log("обнаружен маркер обновления — этот рестарт намеренный (не считается падением)")
-            try:
-                UPDATING_MARKER.unlink()
-            except OSError:
-                pass
+        # Применённое обновление меняет код на диске (git reset делает бэкенд перед
+        # выходом) — перед стартом нужно пересобрать фронт.
+        if pending_rebuild:
+            rebuild_frontend()
+            pending_rebuild = False
 
+        commit = current_commit()
         children = build_children()
         for c in children:
             c.start()
@@ -315,8 +314,15 @@ def run() -> int:
         for c in children:
             c.stop()
 
-        if intentional:
-            log("цикл намеренного рестарта завершён — перезапуск")
+        # Маркер проверяем ИМЕННО здесь: приложение пишет его прямо перед выходом
+        # при применении обновления.
+        if UPDATING_MARKER.exists():
+            try:
+                UPDATING_MARKER.unlink()
+            except OSError:
+                pass
+            pending_rebuild = True
+            log("намеренный рестарт на обновление — пересоберу фронт и перезапущу (не падение)")
             continue
 
         # Неожиданное завершение = краш.

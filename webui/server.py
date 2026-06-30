@@ -49,6 +49,7 @@ from database.repos.base import utcnow_iso
 from services import HostService
 from services.auth_service import AuthService
 from services.secrets import encrypt_secret
+from services.update_service import UpdateService
 from webui.auth_handlers import api_login, api_logout, api_me, api_me_update, api_register
 from webui.auth_middleware import auth_middleware
 from webui.admin_handlers import (
@@ -591,6 +592,71 @@ async def api_uploads_delete(request: web.Request) -> web.Response:
         pass
     ctx.db.uploaded_files.delete(file_id)
     return _ok({"deleted": file_id})
+
+
+# ---------------------------------------------------------------------------
+# Обновление кода (git-монитор, Phase 2). Только для администратора.
+# ---------------------------------------------------------------------------
+
+def _update_check_blocking(db_path):
+    """Создаёт собственное соединение с БД в рабочем потоке (sqlite не потокобезопасен)."""
+    db = open_database(db_path)
+    try:
+        return UpdateService(db).check()
+    finally:
+        db.close()
+
+
+async def api_update_status(request: web.Request) -> web.Response:
+    if not _require_admin(request):
+        return _error("Только для администратора", status=403)
+    cfg = UpdateService(_ctx(request).db).get_config()
+    return _ok({"config": cfg, "status": request.app.get("update_status")})
+
+
+async def api_update_recheck(request: web.Request) -> web.Response:
+    if not _require_admin(request):
+        return _error("Только для администратора", status=403)
+    result = await asyncio.to_thread(_update_check_blocking, _ctx(request).db_path)
+    result["checked_at"] = utcnow_iso()
+    request.app["update_status"] = result
+    return _ok(result)
+
+
+async def api_update_set_config(request: web.Request) -> web.Response:
+    if not _require_admin(request):
+        return _error("Только для администратора", status=403)
+    payload = await _read_json(request)
+    cfg = UpdateService(_ctx(request).db).set_config(
+        remote=payload.get("remote"),
+        branch=payload.get("branch"),
+        token=payload.get("token"),  # None — не менять, "" — очистить
+        auto_update=payload.get("auto_update"),
+        poll_interval=payload.get("poll_interval"),
+    )
+    return _ok(cfg)
+
+
+async def api_update_apply(request: web.Request) -> web.Response:
+    if not _require_admin(request):
+        return _error("Только для администратора", status=403)
+
+    def _work(db_path):
+        db = open_database(db_path)
+        try:
+            return UpdateService(db).apply()
+        finally:
+            db.close()
+
+    result = await asyncio.to_thread(_work, _ctx(request).db_path)
+    if result.get("ok"):
+        # Завершаем процесс после ответа — супервизор пересоберёт фронт и поднимет новый код.
+        async def _exit_soon():
+            await asyncio.sleep(1.0)
+            os._exit(0)
+
+        await _run_background(request.app, _exit_soon())
+    return _ok(result)
 
 
 async def api_groups_create(request: web.Request) -> web.Response:
@@ -1400,6 +1466,10 @@ def _build_app(app_context) -> web.Application:
     app.router.add_get("/api/update/check", api_update_check)
     app.router.add_get("/api/update/diff", api_update_diff)
     app.router.add_post("/api/update/pull", api_update_pull)
+    app.router.add_get("/api/update/status", api_update_status)
+    app.router.add_post("/api/update/recheck", api_update_recheck)
+    app.router.add_post("/api/update/config", api_update_set_config)
+    app.router.add_post("/api/update/apply", api_update_apply)
 
     # WebSocket
     app.router.add_get("/ws", websocket_handler)
@@ -1491,6 +1561,42 @@ async def api_update_pull(request: web.Request) -> web.Response:
         return _ok({"error": str(e)[:200]})
 
 
+async def _update_monitor(app: web.Application):
+    """Фоновый монитор git: периодически проверяет наличие обновлений (режим «уведомлять»).
+
+    Интервал и факт настройки репозитория читаются из конфига. Сетевые git-операции
+    выполняются в отдельном потоке со своим соединением БД (sqlite не потокобезопасен).
+    """
+    db_path = app["ctx"].db_path
+
+    def _work():
+        db = open_database(db_path)
+        try:
+            svc = UpdateService(db)
+            cfg = svc.get_config()
+            interval = cfg.get("poll_interval", 600)
+            result = svc.check() if cfg.get("remote") else None
+            return interval, result
+        finally:
+            db.close()
+
+    while True:
+        interval = 600
+        try:
+            interval, result = await asyncio.to_thread(_work)
+            if result is not None:
+                result["checked_at"] = utcnow_iso()
+                app["update_status"] = result
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Update monitor failed: %s", exc)
+        try:
+            await asyncio.sleep(max(60, interval))
+        except asyncio.CancelledError:
+            break
+
+
 async def _periodic_ping(app: web.Application, interval: int):
     """Background daemon: periodically check all hosts using a fresh DB connection."""
     db_path = app["ctx"].db_path
@@ -1526,14 +1632,16 @@ def run_web_server(
         if ping_interval > 0:
             ping_task = asyncio.create_task(_periodic_ping(_app, ping_interval))
             _app["ping_task"] = ping_task
+        _app["update_task"] = asyncio.create_task(_update_monitor(_app))
 
     async def _on_cleanup(_app):
-        if "ping_task" in _app:
-            _app["ping_task"].cancel()
-            try:
-                await _app["ping_task"]
-            except asyncio.CancelledError:
-                pass
+        for _key in ("ping_task", "update_task"):
+            if _key in _app:
+                _app[_key].cancel()
+                try:
+                    await _app[_key]
+                except asyncio.CancelledError:
+                    pass
         for task in list(_app["background_tasks"]):
             task.cancel()
         await asyncio.gather(*_app["background_tasks"], return_exceptions=True)

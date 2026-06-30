@@ -19,6 +19,7 @@ from .repos.user_module_access_repo import UserModuleAccessRepo
 from .repos.user_group_access_repo import UserGroupAccessRepo
 from .repos.board_repo import BoardRepo
 from .repos.uploaded_file_repo import UploadedFileRepo
+from .repos.app_settings_repo import AppSettingsRepo
 from .repos.scenario_repo import ScenarioRepo, ScenarioStepRepo, ScenarioRunRepo, ScenarioStepRunRepo
 
 
@@ -42,6 +43,7 @@ class Database:
         self.user_group_access = UserGroupAccessRepo(self.conn)
         self.boards = BoardRepo(self.conn)
         self.uploaded_files = UploadedFileRepo(self.conn)
+        self.app_settings = AppSettingsRepo(self.conn)
         self.scenarios = ScenarioRepo(self.conn)
         self.scenario_steps = ScenarioStepRepo(self.conn)
         self.scenario_runs = ScenarioRunRepo(self.conn)
