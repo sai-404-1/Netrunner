@@ -23,18 +23,18 @@ export function Modal({
   }[size];
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-6" onClick={onClose}>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-6 dark:bg-black/70" onClick={onClose}>
       <div
-        className={`flex flex-col max-h-[90vh] w-full ${sizeClass} rounded-[14px] bg-white shadow-xl overflow-hidden`}
+        className={`flex flex-col max-h-[90vh] w-full ${sizeClass} rounded-[14px] bg-white shadow-xl overflow-hidden dark:bg-gray-800 dark:border dark:border-gray-700`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b px-5 py-4">
-          <h3 className="font-semibold">{title}</h3>
-          <button onClick={onClose} className="btn-secondary p-2">
+        <div className="flex items-center justify-between border-b px-5 py-4 dark:border-gray-700 dark:bg-gray-800">
+          <h3 className="font-semibold dark:text-gray-200">{title}</h3>
+          <button onClick={onClose} className="btn-secondary p-2 dark:text-gray-200">
             <X size={18} />
           </button>
         </div>
-        <div className="flex-1 overflow-auto p-5">{children}</div>
+        <div className="flex-1 overflow-auto p-5 dark:text-gray-200">{children}</div>
       </div>
     </div>
   );

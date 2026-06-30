@@ -6,6 +6,7 @@ import { formatDate } from "@/lib/utils";
 import { StatusBadge } from "@/components/Badge";
 import { DataTable } from "@/components/DataTable";
 import { OutputModal } from "@/components/Modal";
+import { ReportsView } from "@/components/ReportsView";
 import { useToast } from "@/components/Toast";
 import { Eye, Trash2 } from "lucide-react";
 
@@ -32,6 +33,7 @@ interface Module {
 
 export default function HistoryPage() {
   const showToast = useToast();
+  const [tab, setTab] = useState<"history" | "reports">("history");
   const [runs, setRuns] = useState<TaskRun[]>([]);
   const [modules, setModules] = useState<Module[]>([]);
   const [modalText, setModalText] = useState("");
@@ -96,17 +98,42 @@ export default function HistoryPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-bold">История</h2>
-          <p className="text-gray-500">Журнал выполненных задач и их результатов</p>
-        </div>
-        <button className="btn-secondary text-red-600" onClick={clearHistory}>
-          <Trash2 size={16} /> Очистить
+      <div>
+        <h2 className="text-3xl font-bold">{tab === "history" ? "История" : "Отчёты"}</h2>
+        <p className="text-gray-500">
+          {tab === "history" ? "Журнал выполненных задач и их результатов" : "Формирование и просмотр файлов отчётности"}
+        </p>
+      </div>
+
+      {/* Вкладки: История / Отчёты */}
+      <div className="flex items-center gap-1 border-b border-gray-200 dark:border-gray-700">
+        <button
+          onClick={() => setTab("history")}
+          className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${
+            tab === "history" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          История
+        </button>
+        <button
+          onClick={() => setTab("reports")}
+          className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${
+            tab === "reports" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          Отчёты
         </button>
       </div>
 
+      {tab === "reports" && <ReportsView />}
+
+      {tab === "history" && (
       <div className="panel">
+        <div className="flex justify-end mb-3">
+          <button className="btn-secondary text-red-600" onClick={clearHistory}>
+            <Trash2 size={16} /> Очистить
+          </button>
+        </div>
         <DataTable
           columns={[
             {
@@ -142,6 +169,7 @@ export default function HistoryPage() {
           rows={runs}
         />
       </div>
+      )}
 
       {modalText && <OutputModal text={modalText} title={modalTitle} onClose={() => setModalText("")} />}
     </div>

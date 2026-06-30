@@ -7,6 +7,7 @@ interface AuthContextType {
   loading: boolean;
   login: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   logout: () => Promise<void>;
+  refresh: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -51,5 +52,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.location.href = "/login";
   }
 
-  return <AuthContext.Provider value={{ user, loading, login, logout }}>{children}</AuthContext.Provider>;
+  async function refresh() {
+    try {
+      const r = await fetch("/api/python/api/me", { credentials: "include" });
+      const data = await r.json();
+      if (data.ok) setUser(data.user);
+    } catch {
+      /* игнорируем — оставляем текущего пользователя */
+    }
+  }
+
+  return <AuthContext.Provider value={{ user, loading, login, logout, refresh }}>{children}</AuthContext.Provider>;
 }

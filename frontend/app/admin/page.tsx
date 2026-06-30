@@ -6,6 +6,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
+import { UpdatePanel } from "@/components/UpdatePanel";
 import { formatDate } from "@/lib/utils";
 import { ShieldOff, Shield, Trash2, Settings, Network, Download, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -315,9 +316,10 @@ export default function AdminPage() {
         <p className="text-gray-500">Управление пользователями и доступом к модулям</p>
       </div>
 
-      <div className="panel">
+      <div className="grid lg:grid-cols-3 gap-6 items-start">
+      <div className="panel lg:col-span-2">
         <h3 className="font-semibold mb-4">Добавить пользователя</h3>
-        <form onSubmit={onCreateUser} className="grid md:grid-cols-3 lg:grid-cols-4 gap-4 items-end">
+        <form onSubmit={onCreateUser} className="grid sm:grid-cols-2 gap-4 items-end">
           <label className="label">
             Имя пользователя
             <input className="input" name="username" placeholder="ivan" required />
@@ -337,10 +339,8 @@ export default function AdminPage() {
             Добавить
           </button>
         </form>
-      </div>
 
-      <div className="panel">
-        <h3 className="font-semibold mb-4">Пользователи</h3>
+        <h3 className="font-semibold mb-4 mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">Пользователи</h3>
         <DataTable
           columns={[
             { title: "ID", key: "id" },
@@ -415,6 +415,11 @@ export default function AdminPage() {
           ]}
           rows={users}
         />
+      </div>
+
+      <div className="panel">
+        <UpdatePanel />
+      </div>
       </div>
 
       {modulesUser && (

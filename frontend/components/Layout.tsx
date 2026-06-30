@@ -11,14 +11,11 @@ import {
   Play,
   History,
   CalendarClock,
-  FileText,
-  LogOut,
+  User,
   Menu,
   X,
   ShieldCheck,
-  Activity,
   ListOrdered,
-  RefreshCw,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -30,21 +27,18 @@ const nav = [
   { href: "/run", label: "Запуск задачи", icon: Play },
   { href: "/history", label: "История", icon: History },
   { href: "/scheduled", label: "Планировщик", icon: CalendarClock },
-  { href: "/reports", label: "Отчёты", icon: FileText },
   { href: "/scenarios", label: "Сценарии", icon: ListOrdered },
 ];
 
 const adminNav = [
   { href: "/admin", label: "Администрирование", icon: ShieldCheck },
-  { href: "/status", label: "Статус сервера", icon: Activity },
-  { href: "/update", label: "Обновление", icon: RefreshCw },
 ];
 
 const TEACHER_ALLOWED = new Set(["/", "/hosts"]);
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
   const isTeacher = user?.role === "teacher" && !user?.is_superuser;
 
@@ -80,7 +74,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </Link>
             );
           })}
-          {(user?.is_superuser || pathname.startsWith("/status")) && (
+          {user?.is_superuser && (
             <div className="mt-2 pt-2 border-t border-white/10 flex flex-col gap-2">
               {adminNav.map((item) => {
                 if (item.href === "/admin" && !user?.is_superuser) return null;
@@ -110,10 +104,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <span className="text-gray-400">Пользователь:</span> {user.username}
             </div>
           )}
-          <button onClick={logout} className="btn-secondary w-full justify-start">
-            <LogOut size={16} />
-            Выйти
-          </button>
+          <Link
+            href="/account"
+            onClick={() => setMobileOpen(false)}
+            className={`flex items-center gap-3 rounded-[14px] px-4 py-3 text-sm font-medium transition-colors ${
+              pathname.startsWith("/account")
+                ? "text-white bg-white/15 border border-white/35 shadow"
+                : "text-gray-300 hover:bg-white/10 hover:text-white"
+            }`}
+          >
+            <User size={18} />
+            Профиль
+          </Link>
         </div>
       </aside>
       <main className="p-6 min-w-0">{children}</main>

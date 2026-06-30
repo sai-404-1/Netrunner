@@ -2,6 +2,7 @@
 
 import { useRef, useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useTheme } from "@/components/ThemeProvider";
 import { Monitor, X } from "lucide-react";
 
 interface Host {
@@ -36,6 +37,8 @@ interface Props {
 
 export function BoardCanvas({ board, availableHosts, initialPlacements, onChange }: Props) {
   const router = useRouter();
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
   const wrapRef = useRef<HTMLDivElement>(null);
   const [placements, setPlacements] = useState<Placement[]>(initialPlacements);
   const [zoom, setZoom] = useState(0.7);
@@ -199,10 +202,11 @@ export function BoardCanvas({ board, availableHosts, initialPlacements, onChange
             transform: `scale(${zoom}) translate(${panX}px, ${panY}px)`,
             transformOrigin: "0 0",
             position: "relative",
-            background: "white",
-            boxShadow: "0 0 0 1px #e2e8f0",
-            backgroundImage:
-              "radial-gradient(circle, #d1d5db 1px, transparent 1px)",
+            background: isDark ? "#0f172a" : "white",
+            boxShadow: isDark ? "0 0 0 1px #334155" : "0 0 0 1px #e2e8f0",
+            backgroundImage: isDark
+              ? "radial-gradient(circle, #334155 1px, transparent 1px)"
+              : "radial-gradient(circle, #d1d5db 1px, transparent 1px)",
             backgroundSize: "24px 24px",
           }}
         >
@@ -244,22 +248,26 @@ export function BoardCanvas({ board, availableHosts, initialPlacements, onChange
         </div>
       </div>
 
-      <div className="h-28 border-t flex items-center gap-2 p-2 overflow-x-auto bg-white shrink-0">
-        <input
-          className="input w-36 shrink-0 text-sm py-1"
-          placeholder="Поиск..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <select
-          className="input w-32 shrink-0 text-sm py-1"
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as "name" | "status")}
-        >
-          <option value="name">По имени</option>
-          <option value="status">По статусу</option>
-        </select>
-        <div className="flex gap-2 overflow-x-auto">
+      <div className="h-28 border-t flex items-stretch gap-3 p-2 bg-white shrink-0">
+        {/* Левая колонка: поиск и сортировка */}
+        <div className="flex flex-col justify-center gap-2 w-40 shrink-0">
+          <input
+            className="input text-sm py-1"
+            placeholder="Поиск..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <select
+            className="input text-sm py-1"
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as "name" | "status")}
+          >
+            <option value="name">По имени</option>
+            <option value="status">По статусу</option>
+          </select>
+        </div>
+        {/* Справа: список компьютеров */}
+        <div className="flex gap-2 overflow-x-auto items-center flex-1">
           {panelHosts.map((h) => (
             <div
               key={h.id}

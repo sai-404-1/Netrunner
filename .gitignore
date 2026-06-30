@@ -22,6 +22,8 @@ CLAUDE.md
 data/*.db
 data/*.db-wal
 data/*.db-shm
+data/*.pre_restore
+data/*.pre_update
 
 # Master key for host-password encryption (must never be committed)
 data/.secret_key
@@ -54,3 +56,6 @@ docker-compose.override.yml
 
 # Logs
 *.log
+
+# GigaChat (gigacode) agent metadata
+.gigacode/

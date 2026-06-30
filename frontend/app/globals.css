@@ -18,11 +18,45 @@
   --shadow: 0 20px 60px rgba(15, 23, 42, 0.12);
 }
 
+/* Тема управляется ТОЛЬКО классом .dark (переключатель в профиле), без авто-детекта
+   ОС: иначе при системной тёмной теме и выбранной светлой переменные :root уезжали
+   в тёмные значения, и текст без явного цвета становился невидимым на светлом фоне. */
+/* Дефолтный цвет рамок в тёмной теме: голый `border` и нейтральные `border-gray-200`
+   давали светлую («белую») обводку у мелких блоков. Переопределяем дефолт в слое base —
+   цветные рамки (border-blue-500 и т.п.) из слоя utilities остаются нетронутыми. */
+@layer base {
+  .dark *,
+  .dark ::before,
+  .dark ::after {
+    border-color: #374151;
+  }
+}
+
+.dark {
+  --bg: #0f172a;
+  --bg-soft: #020617;
+  --panel: #1e293b;
+  --panel-soft: #0f172a;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --line: #334155;
+  --brand: #3b82f6;
+  --brand-dark: #2563eb;
+  --ok: #22c55e;
+  --warn: #f97316;
+  --error: #ef4444;
+  --shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+
 body {
   font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: var(--text);
   background: linear-gradient(135deg, #eef2ff 0%, #f8fafc 45%, #e0f2fe 100%);
   min-height: 100vh;
+}
+
+.dark body {
+  background: linear-gradient(135deg, #020617 0%, #0f172a 45%, #1e293b 100%);
 }
 
 pre {
@@ -37,6 +71,9 @@ pre {
   .btn-secondary {
     @apply inline-flex items-center justify-center gap-2 rounded-[10px] px-4 py-2.5 font-semibold text-gray-900 bg-white border border-gray-200 hover:bg-gray-50 transition-colors;
   }
+  .dark .btn-secondary {
+    @apply text-gray-100 bg-gray-800 border-gray-700 hover:bg-gray-700;
+  }
   .btn-danger {
     @apply inline-flex items-center justify-center gap-2 rounded-[10px] px-4 py-2.5 font-semibold text-white bg-error hover:bg-red-700 transition-colors;
   }
@@ -44,30 +81,59 @@ pre {
     @apply rounded-[14px] border border-white/90 p-5 shadow-lg;
     background: rgba(255, 255, 255, 0.92);
   }
+  .dark .panel {
+    @apply border-gray-700;
+    background: rgba(30, 41, 59, 0.92);
+  }
   .card {
     @apply rounded-[14px] border border-white/90 p-5 shadow-lg;
     background: rgba(255, 255, 255, 0.92);
   }
+  .dark .card {
+    @apply border-gray-700;
+    background: rgba(30, 41, 59, 0.92);
+  }
   .input {
     @apply w-full rounded-[10px] border border-gray-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-brand focus:ring-4 focus:ring-brand/10;
+  }
+  .dark .input {
+    @apply border-gray-700 bg-gray-800 text-gray-100 placeholder-gray-500 focus:border-brand focus:ring-brand/20;
   }
   .label {
     @apply grid gap-1.5 text-sm font-semibold text-slate-700;
   }
+  .dark .label {
+    @apply text-gray-300;
+  }
   .badge {
     @apply inline-flex items-center rounded-full px-2.5 py-1 text-xs font-bold bg-gray-200 text-slate-900;
+  }
+  .dark .badge {
+    @apply bg-gray-700 text-gray-100;
   }
   .badge-success {
     @apply bg-green-100 text-green-800;
   }
+  .dark .badge-success {
+    @apply bg-green-900/40 text-green-400;
+  }
   .badge-error {
     @apply bg-red-100 text-red-800;
+  }
+  .dark .badge-error {
+    @apply bg-red-900/40 text-red-400;
   }
   .badge-running {
     @apply bg-amber-100 text-amber-800;
   }
+  .dark .badge-running {
+    @apply bg-amber-900/40 text-amber-400;
+  }
   .badge-warning {
     @apply bg-orange-100 text-orange-800;
+  }
+  .dark .badge-warning {
+    @apply bg-orange-900/40 text-orange-400;
   }
 }
 
@@ -87,4 +153,73 @@ pre {
   main {
     @apply p-3;
   }
+}
+
+/* Dark mode table styles */
+.dark table thead {
+  @apply bg-gray-800 text-gray-300;
+}
+.dark table tbody tr {
+  @apply border-gray-700 hover:bg-gray-800/50;
+}
+.dark table tbody tr:nth-child(even) {
+  @apply bg-gray-800/20;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Читаемость тёмной темы: многие страницы используют захардкоженные нейтральные
+   цвета (text-slate-900, bg-white и т.п.), которые в тёмной теме сливаются с
+   фоном. Централизованно переопределяем их здесь — в одном месте, чтобы не
+   править десятки компонентов. Цветные классы (бейджи, кнопки) не трогаем.
+   ────────────────────────────────────────────────────────────────────────── */
+.dark .text-slate-900,
+.dark .text-gray-900,
+.dark .text-slate-800,
+.dark .text-gray-800 {
+  color: #e2e8f0;
+}
+.dark .text-slate-700,
+.dark .text-gray-700,
+.dark .text-slate-600,
+.dark .text-gray-600 {
+  color: #cbd5e1;
+}
+.dark .text-slate-500,
+.dark .text-gray-500 {
+  color: #94a3b8;
+}
+
+/* Светлые «островки» фона делаем тёмными, чтобы не светились на тёмной теме.
+   Полупрозрачные варианты (bg-white/10 и т.п.) — это отдельные классы и сюда
+   не попадают, поэтому подсветка активных пунктов меню не ломается. */
+.dark .bg-white {
+  background-color: #1e293b;
+}
+.dark .bg-slate-50,
+.dark .bg-gray-50 {
+  background-color: #0f172a;
+}
+.dark .bg-slate-100,
+.dark .bg-gray-100 {
+  background-color: #1e293b;
+}
+
+/* Акцентные «подсветки» (выбранная карточка, инфо/ошибка-баннеры): в тёмной теме
+   делаем тёмными с цветным оттенком, иначе светлый фон + наш светлый текст = нечитаемо. */
+.dark .bg-blue-50 {
+  background-color: rgba(59, 130, 246, 0.15);
+}
+.dark .bg-red-50 {
+  background-color: rgba(239, 68, 68, 0.12);
+}
+
+/* Hover-подсветки: в тёмной теме светлый hover-фон давал «белое на белом».
+   Заменяем на полупрозрачный светлый поверх тёмного — видимый, но не светлый. */
+.dark .hover\:bg-gray-50:hover,
+.dark .hover\:bg-slate-50:hover {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+.dark .hover\:bg-gray-100:hover,
+.dark .hover\:bg-slate-100:hover {
+  background-color: rgba(255, 255, 255, 0.1);
 }

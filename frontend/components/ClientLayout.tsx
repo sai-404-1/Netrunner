@@ -5,8 +5,8 @@ import { useEffect } from "react";
 import Layout from "@/components/Layout";
 import { useAuth } from "@/components/AuthProvider";
 
-const PUBLIC_PATHS = ["/login", "/status"];
-const TEACHER_PATHS = ["/", "/hosts", "/login", "/status"];
+const PUBLIC_PATHS = ["/login"];
+const TEACHER_PATHS = ["/", "/hosts", "/login"];
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
