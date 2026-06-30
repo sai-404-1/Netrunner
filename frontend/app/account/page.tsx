@@ -4,8 +4,21 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { useTheme } from "@/components/ThemeProvider";
 import { useToast } from "@/components/Toast";
-import { apiPostClient } from "@/lib/api-client";
-import { LogOut, Sun, Moon } from "lucide-react";
+import { apiGetClient, apiPostClient } from "@/lib/api-client";
+import { LogOut, Sun, Moon, Send } from "lucide-react";
+
+interface TgStatus {
+  configured: boolean;
+  linked: boolean;
+  username?: string | null;
+  chat_id?: string | null;
+}
+interface TgLink {
+  code: string;
+  deep_link?: string | null;
+  bot_username?: string | null;
+  ttl_minutes?: number;
+}
 
 export default function AccountPage() {
   const { user, logout, refresh } = useAuth();
@@ -19,6 +32,65 @@ export default function AccountPage() {
   const [newPw, setNewPw] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
   const [savingPw, setSavingPw] = useState(false);
+
+  const [tg, setTg] = useState<TgStatus | null>(null);
+  const [tgLink, setTgLink] = useState<TgLink | null>(null);
+  const [tgBusy, setTgBusy] = useState(false);
+
+  async function loadTg() {
+    try {
+      setTg(await apiGetClient("/api/me/telegram/status"));
+    } catch {
+      /* ignore */
+    }
+  }
+  useEffect(() => {
+    loadTg();
+  }, []);
+
+  // Пока ждём подтверждения привязки — опрашиваем статус.
+  useEffect(() => {
+    if (!tgLink || tg?.linked) return;
+    const t = setInterval(async () => {
+      try {
+        const s: TgStatus = await apiGetClient("/api/me/telegram/status");
+        setTg(s);
+        if (s.linked) {
+          setTgLink(null);
+          showToast("Telegram привязан");
+        }
+      } catch {
+        /* ignore */
+      }
+    }, 3000);
+    return () => clearInterval(t);
+  }, [tgLink, tg?.linked, showToast]);
+
+  async function startTgLink() {
+    setTgBusy(true);
+    try {
+      const res = await apiPostClient("/api/me/telegram/link", {});
+      setTgLink(res);
+    } catch (err: any) {
+      showToast(err.message, "error");
+    } finally {
+      setTgBusy(false);
+    }
+  }
+  async function unlinkTg() {
+    if (!confirm("Отвязать Telegram от аккаунта?")) return;
+    setTgBusy(true);
+    try {
+      await apiPostClient("/api/me/telegram/unlink", {});
+      setTgLink(null);
+      await loadTg();
+      showToast("Telegram отвязан");
+    } catch (err: any) {
+      showToast(err.message, "error");
+    } finally {
+      setTgBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (user) setUsername(user.username);
@@ -129,6 +201,46 @@ export default function AccountPage() {
             )}
           </button>
         </div>
+      </div>
+
+      <div className="panel">
+        <h3 className="font-semibold mb-4">Telegram</h3>
+        {!tg ? (
+          <p className="text-sm text-gray-500">Загрузка…</p>
+        ) : !tg.configured ? (
+          <p className="text-sm text-gray-500">Telegram-бот не настроен администратором.</p>
+        ) : tg.linked ? (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm">
+              <span className="text-green-500">✓ Привязан</span>
+              {tg.username ? <> : @{tg.username}</> : null}
+              <span className="text-gray-500"> (chat {tg.chat_id})</span>
+            </div>
+            <button className="btn-secondary text-red-600" onClick={unlinkTg} disabled={tgBusy}>
+              Отвязать
+            </button>
+          </div>
+        ) : tgLink ? (
+          <div className="space-y-2 text-sm">
+            <p>Откройте бота и нажмите «Start», либо отправьте ему команду:</p>
+            <code className="block bg-slate-950 text-gray-200 p-2 rounded select-all">/start {tgLink.code}</code>
+            {tgLink.deep_link && (
+              <a href={tgLink.deep_link} target="_blank" rel="noopener noreferrer" className="btn inline-flex">
+                <Send size={16} /> Открыть бота {tgLink.bot_username ? `@${tgLink.bot_username}` : ""}
+              </a>
+            )}
+            <p className="text-xs text-gray-500">
+              Код действует {tgLink.ttl_minutes ?? 10} мин. Ожидаю подтверждения…
+            </p>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-gray-500">Привяжите Telegram для подтверждения входа (2FA).</p>
+            <button className="btn" onClick={startTgLink} disabled={tgBusy}>
+              <Send size={16} /> Привязать Telegram
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="panel">

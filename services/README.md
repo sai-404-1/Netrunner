@@ -68,6 +68,13 @@
   смена своего имени/пароля (смена пароля требует подтверждения текущим).
 - Хелперы: `_hash_password`/`_verify_password` (PBKDF2-SHA256), `create_access_token`.
 
+### `telegram_service.py` — привязка/верификация Telegram (фундамент 2FA)
+- `class TelegramService(db)`: токен бота в `app_settings` (шифр) или env
+  `NETRUNNER_TELEGRAM_BOT_TOKEN`. `create_link_code(user)` — код + ссылка
+  `t.me/<bot>?start=<code>`; `poll_once()` — getUpdates, ловит `/start <code>` и
+  привязывает `chat_id` к пользователю; `status`/`unlink`/`send_message`/`get_bot_username`.
+  Фоновый поллер — `_telegram_poller` в `webui/server.py`.
+
 ### `update_service.py` — самообновление кода через git (Phase 2)
 - `class UpdateService(db)` — хранит конфиг в таблице `app_settings` (git-remote, ветка,
   deploy-токен в шифре, интервал, авто-флаг):

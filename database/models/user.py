@@ -18,5 +18,9 @@ class User(BaseModel):
     is_superuser: int = 0
     role: str = 'user'
     token: str | None = None
+    telegram_chat_id: str | None = None
+    telegram_username: str | None = None
+    telegram_link_code: str | None = None
+    telegram_link_expires: str | None = None
     created_at: str = ''
     updated_at: str = ''

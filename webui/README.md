@@ -23,6 +23,9 @@
   пересобирает/перезапускает), `api_update_incidents` (читает `data/incidents/*` и хвост
   `supervisor.log`). Старые `api_update_check/diff/pull` (git в контейнере) ещё есть, но UI
   на них не ходит.
+- **Telegram (привязка/верификация):** `api_me_telegram_status/link/unlink` (любой
+  залогиненный — привязка своего аккаунта через `/start <code>`), `api_admin_telegram_get/set`
+  (админ — токен бота). Фоновый поллер `_telegram_poller` обрабатывает `/start <code>`.
 - **Хосты:** `api_hosts`, `api_hosts_create`, `api_hosts_update`, `api_hosts_delete`,
   `api_hosts_check`, `api_hosts_check_all`,
   `api_hosts_reprovision` — заново копирует SSH-ключ на хост (при отвале/удалении ключа),

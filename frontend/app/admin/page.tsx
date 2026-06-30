@@ -7,6 +7,7 @@ import { useToast } from "@/components/Toast";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { UpdatePanel } from "@/components/UpdatePanel";
+import { TelegramAdmin } from "@/components/TelegramAdmin";
 import { formatDate } from "@/lib/utils";
 import { ShieldOff, Shield, Trash2, Settings, Network, Download, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -417,8 +418,13 @@ export default function AdminPage() {
         />
       </div>
 
-      <div className="panel">
-        <UpdatePanel />
+      <div className="space-y-6">
+        <div className="panel">
+          <UpdatePanel />
+        </div>
+        <div className="panel">
+          <TelegramAdmin />
+        </div>
       </div>
       </div>
 

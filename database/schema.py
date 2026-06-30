@@ -158,6 +158,10 @@ CREATE TABLE IF NOT EXISTS users (
     is_superuser INTEGER NOT NULL DEFAULT 0,
     role TEXT NOT NULL DEFAULT 'user',
     token TEXT,
+    telegram_chat_id TEXT,
+    telegram_username TEXT,
+    telegram_link_code TEXT,
+    telegram_link_expires TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -247,6 +251,10 @@ def _migrate_scheduled_tasks(conn) -> None:
 
 def _migrate_users(conn) -> None:
     _add_column_if_missing(conn, "users", "role", "TEXT NOT NULL DEFAULT 'user'")
+    _add_column_if_missing(conn, "users", "telegram_chat_id", "TEXT")
+    _add_column_if_missing(conn, "users", "telegram_username", "TEXT")
+    _add_column_if_missing(conn, "users", "telegram_link_code", "TEXT")
+    _add_column_if_missing(conn, "users", "telegram_link_expires", "TEXT")
 
 
 def _migrate_modules(conn) -> None:
