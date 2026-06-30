@@ -43,18 +43,26 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const isTeacher = user?.role === "teacher" && !user?.is_superuser;
 
   return (
-    <div className="min-h-screen flex flex-col lg:grid lg:grid-cols-[280px_1fr]">
-      <aside className="bg-gradient-to-br from-blue-900 via-bg to-[#020617] text-gray-200 lg:sticky lg:top-0 lg:h-screen p-6 flex flex-col gap-7">
+    <div className="min-h-screen lg:grid lg:grid-cols-[280px_1fr]">
+      {/* Затемнение под выезжающим меню (мобилка) */}
+      {mobileOpen && (
+        <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setMobileOpen(false)} />
+      )}
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 w-72 overflow-y-auto transform transition-transform duration-300 ease-out ${
+          mobileOpen ? "translate-x-0" : "-translate-x-full"
+        } lg:sticky lg:top-0 lg:h-screen lg:w-auto lg:translate-x-0 lg:z-auto lg:transition-none bg-gradient-to-br from-blue-900 via-bg to-[#020617] text-gray-200 p-6 flex flex-col gap-7`}
+      >
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-white">NetRunner</h1>
             <p className="text-xs text-blue-300 mt-1">Веб-консоль управления</p>
           </div>
-          <button className="lg:hidden p-2" onClick={() => setMobileOpen(!mobileOpen)}>
-            {mobileOpen ? <X size={22} /> : <Menu size={22} />}
+          <button className="lg:hidden p-2" onClick={() => setMobileOpen(false)} aria-label="Закрыть меню">
+            <X size={22} />
           </button>
         </div>
-        <nav className={`flex-col gap-2 ${mobileOpen ? "flex" : "hidden lg:flex"}`}>
+        <nav className="flex flex-col gap-2">
           {nav.map((item) => {
             if (isTeacher && !TEACHER_ALLOWED.has(item.href)) return null;
             const active = pathname === item.href || pathname.startsWith(item.href + "/");
@@ -98,7 +106,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </div>
           )}
         </nav>
-        <div className="mt-auto hidden lg:flex flex-col gap-3">
+        <div className="mt-auto flex flex-col gap-3">
           {user && (
             <div className="text-sm text-gray-300">
               <span className="text-gray-400">Пользователь:</span> {user.username}
@@ -118,7 +126,22 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           </Link>
         </div>
       </aside>
-      <main className="p-6 min-w-0">{children}</main>
+      <div className="min-w-0 flex flex-col">
+        {/* Мобильная шапка с бургером */}
+        <div className="lg:hidden sticky top-0 z-30 flex items-center gap-3 px-4 py-3 bg-blue-900 text-white">
+          <button className="p-1.5" onClick={() => setMobileOpen(true)} aria-label="Открыть меню">
+            <Menu size={22} />
+          </button>
+          <span className="font-bold">NetRunner</span>
+        </div>
+        <main className="p-6 min-w-0">
+          {/* key={pathname} → ремоунт при смене страницы → проигрывается анимация входа.
+              Анимируется только правая область, сайдбар не трогаем. */}
+          <div key={pathname} className="page-transition">
+            {children}
+          </div>
+        </main>
+      </div>
     </div>
   );
 }
