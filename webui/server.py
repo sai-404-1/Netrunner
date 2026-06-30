@@ -309,17 +309,24 @@ async def api_task_run_status(request: web.Request) -> web.Response:
     if run is None:
         return _error("Task run not found", status=404)
     data = model_to_dict(run)
-    # Прогресс: сколько хостов уже обработано из общего числа целей.
+    # Прогресс: сколько хостов уже обработано (state ok|error) из общего числа.
+    # per_host_json теперь содержит все цели с самого начала (queued/running/ok/error),
+    # поэтому считаем именно завершённые. У записей без поля state (sync-модули/легаси)
+    # state по умолчанию «ok» — они уже финальные.
     done = 0
+    total = 0
     if run.per_host_json:
         try:
-            done = len(json.loads(run.per_host_json))
+            items = json.loads(run.per_host_json)
+            total = len(items)
+            done = sum(1 for it in items if it.get("state", "ok") in ("ok", "error"))
         except Exception:
-            done = 0
-    try:
-        total = len(ctx.host_service.resolve_targets(run.target_type, run.target_id))
-    except Exception:
-        total = 0
+            done = total = 0
+    if total == 0:
+        try:
+            total = len(ctx.host_service.resolve_targets(run.target_type, run.target_id))
+        except Exception:
+            total = 0
     data["progress"] = {"done": done, "total": total}
     return _ok(data)
 

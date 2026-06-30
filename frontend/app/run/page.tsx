@@ -6,7 +6,7 @@ import { apiGetClient, apiPostClient } from "@/lib/api-client";
 import { useToast } from "@/components/Toast";
 import { OutputModal } from "@/components/Modal";
 import { FileManager } from "@/components/FileManager";
-import { X, Maximize2 } from "lucide-react";
+import { X, Maximize2, Loader2 } from "lucide-react";
 
 export default function RunPage() {
   return (
@@ -355,18 +355,40 @@ function RunForm() {
         {perHost.length > 0 && (
           <div className="mt-4 space-y-3">
             <h4 className="font-semibold">По хостам</h4>
-            {perHost.map((item: any, i: number) => (
-              <div key={i} className="border border-gray-200 rounded-lg overflow-hidden">
-                <div className="flex justify-between gap-3 px-3 py-2 bg-slate-50 text-sm border-b border-gray-200">
-                  <strong>{item.name || item.address || item.host_id || "Хост"}</strong>
-                  <span className="text-gray-500">
-                    {item.address || ""}
-                    {item.port ? `:${item.port}` : ""}
-                  </span>
+            {perHost.map((item: any, i: number) => {
+              const state: string | undefined = item.state;
+              const chip =
+                state === "running"
+                  ? { t: "Выполняется", c: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" }
+                  : state === "queued"
+                  ? { t: "В очереди", c: "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300" }
+                  : state === "error"
+                  ? { t: "Ошибка", c: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300" }
+                  : { t: "Готово", c: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300" };
+              const finished = state === "ok" || state === "error" || (!state && item.output);
+              return (
+                <div key={i} className="border border-gray-200 rounded-lg overflow-hidden">
+                  <div className="flex items-center justify-between gap-3 px-3 py-2 bg-slate-50 text-sm border-b border-gray-200">
+                    <span className="flex items-center gap-2 min-w-0">
+                      <strong className="truncate">{item.name || item.address || item.host_id || "Хост"}</strong>
+                      <span className="text-gray-500 shrink-0">
+                        {item.address || ""}
+                        {item.port ? `:${item.port}` : ""}
+                      </span>
+                    </span>
+                    <span className={`shrink-0 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${chip.c}`}>
+                      {state === "running" && <Loader2 size={12} className="animate-spin" />}
+                      {chip.t}
+                    </span>
+                  </div>
+                  {finished ? (
+                    <pre className="p-3 text-sm bg-white text-slate-900">{item.output || "Нет вывода"}</pre>
+                  ) : (
+                    <div className="p-3 text-sm text-gray-500">{state === "running" ? "Выполняется…" : "В очереди"}</div>
+                  )}
                 </div>
-                <pre className="p-3 text-sm bg-white text-slate-900">{item.output || "Нет вывода"}</pre>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

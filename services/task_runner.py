@@ -259,19 +259,52 @@ class TaskRunner:
             else None
         )
 
+        # Состояние каждого хоста в порядке целей: queued → running → ok|error.
+        # Это даёт клиенту живую картину «сколько пройдено, кто выполняется, кто в очереди».
+        order = [host.id for host in targets]
+        by_id = {
+            host.id: {
+                "host_id": host.id,
+                "name": host.name,
+                "address": host.address,
+                "port": host.port,
+                "username": host.username,
+                "state": "queued",
+                "output": "",
+            }
+            for host in targets
+        }
+
+        def _snapshot():
+            return [by_id[hid] for hid in order]
+
+        self._save_progress(context.task_run_id, _snapshot())
+
+        def _result_state(result: dict) -> str:
+            if result.get("status") == "error" or str(result.get("output", "")).startswith("[ERROR]"):
+                return "error"
+            return "ok"
+
+        async def _mark_running(host):
+            by_id[host.id]["state"] = "running"
+            self._save_progress(context.task_run_id, _snapshot())
+
         async def _run_limited(host):
-            # Исключения отдельного хоста превращаем в результат с ошибкой, чтобы не
-            # ронять всю задачу. Отмену (CancelledError) пробрасываем наверх.
+            # Возвращаем (host, result), чтобы всегда знать хост, даже если модуль не
+            # положил host_id. Исключения хоста превращаем в результат с ошибкой; отмену
+            # (CancelledError) пробрасываем наверх.
             try:
-                if semaphore is None:
-                    return await self._run_one_host(instance, context, host, args)
-                async with semaphore:
-                    return await self._run_one_host(instance, context, host, args)
+                if semaphore is not None:
+                    async with semaphore:
+                        await _mark_running(host)
+                        return host, await self._run_one_host(instance, context, host, args)
+                await _mark_running(host)
+                return host, await self._run_one_host(instance, context, host, args)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 self.logger.warning("Host %s (%s) failed: %s", host.name, host.address, exc)
-                return {
+                return host, {
                     "host_id": host.id,
                     "name": host.name,
                     "address": host.address,
@@ -280,30 +313,25 @@ class TaskRunner:
                     "output": f"[ERROR] {exc}",
                 }
 
-        tasks = [
-            asyncio.create_task(_run_limited(host), name=f"host-{host.id}")
-            for host in targets
-        ]
+        tasks = [asyncio.create_task(_run_limited(host), name=f"host-{host.id}") for host in targets]
 
-        per_host_results = []
         inventory_items = []
         try:
-            # Обрабатываем хосты по мере готовности и после каждого сохраняем
-            # промежуточный результат — чтобы клиент видел прогресс при опросе статуса.
+            # По мере готовности обновляем состояние конкретного хоста и сохраняем снимок.
             for coro in asyncio.as_completed(tasks):
-                result = await coro
-                per_host_results.append(result)
+                host, result = await coro
+                by_id[host.id] = {**result, "state": _result_state(result)}
                 inventory_item = result.get("inventory_item")
                 if inventory_item is not None:
                     inventory_items.append(inventory_item)
-                self._save_progress(context.task_run_id, per_host_results)
+                self._save_progress(context.task_run_id, _snapshot())
         except asyncio.CancelledError:
             for task in tasks:
                 if not task.done():
                     task.cancel()
             raise
 
-        return per_host_results, inventory_items
+        return _snapshot(), inventory_items
 
     def _save_progress(self, task_run_id, per_host_results):
         """Сохраняет промежуточные результаты по хостам для отображения прогресса.
