@@ -181,18 +181,45 @@ def wait_health(children: list[Child]) -> bool:
 
 
 # --- Recovery (феникс) -----------------------------------------------------
-def rebuild_frontend() -> None:
-    """Пересобирает фронтенд (нужно после отката кода). Best-effort при наличии исходников."""
-    if not (FRONTEND_DIR / "package.json").exists():
-        log("пересборка фронта пропущена: нет исходников (запечённый образ)", "WARN")
+def _frontend_mode() -> str:
+    """'standalone' (запечённый build с server.js), 'dev' (исходники, bind-mount) или 'none'."""
+    if (FRONTEND_DIR / "server.js").exists():
+        return "standalone"
+    if (FRONTEND_DIR / "package.json").exists():
+        return "dev"
+    return "none"
+
+
+def ensure_frontend_deps() -> None:
+    """Ставит node_modules для dev-режима, если их нет (bind-mount исходников)."""
+    if (FRONTEND_DIR / "node_modules").exists():
         return
     try:
-        log("пересборка фронта: npm install && npm run build…")
+        log("устанавливаю зависимости фронта (npm install)…")
         subprocess.run(["npm", "install"], cwd=str(FRONTEND_DIR), check=True, timeout=900)
-        subprocess.run(["npm", "run", "build"], cwd=str(FRONTEND_DIR), check=True, timeout=900)
-        log("фронт пересобран")
     except Exception as exc:  # noqa: BLE001
-        log(f"пересборка фронта не удалась: {exc}", "ERROR")
+        log(f"npm install не удался: {exc}", "ERROR")
+
+
+def rebuild_frontend() -> None:
+    """Готовит фронт после обновления кода. Best-effort.
+
+    В dev-режиме (исходники на bind-mount) пересборка не нужна — `next dev`
+    перекомпилирует при перезапуске; достаточно обновить зависимости. В standalone
+    (запечённый образ) recovery с git не используется, поэтому это редкий путь.
+    """
+    mode = _frontend_mode()
+    if mode == "none":
+        log("подготовка фронта пропущена: нет исходников", "WARN")
+        return
+    try:
+        log("обновляю зависимости фронта (npm install)…")
+        subprocess.run(["npm", "install"], cwd=str(FRONTEND_DIR), check=True, timeout=900)
+        if mode == "standalone":
+            subprocess.run(["npm", "run", "build"], cwd=str(FRONTEND_DIR), check=True, timeout=900)
+        log("фронт подготовлен")
+    except Exception as exc:  # noqa: BLE001
+        log(f"подготовка фронта не удалась: {exc}", "ERROR")
 
 
 def write_incident(kind: str, detail: str) -> None:
@@ -259,12 +286,24 @@ def build_children() -> list[Child]:
             env,
         )
     ]
-    if (FRONTEND_DIR / "server.js").exists():
+    mode = _frontend_mode()
+    if mode == "standalone":
         children.append(
             Child("frontend", ["node", "server.js"], FRONTEND_DIR, {**env, "PORT": str(FRONTEND_PORT)})
         )
+    elif mode == "dev":
+        # Bind-mount исходников: запускаем next dev (hot-reload, без пересборки standalone).
+        ensure_frontend_deps()
+        children.append(
+            Child(
+                "frontend",
+                ["npm", "run", "dev", "--", "-p", str(FRONTEND_PORT), "-H", "0.0.0.0"],
+                FRONTEND_DIR,
+                env,
+            )
+        )
     else:
-        log("frontend/server.js не найден — запускаю только бэкенд", "WARN")
+        log("фронтенд не найден — запускаю только бэкенд", "WARN")
     return children
 
 

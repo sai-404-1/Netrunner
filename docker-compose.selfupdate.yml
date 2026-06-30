@@ -1,0 +1,40 @@
+# Override для деплоя с самообновлением (Model B, см. CLAUDE.md / вкладка «Обновление»).
+#
+# Код берётся НЕ из запечённого образа, а с bind-mount хоста — поэтому `git pull`,
+# откат к last_good_commit, снимок БД и логи супервизора переживают пересоздание
+# контейнера. Фронтенд запускается в dev-режиме (next dev), так что после git pull он
+# подхватывает изменения без тяжёлой пересборки standalone.
+#
+# Предпосылки на хосте ВМ (внутри Proxmox):
+#   1) репозиторий склонирован в эту папку (где лежит этот файл) и это git-чекаут;
+#   2) git remote `origin` указывает на ваш репозиторий (или задайте его в UI:
+#      Администрирование → Обновление → Git-репозиторий + deploy-токен);
+#   3) задан стабильный NETRUNNER_SECRET_KEY (иначе зашифрованные пароли хостов и
+#      deploy-токен не расшифруются после смены ключа).
+#
+# Запуск:
+#   docker compose -f docker-compose.yml -f docker-compose.selfupdate.yml up -d --build
+#
+# Управление обновлениями — во вкладке «Администрирование → Обновление» (только админ).
+
+services:
+  netrunner:
+    volumes:
+      # Чекаут хоста монтируется в /app — здесь живёт .git, отсюда идёт self-update.
+      - ./:/app
+      # node_modules и кэш next держим в контейнере (анонимные тома), чтобы не зависеть
+      # от хостовой архитектуры и не засорять рабочую копию.
+      - /app/frontend/node_modules
+      - /app/frontend/.next
+    environment:
+      - PYTHONUNBUFFERED=1
+      # config.py с bind-mount — это локальная версия (пути относительные), поэтому
+      # переопределяем пути под контейнер через переменные окружения:
+      - NETRUNNER_KEY_PATH=/app/keys
+      - NETRUNNER_UPLOADS_PATH=/app/uploads
+      - NETRUNNER_SSH_KNOWN_HOSTS_FILE=/app/keys/known_hosts
+      # Порог падений для recovery-логики супервизора (необязательно):
+      - NETRUNNER_CRASH_THRESHOLD=3
+      # ОБЯЗАТЕЛЬНО задайте стабильный секрет (иначе после рестарта не расшифруются
+      # пароли хостов и deploy-токен). Сгенерируйте: openssl rand -base64 32
+      # - NETRUNNER_SECRET_KEY=замените-меня

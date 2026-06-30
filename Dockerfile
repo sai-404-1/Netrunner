@@ -31,8 +31,8 @@ LABEL description="NetRunner - SSH orchestration for local IT infrastructure wit
 
 WORKDIR /app
 
-# Install system tools, SSH client, and Node.js runtime for the Next.js server
-RUN apk add --no-cache openssh-client sshpass iputils nodejs npm
+# Install system tools, SSH client, Node.js runtime, and git (for self-update).
+RUN apk add --no-cache openssh-client sshpass iputils nodejs npm git
 
 # Install Python dependencies
 COPY requirements.txt .
