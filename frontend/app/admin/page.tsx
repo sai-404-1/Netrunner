@@ -317,8 +317,7 @@ export default function AdminPage() {
         <p className="text-gray-500">Управление пользователями и доступом к модулям</p>
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-6 items-start">
-      <div className="panel lg:col-span-2">
+      <div className="panel">
         <h3 className="font-semibold mb-4">Добавить пользователя</h3>
         <form onSubmit={onCreateUser} className="grid sm:grid-cols-2 gap-4 items-end">
           <label className="label">
@@ -418,13 +417,13 @@ export default function AdminPage() {
         />
       </div>
 
-      <div className="panel">
-        <UpdatePanel />
-      </div>
-      </div>
-
-      <div className="panel">
-        <TelegramAdmin />
+      <div className="grid md:grid-cols-2 gap-6 items-start">
+        <div className="panel">
+          <TelegramAdmin />
+        </div>
+        <div className="panel">
+          <UpdatePanel />
+        </div>
       </div>
 
       {modulesUser && (
