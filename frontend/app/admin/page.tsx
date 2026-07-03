@@ -418,46 +418,9 @@ export default function AdminPage() {
       </div>
 
       <div className="grid md:grid-cols-2 gap-6 items-start">
-        <div className="panel">
-          <TelegramAdmin />
-        </div>
-        <div className="panel">
-          <UpdatePanel />
-        </div>
+      <div className="panel">
+        <TelegramAdmin />
       </div>
-
-      {modulesUser && (
-        <Modal
-          title={`Доступ к модулям — ${modulesUser.username}`}
-          onClose={() => setModulesUser(null)}
-        >
-          <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
-            {modules.length === 0 && (
-              <p className="text-gray-500 text-sm">Нет модулей</p>
-            )}
-            {modules.map((m) => (
-              <label
-                key={m.module_id}
-                className="flex items-center gap-3 p-3 rounded-[10px] border border-gray-200 cursor-pointer hover:bg-gray-50"
-              >
-                <input
-                  type="checkbox"
-                  checked={Boolean(m.allowed)}
-                  onChange={(e) => setModuleAccess(m.module_id, e.target.checked)}
-                  className="w-4 h-4 accent-blue-600"
-                />
-                <span className="text-sm font-medium flex-1">{m.name}</span>
-                <code className="text-xs text-gray-400">{m.slug}</code>
-                {!m.is_enabled && (
-                  <span className="badge text-xs">отключён</span>
-                )}
-              </label>
-            ))}
-          </div>
-        </Modal>
-      )}
-
-      <div className="grid md:grid-cols-2 gap-6 items-start">
       <div className="panel">
         <h3 className="font-semibold mb-1">Резервное копирование</h3>
         <p className="text-sm text-gray-500 mb-4">
@@ -521,7 +484,12 @@ export default function AdminPage() {
           </button>
         </div>
       </div>
+      </div>
 
+      <div className="grid md:grid-cols-2 gap-6 items-start">
+      <div className="panel">
+        <UpdatePanel />
+      </div>
       <div className="panel">
         <h3 className="font-semibold mb-1">Восстановление</h3>
         <p className="text-sm text-gray-500 mb-3">
@@ -575,6 +543,37 @@ export default function AdminPage() {
         />
       </div>
       </div>
+
+      {modulesUser && (
+        <Modal
+          title={`Доступ к модулям — ${modulesUser.username}`}
+          onClose={() => setModulesUser(null)}
+        >
+          <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+            {modules.length === 0 && (
+              <p className="text-gray-500 text-sm">Нет модулей</p>
+            )}
+            {modules.map((m) => (
+              <label
+                key={m.module_id}
+                className="flex items-center gap-3 p-3 rounded-[10px] border border-gray-200 cursor-pointer hover:bg-gray-50"
+              >
+                <input
+                  type="checkbox"
+                  checked={Boolean(m.allowed)}
+                  onChange={(e) => setModuleAccess(m.module_id, e.target.checked)}
+                  className="w-4 h-4 accent-blue-600"
+                />
+                <span className="text-sm font-medium flex-1">{m.name}</span>
+                <code className="text-xs text-gray-400">{m.slug}</code>
+                {!m.is_enabled && (
+                  <span className="badge text-xs">отключён</span>
+                )}
+              </label>
+            ))}
+          </div>
+        </Modal>
+      )}
 
       {groupsUser && (
         <Modal
