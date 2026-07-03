@@ -177,13 +177,15 @@ export default function AccountPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-5xl">
+    <div className="space-y-6">
       <div>
         <h2 className="text-3xl font-bold">Профиль</h2>
         <p className="text-gray-500">Управление аккаунтом и оформлением</p>
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-6 items-start">
+      <div className="grid xl:grid-cols-3 gap-6 items-start">
+      <div className="xl:col-span-2 space-y-6">
+      <div className="grid sm:grid-cols-2 gap-6">
       <div className="panel">
         <h3 className="font-semibold mb-4">Имя пользователя</h3>
         <form onSubmit={saveName} className="flex flex-col sm:flex-row gap-3 sm:items-end">
@@ -216,8 +218,9 @@ export default function AccountPage() {
           </button>
         </div>
       </div>
+      </div>
 
-      <div className="panel lg:col-span-2">
+      <div className="panel">
         <h3 className="font-semibold mb-4">Смена пароля</h3>
         <form onSubmit={savePassword} className="grid gap-4 md:grid-cols-3">
           <label className="label">
@@ -285,7 +288,9 @@ export default function AccountPage() {
           </div>
         )}
       </div>
+      </div>
 
+      <div className="space-y-6">
       <div className="panel">
         <h3 className="font-semibold mb-1 flex items-center gap-2">
           <ShieldCheck size={18} className="text-gray-400" /> Доверенные устройства
@@ -343,12 +348,13 @@ export default function AccountPage() {
           </ul>
         )}
       </div>
+      </div>
+      </div>
 
-      <div className="panel lg:col-span-2">
+      <div className="panel">
         <button onClick={logout} className="btn-danger w-full justify-center">
           <LogOut size={16} /> Выйти из аккаунта
         </button>
-      </div>
       </div>
     </div>
   );
