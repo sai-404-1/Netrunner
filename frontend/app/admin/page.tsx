@@ -459,6 +459,7 @@ export default function AdminPage() {
         </Modal>
       )}
 
+      <div className="grid md:grid-cols-2 gap-6 items-start">
       <div className="panel">
         <h3 className="font-semibold mb-1">Резервное копирование</h3>
         <p className="text-sm text-gray-500 mb-4">
@@ -515,13 +516,15 @@ export default function AdminPage() {
           </div>
         )}
 
-        <div className="mb-6">
+        <div>
           <button className="btn flex items-center gap-2" onClick={downloadBackup}>
             <Download size={16} />
             Скачать бэкап
           </button>
         </div>
+      </div>
 
+      <div className="panel">
         <h3 className="font-semibold mb-1">Восстановление</h3>
         <p className="text-sm text-gray-500 mb-3">
           После восстановления сервер автоматически перезапустится. Перед операцией
@@ -572,6 +575,7 @@ export default function AdminPage() {
           className="hidden"
           onChange={uploadRestore}
         />
+      </div>
       </div>
 
       {groupsUser && (
