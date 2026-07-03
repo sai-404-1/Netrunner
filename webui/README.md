@@ -26,6 +26,13 @@
 - **Telegram (привязка/верификация):** `api_me_telegram_status/link/unlink` (любой
   залогиненный — привязка своего аккаунта через `/start <code>`), `api_admin_telegram_get/set`
   (админ — токен бота). Фоновый поллер `_telegram_poller` обрабатывает `/start <code>`.
+- **2FA-вход через Telegram:** `api_login` принимает `device_id`; если Telegram привязан и
+  устройство не доверенное — возвращает `mfa_required` и шлёт одноразовый код в Telegram
+  (`_send_login_code`, `_mask_telegram`). Второй шаг — `api_login_verify` (`/api/login/verify`,
+  публичный) сверяет код и выдаёт токен. Доверенные устройства пользователя:
+  `api_me_devices_list` (`GET /api/me/devices`), `api_me_devices_trust` (сменить срок,
+  напр. «навсегда»), `api_me_devices_revoke`. Идентификатор устройства — httpOnly-cookie
+  `netrunner_device` (ставит Next.js login-route).
 - **Хосты:** `api_hosts`, `api_hosts_create`, `api_hosts_update`, `api_hosts_delete`,
   `api_hosts_check`, `api_hosts_check_all`,
   `api_hosts_reprovision` — заново копирует SSH-ключ на хост (при отвале/удалении ключа),
@@ -48,8 +55,10 @@
   публичных; `_is_public(path)` — исключения: `login`/`register`/`/healthz`.
 
 ### `auth_handlers.py` — публичные эндпоинты аутентификации
-- `api_register`, `api_login`, `api_logout`, `api_me`, `api_me_update` (self-service смена
-  своего имени/пароля → `AuthService.update_profile`).
+- `api_register`, `api_login`, `api_login_verify` (второй шаг 2FA — сверка кода из
+  Telegram), `api_logout`, `api_me`, `api_me_update` (self-service смена своего
+  имени/пароля → `AuthService.update_profile`). Хелперы 2FA: `_send_login_code`,
+  `_mask_telegram`.
 
 ### `admin_handlers.py` — админ-API (только суперпользователь)
 - Пользователи: `api_admin_users_list/create/update/delete`.

@@ -20,6 +20,7 @@ from .repos.user_group_access_repo import UserGroupAccessRepo
 from .repos.board_repo import BoardRepo
 from .repos.uploaded_file_repo import UploadedFileRepo
 from .repos.app_settings_repo import AppSettingsRepo
+from .repos.trusted_device_repo import TrustedDeviceRepo
 from .repos.scenario_repo import ScenarioRepo, ScenarioStepRepo, ScenarioRunRepo, ScenarioStepRunRepo
 
 
@@ -44,6 +45,7 @@ class Database:
         self.boards = BoardRepo(self.conn)
         self.uploaded_files = UploadedFileRepo(self.conn)
         self.app_settings = AppSettingsRepo(self.conn)
+        self.trusted_devices = TrustedDeviceRepo(self.conn)
         self.scenarios = ScenarioRepo(self.conn)
         self.scenario_steps = ScenarioStepRepo(self.conn)
         self.scenario_runs = ScenarioRunRepo(self.conn)
@@ -68,6 +70,7 @@ class Database:
             'scenario_steps': self.scenario_steps,
             'scenario_runs': self.scenario_runs,
             'scenario_step_runs': self.scenario_step_runs,
+            'trusted_devices': self.trusted_devices,
         }
 
     def model(self, name: str):

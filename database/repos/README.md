@@ -42,3 +42,6 @@
   самообновления (`db.app_settings`); без dataclass-модели.
 - `scenario_repo.py` — `ScenarioRepo`/`ScenarioStepRepo`/`ScenarioRunRepo`/
   `ScenarioStepRunRepo`: сценарии и их запуски (добавлены отдельной фичей).
+- `trusted_device_repo.py` — `TrustedDeviceRepo`: доверенные устройства для 2FA
+  (`find(user_id, device_id)`, `for_user`, `trust(..., duration_sec/forever)`, `touch`,
+  `revoke`). `trusted_until = NULL` → доверять бессрочно.

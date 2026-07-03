@@ -5,7 +5,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { useTheme } from "@/components/ThemeProvider";
 import { useToast } from "@/components/Toast";
 import { apiGetClient, apiPostClient } from "@/lib/api-client";
-import { LogOut, Sun, Moon, Send } from "lucide-react";
+import { LogOut, Sun, Moon, Send, Monitor, ShieldCheck, X } from "lucide-react";
 
 interface TgStatus {
   configured: boolean;
@@ -18,6 +18,14 @@ interface TgLink {
   deep_link?: string | null;
   bot_username?: string | null;
   ttl_minutes?: number;
+}
+interface TrustedDevice {
+  device_id: string;
+  label?: string | null;
+  trusted_until?: string | null; // null = бессрочно
+  created_at: string;
+  last_used_at?: string | null;
+  current: boolean;
 }
 
 export default function AccountPage() {
@@ -36,6 +44,40 @@ export default function AccountPage() {
   const [tg, setTg] = useState<TgStatus | null>(null);
   const [tgLink, setTgLink] = useState<TgLink | null>(null);
   const [tgBusy, setTgBusy] = useState(false);
+
+  const [devices, setDevices] = useState<TrustedDevice[] | null>(null);
+
+  async function loadDevices() {
+    try {
+      const res = await apiGetClient("/api/me/devices");
+      setDevices(res.devices || []);
+    } catch {
+      /* ignore */
+    }
+  }
+  useEffect(() => {
+    loadDevices();
+  }, []);
+
+  async function revokeDevice(device_id: string) {
+    if (!confirm("Отозвать доверие к этому устройству? При следующем входе потребуется код.")) return;
+    try {
+      await apiPostClient("/api/me/devices/revoke", { device_id });
+      await loadDevices();
+      showToast("Устройство отозвано");
+    } catch (err: any) {
+      showToast(err.message, "error");
+    }
+  }
+  async function trustForever(device_id: string) {
+    try {
+      await apiPostClient("/api/me/devices/trust", { device_id, forever: true });
+      await loadDevices();
+      showToast("Устройство доверено бессрочно");
+    } catch (err: any) {
+      showToast(err.message, "error");
+    }
+  }
 
   async function loadTg() {
     try {
@@ -240,6 +282,64 @@ export default function AccountPage() {
               <Send size={16} /> Привязать Telegram
             </button>
           </div>
+        )}
+      </div>
+
+      <div className="panel">
+        <h3 className="font-semibold mb-1 flex items-center gap-2">
+          <ShieldCheck size={18} className="text-gray-400" /> Доверенные устройства
+        </h3>
+        <p className="text-sm text-gray-500 mb-4">
+          На этих устройствах вход не запрашивает код из Telegram (в пределах срока доверия).
+        </p>
+        {devices === null ? (
+          <p className="text-sm text-gray-500">Загрузка…</p>
+        ) : devices.length === 0 ? (
+          <p className="text-sm text-gray-500">Доверенных устройств пока нет.</p>
+        ) : (
+          <ul className="space-y-2">
+            {devices.map((d) => (
+              <li
+                key={d.device_id}
+                className="flex flex-wrap items-center justify-between gap-3 border border-gray-200 dark:border-gray-700 rounded-lg p-3"
+              >
+                <div className="flex items-center gap-3 text-sm">
+                  <Monitor size={18} className="text-gray-400 shrink-0" />
+                  <div>
+                    <div className="font-medium">
+                      {d.label || "Устройство"}
+                      {d.current && <span className="ml-2 text-xs text-green-500">(текущее)</span>}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {d.trusted_until === null ? (
+                        <span className="text-amber-500">доверено бессрочно</span>
+                      ) : (
+                        <>доверие до {new Date(d.trusted_until!).toLocaleString("ru-RU")}</>
+                      )}
+                      {d.last_used_at && <> · был {new Date(d.last_used_at).toLocaleString("ru-RU")}</>}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {d.trusted_until !== null && (
+                    <button
+                      className="btn-secondary text-xs"
+                      onClick={() => trustForever(d.device_id)}
+                      title="Не спрашивать код на этом устройстве никогда (небезопасно)"
+                    >
+                      Доверять всегда
+                    </button>
+                  )}
+                  <button
+                    className="btn-secondary text-red-600 text-xs"
+                    onClick={() => revokeDevice(d.device_id)}
+                  >
+                    <X size={14} /> Отозвать
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
 

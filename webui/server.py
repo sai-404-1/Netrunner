@@ -51,7 +51,14 @@ from services.auth_service import AuthService
 from services.secrets import encrypt_secret
 from services.update_service import UpdateService
 from services.telegram_service import TelegramService
-from webui.auth_handlers import api_login, api_logout, api_me, api_me_update, api_register
+from webui.auth_handlers import (
+    api_login,
+    api_login_verify,
+    api_logout,
+    api_me,
+    api_me_update,
+    api_register,
+)
 from webui.auth_middleware import auth_middleware
 from webui.admin_handlers import (
     api_admin_users_list,
@@ -734,6 +741,45 @@ async def api_me_telegram_unlink(request: web.Request) -> web.Response:
         return _error("not authenticated", status=401)
     TelegramService(_ctx(request).db).unlink(uid)
     return _ok({"unlinked": True})
+
+
+# --- доверенные устройства (2FA step-up) -----------------------------------
+async def api_me_devices_list(request: web.Request) -> web.Response:
+    uid = _auth_uid(request)
+    if uid is None:
+        return _error("not authenticated", status=401)
+    current = request.cookies.get("netrunner_device")
+    devices = request.app["auth_service"].list_trusted_devices(uid, current_device_id=current)
+    return _ok({"devices": devices})
+
+
+async def api_me_devices_trust(request: web.Request) -> web.Response:
+    """Сменить срок доверия устройству (напр. «навсегда» из кабинета)."""
+    uid = _auth_uid(request)
+    if uid is None:
+        return _error("not authenticated", status=401)
+    payload = await _read_json(request)
+    device_id = str(payload.get("device_id") or "").strip() or request.cookies.get("netrunner_device")
+    if not device_id:
+        return _error("device_id обязателен", status=400)
+    res = request.app["auth_service"].set_device_trust(
+        uid, device_id,
+        forever=bool(payload.get("forever")),
+        label=str(payload.get("label") or "").strip() or None,
+    )
+    return _ok(res) if res.get("ok") else _error(res.get("error", "Ошибка"), status=400)
+
+
+async def api_me_devices_revoke(request: web.Request) -> web.Response:
+    uid = _auth_uid(request)
+    if uid is None:
+        return _error("not authenticated", status=401)
+    payload = await _read_json(request)
+    device_id = str(payload.get("device_id") or "").strip()
+    if not device_id:
+        return _error("device_id обязателен", status=400)
+    res = request.app["auth_service"].revoke_device(uid, device_id)
+    return _ok({"revoked": res.get("ok", False)})
 
 
 async def api_admin_telegram_get(request: web.Request) -> web.Response:
@@ -1521,6 +1567,7 @@ def _build_app(app_context) -> web.Application:
 
     # Public authentication endpoints
     app.router.add_post("/api/login", api_login)
+    app.router.add_post("/api/login/verify", api_login_verify)
     app.router.add_post("/api/register", api_register)
     app.router.add_post("/api/logout", api_logout)
     app.router.add_get("/api/me", api_me)
@@ -1618,6 +1665,9 @@ def _build_app(app_context) -> web.Application:
     app.router.add_get("/api/me/telegram/status", api_me_telegram_status)
     app.router.add_post("/api/me/telegram/link", api_me_telegram_link)
     app.router.add_post("/api/me/telegram/unlink", api_me_telegram_unlink)
+    app.router.add_get("/api/me/devices", api_me_devices_list)
+    app.router.add_post("/api/me/devices/trust", api_me_devices_trust)
+    app.router.add_post("/api/me/devices/revoke", api_me_devices_revoke)
     app.router.add_get("/api/admin/telegram", api_admin_telegram_get)
     app.router.add_post("/api/admin/telegram", api_admin_telegram_set)
 

@@ -26,7 +26,11 @@ Dataclass-модели строк таблиц NetRunner. Каждая моде�
 - `scheduled_task.py` — `ScheduledTask`: запланированная задача (время, интервал, лимит запусков).
 - `inventory_snapshot.py` — `InventorySnapshot`: снимок инвентаризации хоста (ОС, RAM, диски и т.д.).
 - `report.py` — `Report`: сгенерированный отчёт (тип, формат, путь к файлу).
-- `user.py` — `User`: пользователь (логин, хэш пароля, роль, токен, флаги активности/суперпользователя).
+- `user.py` — `User`: пользователь (логин, хэш пароля, роль, токен, флаги активности/
+  суперпользователя, поля привязки Telegram для 2FA).
+- `trusted_device.py` — `TrustedDevice`: доверенное устройство пользователя для 2FA
+  (`device_id`, `label`, `trusted_until` — `NULL` = бессрочно, `last_used_at`). Таблица
+  `trusted_devices`.
 - `user_group_access.py` — `UserGroupAccess`: доступ пользователя к группе.
 - `user_module_access.py` — `UserModuleAccess`: доступ пользователя к модулю.
 - `board.py` — `Board`: доска для визуального размещения хостов.

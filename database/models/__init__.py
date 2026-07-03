@@ -11,6 +11,7 @@ from .task_run import TaskRun
 from .user import User
 from .task_template import TaskTemplate
 from .scenario import Scenario, ScenarioStep, ScenarioRun, ScenarioStepRun
+from .trusted_device import TrustedDevice
 
 __all__ = [
     'BaseModel',
@@ -29,4 +30,5 @@ __all__ = [
     'ScenarioStep',
     'ScenarioRun',
     'ScenarioStepRun',
+    'TrustedDevice',
 ]

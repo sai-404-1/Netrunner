@@ -62,11 +62,19 @@
   зеркалит их в таблицу `modules`: `register_instance`, `register_menu_items`, `get(slug)`,
   `all()`, `menu_items(...)`, `_slugify`.
 
-### `auth_service.py` — аутентификация
+### `auth_service.py` — аутентификация + 2FA
 - `class AuthService`: `register`, `login`, `logout`, `me(token)`, `create_default_user`,
   `update_profile(user_id, new_username, current_password, new_password)` — self-service
   смена своего имени/пароля (смена пароля требует подтверждения текущим).
-- Хелперы: `_hash_password`/`_verify_password` (PBKDF2-SHA256), `create_access_token`.
+- **2FA (step-up через Telegram):** если у пользователя привязан Telegram и вход идёт с
+  недоверенного устройства, `login(..., device_id)` не выдаёт токен, а создаёт одноразовый
+  код (челлендж в памяти процесса) и возвращает `mfa_required`. `verify_challenge(
+  challenge_id, code, device_id, trust)` сверяет код (TTL 5 мин, до 5 попыток), выдаёт
+  токен и по флагу `trust` доверяет устройству на 1 час. Управление доверенными
+  устройствами: `is_device_trusted`, `list_trusted_devices`, `set_device_trust(forever=)`,
+  `revoke_device`. Хранилище доверия — таблица `trusted_devices` (`db.trusted_devices`).
+- Хелперы: `_hash_password`/`_verify_password` (PBKDF2-SHA256), `create_access_token`,
+  `_issue_token`, `_create_challenge`.
 
 ### `telegram_service.py` — привязка/верификация Telegram (фундамент 2FA)
 - `class TelegramService(db)`: токен бота в `app_settings` (шифр) или env

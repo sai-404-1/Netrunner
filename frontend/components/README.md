@@ -13,7 +13,9 @@
 - `ThemeProvider.tsx` — контекст темы: `ThemeProvider` + хук `useTheme()` (класс `.dark`
   на `<html>` + сохранение в `localStorage`; тема — только по классу, без авто-детекта ОС).
 - `AuthProvider.tsx` — контекст аутентификации: `AuthProvider` + хук `useAuth()`
-  (`user`, роль, суперпользователь; `login`, `logout`, `refresh` — перечитать `/api/me`).
+  (`user`, роль, суперпользователь; `login`, `verifyMfa` — второй шаг 2FA по коду из
+  Telegram, `logout`, `refresh` — перечитать `/api/me`). `login` может вернуть
+  `mfa_required` вместо сессии.
 - `Toast.tsx` — всплывающие уведомления: `ToastProvider` + хук `useToast()`.
 - `Modal.tsx` — модальные окна: `Modal` (универсальное) и `OutputModal` (показ вывода задач).
 - `DataTable.tsx` — обобщённая таблица `DataTable<T>` с колонками и кастомным рендером ячеек.

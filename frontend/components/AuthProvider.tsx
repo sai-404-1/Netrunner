@@ -2,10 +2,24 @@
 
 import { createContext, ReactNode, useContext, useEffect, useState } from "react";
 
+interface LoginResult {
+  ok: boolean;
+  error?: string;
+  mfa_required?: boolean;
+  challenge_id?: string;
+  telegram_hint?: string;
+  expires_in?: number;
+}
+
 interface AuthContextType {
   user: { id: number; username: string; is_superuser?: boolean; role?: "user" | "teacher" } | null;
   loading: boolean;
-  login: (username: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  login: (username: string, password: string) => Promise<LoginResult>;
+  verifyMfa: (
+    challengeId: string,
+    code: string,
+    trust: boolean
+  ) => Promise<{ ok: boolean; error?: string; attempts_left?: number }>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -32,18 +46,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false));
   }, []);
 
-  async function login(username: string, password: string) {
+  async function login(username: string, password: string): Promise<LoginResult> {
     const res = await fetch("/api/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
     });
     const data = await res.json();
+    if (data.ok && data.mfa_required) {
+      return {
+        ok: true,
+        mfa_required: true,
+        challenge_id: data.challenge_id,
+        telegram_hint: data.telegram_hint,
+        expires_in: data.expires_in,
+      };
+    }
     if (data.ok) {
       setUser(data.user);
       return { ok: true };
     }
     return { ok: false, error: data.error || "Login failed" };
+  }
+
+  async function verifyMfa(challengeId: string, code: string, trust: boolean) {
+    const res = await fetch("/api/login/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ challenge_id: challengeId, code, trust }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      setUser(data.user);
+      return { ok: true };
+    }
+    return { ok: false, error: data.error || "Неверный код", attempts_left: data.attempts_left };
   }
 
   async function logout() {
@@ -62,5 +99,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  return <AuthContext.Provider value={{ user, loading, login, logout, refresh }}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={{ user, loading, login, verifyMfa, logout, refresh }}>
+      {children}
+    </AuthContext.Provider>
+  );
 }

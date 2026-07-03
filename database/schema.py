@@ -223,6 +223,18 @@ CREATE TABLE IF NOT EXISTS app_settings (
     value TEXT,
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS trusted_devices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    device_id TEXT NOT NULL,
+    label TEXT,
+    trusted_until TEXT,            -- NULL = доверять бессрочно
+    created_at TEXT NOT NULL,
+    last_used_at TEXT,
+    UNIQUE(user_id, device_id)
+);
+CREATE INDEX IF NOT EXISTS idx_trusted_devices_user ON trusted_devices (user_id);
 """
 
 

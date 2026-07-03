@@ -1,9 +1,36 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
 from aiohttp import web
+
+from database import open_database
+from services.telegram_service import TelegramService
+
+
+def _mask_telegram(username: str | None) -> str:
+    """«ivan» → «i••n» — подсказка, куда ушёл код, без раскрытия аккаунта."""
+    if not username:
+        return "Telegram"
+    if len(username) <= 2:
+        return username[0] + "•"
+    return f"{username[0]}{'•' * (len(username) - 2)}{username[-1]}"
+
+
+def _send_login_code(db_path, chat_id, code: str) -> None:
+    """Шлёт одноразовый код входа в Telegram (в отдельном потоке, своё соединение)."""
+    db = open_database(db_path)
+    try:
+        TelegramService(db).send_message(
+            chat_id,
+            f"🔐 Код для входа в NetRunner: {code}\n"
+            f"Код действует 5 минут. Если это были не вы — проигнорируйте сообщение "
+            f"и смените пароль.",
+        )
+    finally:
+        db.close()
 
 
 async def _read_json(request: web.Request) -> dict[str, Any]:
@@ -75,13 +102,51 @@ async def api_register(request: web.Request) -> web.Response:
 async def api_login(request: web.Request) -> web.Response:
     payload = await _read_json(request)
     auth = _auth_service(request)
+    device_id = str(payload.get("device_id") or "").strip() or None
     result = auth.login(
         username=str(payload.get("username") or "").strip(),
         password=str(payload.get("password") or ""),
+        device_id=device_id,
     )
     if not result.get("ok"):
         return _json_response(result, status=401)
+
+    if result.get("mfa_required"):
+        # Отправляем одноразовый код в Telegram; приватные поля не отдаём клиенту.
+        chat_id = result.pop("_chat_id", None)
+        code = result.pop("_code", None)
+        tg_username = result.pop("_telegram_username", None)
+        if chat_id and code:
+            try:
+                await asyncio.to_thread(_send_login_code, _ctx(request).db_path, chat_id, code)
+            except Exception:  # noqa: BLE001 — не палим детали, но вход не должен падать
+                return _json_response(
+                    {"ok": False, "error": "Не удалось отправить код в Telegram. Попробуйте позже."},
+                    status=502,
+                )
+        result["telegram_hint"] = _mask_telegram(tg_username)
+        return _json_response(result)
+
     return _json_response(result)
+
+
+async def api_login_verify(request: web.Request) -> web.Response:
+    """Второй шаг входа: проверка одноразового кода из Telegram (step-up 2FA)."""
+    payload = await _read_json(request)
+    auth = _auth_service(request)
+    device_id = (
+        str(payload.get("device_id") or "").strip()
+        or request.cookies.get("netrunner_device")
+        or None
+    )
+    result = auth.verify_challenge(
+        challenge_id=str(payload.get("challenge_id") or ""),
+        code=str(payload.get("code") or "").strip(),
+        device_id=device_id,
+        trust=bool(payload.get("trust")),
+        trust_label=str(payload.get("label") or "").strip() or None,
+    )
+    return _json_response(result, status=200 if result.get("ok") else 400)
 
 
 async def api_logout(request: web.Request) -> web.Response:
