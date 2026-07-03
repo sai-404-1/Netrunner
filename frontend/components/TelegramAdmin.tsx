@@ -53,8 +53,8 @@ export function TelegramAdmin() {
           )}
         </p>
       )}
-      <form onSubmit={save} className="space-y-3">
-        <label className="label">
+      <form onSubmit={save} className="flex flex-col md:flex-row md:items-end gap-3">
+        <label className="label flex-1">
           Bot token (от @BotFather)
           <input
             className="input"
@@ -64,7 +64,7 @@ export function TelegramAdmin() {
             placeholder={status?.configured ? "•••••• (пусто — не менять, «-» — очистить)" : "123456:ABC-DEF…"}
           />
         </label>
-        <button className="btn-secondary" type="submit" disabled={saving}>
+        <button className="btn-secondary shrink-0" type="submit" disabled={saving}>
           <Save size={16} /> {saving ? "Сохранение…" : "Сохранить"}
         </button>
       </form>

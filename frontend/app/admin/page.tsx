@@ -418,14 +418,13 @@ export default function AdminPage() {
         />
       </div>
 
-      <div className="space-y-6">
-        <div className="panel">
-          <UpdatePanel />
-        </div>
-        <div className="panel">
-          <TelegramAdmin />
-        </div>
+      <div className="panel">
+        <UpdatePanel />
       </div>
+      </div>
+
+      <div className="panel">
+        <TelegramAdmin />
       </div>
 
       {modulesUser && (

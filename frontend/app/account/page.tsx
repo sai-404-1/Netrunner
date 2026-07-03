@@ -177,12 +177,13 @@ export default function AccountPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-6 max-w-5xl">
       <div>
         <h2 className="text-3xl font-bold">Профиль</h2>
         <p className="text-gray-500">Управление аккаунтом и оформлением</p>
       </div>
 
+      <div className="grid lg:grid-cols-2 gap-6 items-start">
       <div className="panel">
         <h3 className="font-semibold mb-4">Имя пользователя</h3>
         <form onSubmit={saveName} className="flex flex-col sm:flex-row gap-3 sm:items-end">
@@ -197,6 +198,26 @@ export default function AccountPage() {
       </div>
 
       <div className="panel">
+        <h3 className="font-semibold mb-4">Оформление</h3>
+        <div className="flex items-center justify-between gap-4">
+          <div className="text-sm text-gray-500">
+            Тема интерфейса: <b>{theme === "dark" ? "тёмная" : "светлая"}</b>
+          </div>
+          <button type="button" className="btn-secondary" onClick={toggle}>
+            {theme === "dark" ? (
+              <>
+                <Sun size={16} /> Светлая тема
+              </>
+            ) : (
+              <>
+                <Moon size={16} /> Тёмная тема
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      <div className="panel lg:col-span-2">
         <h3 className="font-semibold mb-4">Смена пароля</h3>
         <form onSubmit={savePassword} className="grid gap-4 md:grid-cols-3">
           <label className="label">
@@ -223,26 +244,6 @@ export default function AccountPage() {
             </button>
           </div>
         </form>
-      </div>
-
-      <div className="panel">
-        <h3 className="font-semibold mb-4">Оформление</h3>
-        <div className="flex items-center justify-between gap-4">
-          <div className="text-sm text-gray-500">
-            Тема интерфейса: <b>{theme === "dark" ? "тёмная" : "светлая"}</b>
-          </div>
-          <button type="button" className="btn-secondary" onClick={toggle}>
-            {theme === "dark" ? (
-              <>
-                <Sun size={16} /> Светлая тема
-              </>
-            ) : (
-              <>
-                <Moon size={16} /> Тёмная тема
-              </>
-            )}
-          </button>
-        </div>
       </div>
 
       <div className="panel">
@@ -343,10 +344,11 @@ export default function AccountPage() {
         )}
       </div>
 
-      <div className="panel">
+      <div className="panel lg:col-span-2">
         <button onClick={logout} className="btn-danger w-full justify-center">
           <LogOut size={16} /> Выйти из аккаунта
         </button>
+      </div>
       </div>
     </div>
   );
