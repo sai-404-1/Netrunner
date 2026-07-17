@@ -21,6 +21,7 @@ from . import availability_check
 from . import inventory_collect
 from . import apt_package_manager
 from . import file_distribute
+from . import agent_provision
 # try:
 # except Exception as e:
 #     print(e)

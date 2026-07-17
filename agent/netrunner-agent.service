@@ -1,0 +1,20 @@
+[Unit]
+Description=NetRunner endpoint agent (report-only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/netrunner-agent/netrunner_agent.py
+Restart=always
+RestartSec=15
+# Report-only и минимум прав: агенту не нужен root для чтения /proc/uptime и
+# hostname, и он не пишет ничего, кроме собственных логов через stdout/journal.
+User=netrunner-svc
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

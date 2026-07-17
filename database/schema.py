@@ -366,6 +366,37 @@ CREATE TABLE IF NOT EXISTS scenario_step_runs (
 CREATE INDEX IF NOT EXISTS idx_scenario_steps_scenario ON scenario_steps (scenario_id);
 CREATE INDEX IF NOT EXISTS idx_scenario_runs_scenario ON scenario_runs (scenario_id);
 CREATE INDEX IF NOT EXISTS idx_scenario_step_runs_run ON scenario_step_runs (scenario_run_id);
+
+-- Endpoint-агент хоста: report-only, сам открывает исходящее WS-соединение к
+-- серверу (звонит домой) — на хосте не нужно открывать порты, сервер не лезет
+-- внутрь. Отдельный сервисный SSH-пользователь + ключ — канал восстановления
+-- через уже существующий SSH, если агент/токен когда-нибудь потребуется
+-- перевыпустить, и отдельный bearer-токен для самого WS-соединения: разные
+-- секреты для разных целей, компрометация одного не вскрывает другой.
+CREATE TABLE IF NOT EXISTS host_agents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    host_id INTEGER NOT NULL UNIQUE REFERENCES hosts(id) ON DELETE CASCADE,
+    ssh_username TEXT NOT NULL,
+    token_encrypted TEXT NOT NULL,
+    private_key_encrypted TEXT NOT NULL,
+    public_key TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'provisioned',
+    last_seen_at TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_host_agents_host ON host_agents (host_id);
+
+-- Таймлайн статусных событий хоста, наполняется агентом. type — открытый набор
+-- (heartbeat, online, в будущем что угодно ещё): сервер журналирует событие как
+-- есть, добавление нового типа не требует изменений схемы или кода сервера.
+CREATE TABLE IF NOT EXISTS host_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    host_id INTEGER NOT NULL REFERENCES hosts(id) ON DELETE CASCADE,
+    type TEXT NOT NULL,
+    payload_json TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_host_events_host ON host_events (host_id, created_at);
 """)
 
 

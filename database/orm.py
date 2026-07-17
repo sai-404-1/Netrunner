@@ -21,6 +21,8 @@ from .repos.board_repo import BoardRepo
 from .repos.uploaded_file_repo import UploadedFileRepo
 from .repos.app_settings_repo import AppSettingsRepo
 from .repos.trusted_device_repo import TrustedDeviceRepo
+from .repos.host_agent_repo import HostAgentRepo
+from .repos.host_event_repo import HostEventRepo
 from .repos.scenario_repo import ScenarioRepo, ScenarioStepRepo, ScenarioRunRepo, ScenarioStepRunRepo
 
 
@@ -46,6 +48,8 @@ class Database:
         self.uploaded_files = UploadedFileRepo(self.conn)
         self.app_settings = AppSettingsRepo(self.conn)
         self.trusted_devices = TrustedDeviceRepo(self.conn)
+        self.host_agents = HostAgentRepo(self.conn)
+        self.host_events = HostEventRepo(self.conn)
         self.scenarios = ScenarioRepo(self.conn)
         self.scenario_steps = ScenarioStepRepo(self.conn)
         self.scenario_runs = ScenarioRunRepo(self.conn)
@@ -71,6 +75,8 @@ class Database:
             'scenario_runs': self.scenario_runs,
             'scenario_step_runs': self.scenario_step_runs,
             'trusted_devices': self.trusted_devices,
+            'host_agents': self.host_agents,
+            'host_events': self.host_events,
         }
 
     def model(self, name: str):

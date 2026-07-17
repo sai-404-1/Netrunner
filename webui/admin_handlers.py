@@ -328,3 +328,41 @@ async def api_admin_restore(request: web.Request) -> web.Response:
 def _restart_backend() -> None:
     import signal
     os.kill(os.getpid(), signal.SIGTERM)
+
+
+async def api_admin_host_agents(request: web.Request) -> web.Response:
+    """Статус endpoint-агентов (host_agents) по всем хостам — для наблюдаемости."""
+    _require_superuser(request)
+    db = _ctx(request).db
+    rows = db.host_agents.all()
+    data = [
+        {
+            "host_id": r.host_id,
+            "ssh_username": r.ssh_username,
+            "status": r.status,
+            "last_seen_at": r.last_seen_at,
+            "created_at": r.created_at,
+        }
+        for r in rows
+    ]
+    return _json_response({"ok": True, "data": data})
+
+
+async def api_admin_host_events(request: web.Request) -> web.Response:
+    """Журнал статусных событий агентов (host_events). ?host_id= фильтрует по хосту."""
+    _require_superuser(request)
+    db = _ctx(request).db
+    host_id = request.rel_url.query.get("host_id")
+    limit = int(request.rel_url.query.get("limit", 200))
+    rows = db.host_events.for_host(int(host_id), limit=limit) if host_id else db.host_events.recent(limit=limit)
+    data = [
+        {
+            "id": r.id,
+            "host_id": r.host_id,
+            "type": r.type,
+            "payload_json": r.payload_json,
+            "created_at": r.created_at,
+        }
+        for r in rows
+    ]
+    return _json_response({"ok": True, "data": data})

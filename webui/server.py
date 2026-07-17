@@ -72,6 +72,8 @@ from webui.admin_handlers import (
     api_admin_db_tables,
     api_admin_backup,
     api_admin_restore,
+    api_admin_host_agents,
+    api_admin_host_events,
 )
 from webui.board_handlers import (
     api_boards_list,
@@ -1171,6 +1173,56 @@ async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
     return ws
 
 
+async def agent_websocket_handler(request: web.Request) -> web.WebSocketResponse:
+    """Приём соединений endpoint-агентов — не путать с /ws (клиент веб-панели).
+    Агент сам звонит сюда исходящим соединением; сервер никогда не инициирует
+    запрос к агенту и не шлёт ему ничего, кроме закрытия соединения при невалидном
+    токене — report-only в обе стороны. Любой присланный агентом тип сообщения
+    (кроме служебного "hello") просто журналируется как есть — новый тип статуса
+    не требует изменений здесь, см. AgentService.record_event."""
+    from services.agent_service import AgentService
+
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+    ctx = request.app["ctx"]
+    agent_svc = AgentService(ctx.db)
+    host_id: int | None = None
+    try:
+        async for msg in ws:
+            if msg.type != web.WSMsgType.TEXT:
+                continue
+            try:
+                data = json.loads(msg.data)
+            except Exception:
+                continue
+
+            msg_type = data.get("type")
+
+            if host_id is None:
+                if msg_type != "hello":
+                    await ws.close(code=4001, message=b"expected hello")
+                    break
+                candidate_id = _safe_int(data.get("host_id"))
+                token = str(data.get("token") or "")
+                if not candidate_id or not agent_svc.verify_token(candidate_id, token):
+                    await ws.close(code=4003, message=b"invalid token")
+                    break
+                host_id = candidate_id
+                agent_svc.record_connect(host_id)
+                logger.info("Agent connected for host_id=%s", host_id)
+                continue
+
+            if msg_type:
+                agent_svc.record_event(
+                    host_id, msg_type, payload_json=json.dumps(data, ensure_ascii=False, default=str)
+                )
+    finally:
+        if host_id is not None:
+            agent_svc.record_disconnect(host_id)
+            logger.info("Agent disconnected for host_id=%s", host_id)
+    return ws
+
+
 # ---------------------------------------------------------------------------
 # Helpers (SSH keys, module install, provisioning)
 # ---------------------------------------------------------------------------
@@ -1636,6 +1688,8 @@ def _build_app(app_context) -> web.Application:
     app.router.add_get("/api/admin/db-tables", api_admin_db_tables)
     app.router.add_get("/api/admin/backup", api_admin_backup)
     app.router.add_post("/api/admin/restore", api_admin_restore)
+    app.router.add_get("/api/admin/host-agents", api_admin_host_agents)
+    app.router.add_get("/api/admin/host-events", api_admin_host_events)
 
     # Boards API
     app.router.add_get("/api/boards", api_boards_list)
@@ -1673,6 +1727,7 @@ def _build_app(app_context) -> web.Application:
 
     # WebSocket
     app.router.add_get("/ws", websocket_handler)
+    app.router.add_get("/agent/ws", agent_websocket_handler)
 
     return app
 
