@@ -65,7 +65,10 @@ class AuthService:
         if self.db.users.by_username(username):
             return {"ok": False, "error": "username already exists"}
 
-        is_superuser = 1 if not self.db.users.all() else 0
+        # Первый когда-либо созданный пользователь (бутстрап admin/admin) — суперюзер
+        # всегда. Роль 'admin' — то же самое право, но назначаемое явно через обычную
+        # роль, а не только зашитому первому аккаунту.
+        is_superuser = 1 if (not self.db.users.all() or role == "admin") else 0
         user = self.db.users.create(
             username=username,
             email=email,

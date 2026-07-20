@@ -95,11 +95,28 @@ async def api_admin_users_update(request: web.Request) -> web.Response:
     if not user_id:
         return _json_response({"ok": False, "error": "id required"}, status=400)
     db = _ctx(request).db
+    target = db.users.get(int(user_id))
+    if not target:
+        return _json_response({"ok": False, "error": "Пользователь не найден"}, status=404)
+    # Бутстрап-аккаунт admin/admin (is_superuser=1, роль ещё не 'admin') защищён от
+    # смены роли через этот эндпоинт — иначе можно случайно остаться без единственного
+    # суперпользователя. Роль 'admin', назначенная явно другому аккаунту, меняется
+    # свободно, как обычная роль.
+    is_bootstrap_admin = bool(target.is_superuser) and target.role != "admin"
+
     update_data = {}
     if "is_active" in payload:
         update_data["is_active"] = int(bool(payload["is_active"]))
-    if "role" in payload and str(payload["role"]) in ("user", "teacher"):
-        update_data["role"] = str(payload["role"])
+    if "role" in payload and str(payload["role"]) in ("user", "teacher", "admin"):
+        if is_bootstrap_admin:
+            return _json_response(
+                {"ok": False, "error": "Нельзя изменить роль главного администратора"}, status=400
+            )
+        new_role = str(payload["role"])
+        update_data["role"] = new_role
+        # Роль 'admin' — то же самое право, что и is_superuser у бутстрап-аккаунта;
+        # уход из роли 'admin' его снимает.
+        update_data["is_superuser"] = 1 if new_role == "admin" else 0
     if not update_data:
         return _json_response({"ok": False, "error": "Nothing to update"}, status=400)
     updated = db.users.update(int(user_id), **update_data)

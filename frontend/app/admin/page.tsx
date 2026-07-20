@@ -6,8 +6,6 @@ import { useAuth } from "@/components/AuthProvider";
 import { useToast } from "@/components/Toast";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
-import { UpdatePanel } from "@/components/UpdatePanel";
-import { TelegramAdmin } from "@/components/TelegramAdmin";
 import { formatDate } from "@/lib/utils";
 import { ShieldOff, Shield, Trash2, Settings, Network, Download, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -333,6 +331,7 @@ export default function AdminPage() {
             <select className="input" name="role" defaultValue="user">
               <option value="user">Пользователь</option>
               <option value="teacher">Преподаватель</option>
+              <option value="admin">Администратор</option>
             </select>
           </label>
           <button className="btn" type="submit">
@@ -365,9 +364,15 @@ export default function AdminPage() {
             { title: "Создан", render: (u) => formatDate(u.created_at) },
             {
               title: "",
-              render: (u) => (
+              render: (u) => {
+                // Бутстрап-аккаунт admin/admin (is_superuser=1, роль ещё не 'admin')
+                // защищён от управления через UI — иначе можно случайно остаться без
+                // единственного суперпользователя. Роль 'admin', назначенная явно
+                // другому аккаунту, управляется как обычная роль.
+                const isBootstrapAdmin = Boolean(u.is_superuser) && u.role !== "admin";
+                return (
                 <div className="flex gap-2 justify-end">
-                  {!u.is_superuser && (
+                  {!isBootstrapAdmin && (
                     <select
                       className="input py-1 px-2 text-xs w-32"
                       value={u.role || "user"}
@@ -375,6 +380,7 @@ export default function AdminPage() {
                     >
                       <option value="user">user</option>
                       <option value="teacher">teacher</option>
+                      <option value="admin">admin</option>
                     </select>
                   )}
                   <button
@@ -391,7 +397,7 @@ export default function AdminPage() {
                   >
                     <Settings size={16} />
                   </button>
-                  {!u.is_superuser && (
+                  {!isBootstrapAdmin && (
                     <button
                       className="btn-secondary p-2"
                       title={u.is_active ? "Отключить" : "Включить"}
@@ -400,7 +406,7 @@ export default function AdminPage() {
                       {u.is_active ? <ShieldOff size={16} /> : <Shield size={16} />}
                     </button>
                   )}
-                  {!u.is_superuser && (
+                  {!isBootstrapAdmin && (
                     <button
                       className="btn-secondary p-2 text-red-600"
                       title="Удалить"
@@ -410,7 +416,8 @@ export default function AdminPage() {
                     </button>
                   )}
                 </div>
-              ),
+                );
+              },
             },
           ]}
           rows={users}
@@ -418,9 +425,6 @@ export default function AdminPage() {
       </div>
 
       <div className="grid md:grid-cols-2 gap-6 items-start">
-      <div className="panel">
-        <TelegramAdmin />
-      </div>
       <div className="panel">
         <h3 className="font-semibold mb-1">Резервное копирование</h3>
         <p className="text-sm text-gray-500 mb-4">
@@ -483,12 +487,6 @@ export default function AdminPage() {
             Скачать бэкап
           </button>
         </div>
-      </div>
-      </div>
-
-      <div className="grid md:grid-cols-2 gap-6 items-start">
-      <div className="panel">
-        <UpdatePanel />
       </div>
       <div className="panel">
         <h3 className="font-semibold mb-1">Восстановление</h3>
