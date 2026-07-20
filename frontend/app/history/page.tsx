@@ -7,6 +7,7 @@ import { StatusBadge } from "@/components/Badge";
 import { DataTable } from "@/components/DataTable";
 import { OutputModal } from "@/components/Modal";
 import { ReportsView } from "@/components/ReportsView";
+import { SystemLogsView } from "@/components/SystemLogsView";
 import { useToast } from "@/components/Toast";
 import { Eye, Trash2 } from "lucide-react";
 
@@ -33,7 +34,7 @@ interface Module {
 
 export default function HistoryPage() {
   const showToast = useToast();
-  const [tab, setTab] = useState<"history" | "reports">("history");
+  const [tab, setTab] = useState<"history" | "reports" | "logs">("history");
   const [runs, setRuns] = useState<TaskRun[]>([]);
   const [modules, setModules] = useState<Module[]>([]);
   const [modalText, setModalText] = useState("");
@@ -99,13 +100,15 @@ export default function HistoryPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-3xl font-bold">{tab === "history" ? "История" : "Отчёты"}</h2>
+        <h2 className="text-3xl font-bold">{tab === "history" ? "История" : tab === "reports" ? "Отчёты" : "Логи"}</h2>
         <p className="text-gray-500">
-          {tab === "history" ? "Журнал выполненных задач и их результатов" : "Формирование и просмотр файлов отчётности"}
+          {tab === "history" && "Журнал выполненных задач и их результатов"}
+          {tab === "reports" && "Формирование и просмотр файлов отчётности"}
+          {tab === "logs" && "Журнал внутренних процессов сервера (например, установка агентов на хосты)"}
         </p>
       </div>
 
-      {/* Вкладки: История / Отчёты */}
+      {/* Вкладки: История / Отчёты / Логи */}
       <div className="flex items-center gap-1 border-b border-gray-200 dark:border-gray-700">
         <button
           onClick={() => setTab("history")}
@@ -123,9 +126,18 @@ export default function HistoryPage() {
         >
           Отчёты
         </button>
+        <button
+          onClick={() => setTab("logs")}
+          className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${
+            tab === "logs" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          Логи
+        </button>
       </div>
 
       {tab === "reports" && <ReportsView />}
+      {tab === "logs" && <SystemLogsView />}
 
       {tab === "history" && (
       <div className="panel">

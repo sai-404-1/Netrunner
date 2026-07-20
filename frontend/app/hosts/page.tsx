@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { apiGetClient, apiPostClient } from "@/lib/api-client";
 import { formatDate, readFileAsBase64 } from "@/lib/utils";
-import { BooleanBadge } from "@/components/Badge";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
-import { RefreshCw, Pencil, Trash2, Search, CheckCircle, List, LayoutGrid, KeyRound, CheckSquare, Square, Play } from "lucide-react";
+import { RefreshCw, Pencil, Trash2, Search, CheckCircle, List, LayoutGrid, KeyRound, CheckSquare, Square, Play, Info, TerminalSquare } from "lucide-react";
 import { HostBoardView } from "@/components/HostBoardView";
 import { useAuth } from "@/components/AuthProvider";
 
@@ -46,6 +46,7 @@ interface SshKey {
 
 export default function HostsPage() {
   const { user } = useAuth();
+  const router = useRouter();
   const isTeacher = user?.role === "teacher" && !user?.is_superuser;
   const showToast = useToast();
   const [hosts, setHosts] = useState<Host[]>([]);
@@ -55,6 +56,7 @@ export default function HostsPage() {
   const [groupFilter, setGroupFilter] = useState("");
   const [checkingAll, setCheckingAll] = useState(false);
   const [editHost, setEditHost] = useState<Host | null>(null);
+  const [infoHost, setInfoHost] = useState<Host | null>(null);
   const [reprovisionHost, setReprovisionHost] = useState<Host | null>(null);
   const [reprovisioning, setReprovisioning] = useState(false);
   const [newKeyFile, setNewKeyFile] = useState<File | null>(null);
@@ -520,29 +522,23 @@ export default function HostsPage() {
                 </button>
               ),
             },
-            { title: "Имя", key: "name" },
-            { title: "Пользователь", key: "username" },
-            { title: "IP-адрес", key: "address" },
-            { title: "Порт", key: "port" },
-            { title: "Активен", render: (h) => <BooleanBadge value={h.is_active} yes="Активен" no="Недоступен" /> },
-            { title: "Был в сети", render: (h) => formatDate(h.last_seen) },
-            { title: "Группа", render: (h) => h.group_name || "—" },
-            { title: "Описание", render: (h) => h.description || "—" },
+            { title: "Название", key: "name" },
             {
               title: "",
               render: (h) => (
-                <div className="flex gap-1 justify-end">
-                  <button className="btn-secondary p-1.5" onClick={() => checkHost(h.id)} title="Проверить">
-                    <RefreshCw size={15} />
-                  </button>
-                  <button className="btn-secondary p-1.5" onClick={() => setReprovisionHost(h)} title="Перепривязать SSH-ключ">
-                    <KeyRound size={15} />
-                  </button>
-                  <button className="btn-secondary p-1.5" onClick={() => setEditHost(h)} title="Редактировать">
-                    <Pencil size={15} />
-                  </button>
-                  <button className="btn-secondary p-1.5 text-red-600" onClick={() => deleteHost(h.id)} title="Удалить">
-                    <Trash2 size={15} />
+                <span
+                  className={`inline-block w-2.5 h-2.5 rounded-full ${h.is_active ? "bg-green-500" : "bg-gray-400"}`}
+                  title={h.is_active ? "Активен" : "Недоступен"}
+                />
+              ),
+            },
+            { title: "IP-адрес", key: "address" },
+            {
+              title: "",
+              render: (h) => (
+                <div className="flex justify-end">
+                  <button className="btn-secondary p-1.5" onClick={() => setInfoHost(h)} title="Информация">
+                    <Info size={15} />
                   </button>
                 </div>
               ),
@@ -579,6 +575,54 @@ export default function HostsPage() {
         )}
       </div>
       </>
+      )}
+
+      {infoHost && (
+        <Modal title={infoHost.name} onClose={() => setInfoHost(null)}>
+          <div className="grid gap-4">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+              <div>
+                <div className="text-gray-500">Пользователь</div>
+                <div className="font-medium">{infoHost.username}</div>
+              </div>
+              <div>
+                <div className="text-gray-500">Порт</div>
+                <div className="font-medium">{infoHost.port}</div>
+              </div>
+              <div>
+                <div className="text-gray-500">Был в сети</div>
+                <div className="font-medium">{formatDate(infoHost.last_seen) || "—"}</div>
+              </div>
+              <div>
+                <div className="text-gray-500">Группа</div>
+                <div className="font-medium">{infoHost.group_name || "—"}</div>
+              </div>
+              <div className="col-span-2">
+                <div className="text-gray-500">Описание</div>
+                <div className="font-medium">{infoHost.description || "—"}</div>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 pt-2 border-t dark:border-gray-700">
+              <button className="btn-secondary" onClick={() => checkHost(infoHost.id)}>
+                <RefreshCw size={15} /> Проверить
+              </button>
+              {user?.is_superuser && (
+                <button className="btn-secondary" onClick={() => router.push(`/terminal?host=${infoHost.id}`)}>
+                  <TerminalSquare size={15} /> Терминал
+                </button>
+              )}
+              <button className="btn-secondary" onClick={() => { setInfoHost(null); setReprovisionHost(infoHost); }}>
+                <KeyRound size={15} /> Перепривязать ключ
+              </button>
+              <button className="btn-secondary" onClick={() => { setInfoHost(null); setEditHost(infoHost); }}>
+                <Pencil size={15} /> Редактировать
+              </button>
+              <button className="btn-danger" onClick={() => { setInfoHost(null); deleteHost(infoHost.id); }}>
+                <Trash2 size={15} /> Удалить
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {editHost && (

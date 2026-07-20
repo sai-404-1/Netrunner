@@ -397,6 +397,19 @@ CREATE TABLE IF NOT EXISTS host_events (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_host_events_host ON host_events (host_id, created_at);
+
+-- Журнал внутренних процессов сервера («История» → «Логи»): попытки автоустановки
+-- агента и т.п. Не путать с host_events (статусы ОТ агента) или task_runs (запуски
+-- модулей пользователем) — это ход работы самого сервера.
+CREATE TABLE IF NOT EXISTS system_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category TEXT NOT NULL,
+    level TEXT NOT NULL DEFAULT 'info',
+    message TEXT NOT NULL,
+    host_id INTEGER REFERENCES hosts(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_system_logs_created ON system_logs (created_at);
 """)
 
 

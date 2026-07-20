@@ -83,6 +83,7 @@ from webui.board_handlers import (
     api_boards_delete,
     api_boards_save_layout,
 )
+from webui.terminal_handler import api_terminal_ws
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -354,6 +355,13 @@ async def api_reports(request: web.Request) -> web.Response:
     return _ok(_ctx(request).db.reports.latest(50, report_type=report_type))
 
 
+async def api_system_logs(request: web.Request) -> web.Response:
+    """Журнал внутренних процессов сервера («История» → «Логи»): попытки
+    автоустановки агента и т.п."""
+    limit = _safe_int(request.query.get("limit"), 200)
+    return _ok(_ctx(request).db.system_logs.recent(limit=limit))
+
+
 async def api_ssh_keys(request: web.Request) -> web.Response:
     keys = []
     for key in _ctx(request).db.ssh_keys.all():
@@ -388,6 +396,9 @@ async def api_hosts_create(request: web.Request) -> web.Response:
         description=str(payload.get("description") or "").strip() or None,
         password=password,
     )
+    # Попытка установить endpoint-агента сразу при добавлении хоста — фоном, не
+    # блокирует ответ и не считается ошибкой добавления хоста самого по себе.
+    await _run_background(request.app, _auto_install_agent(request.app, host))
     return _ok(host)
 
 
@@ -1223,6 +1234,49 @@ async def agent_websocket_handler(request: web.Request) -> web.WebSocketResponse
     return ws
 
 
+def _default_agent_ws_url() -> str:
+    """Угадывает адрес сервера для конфига агента: LAN-IP этой машины + порт
+    Next.js в Docker (3001) + префикс /api/python/, который проксируется на
+    бэкенд. Эвристика для автоустановки при добавлении хоста — если она угадала
+    неверно, администратор может перевыпустить агента вручную через модуль
+    «Установка endpoint-агента» с явно указанным адресом."""
+    import socket
+    try:
+        ip = socket.gethostbyname(socket.gethostname())
+    except Exception:  # noqa: BLE001
+        ip = "127.0.0.1"
+    return f"ws://{ip}:3001/api/python/agent/ws"
+
+
+async def _auto_install_agent(app: web.Application, host) -> None:
+    """Фоновая попытка установки endpoint-агента сразу после добавления хоста.
+    Не блокирует создание хоста и не считается ошибкой добавления — при неудаче
+    (например, нет passwordless sudo) просто пишется запись в системные логи
+    («История» → «Логи»), которую видно в UI."""
+    ctx = app["ctx"]
+    from computer.module.agent_provision import CustomModule as agent_provision_module
+    from services.task_runner import ModuleContext
+
+    module_ctx = ModuleContext(
+        logger=logger, task_run_id=0, to_computer=ctx.host_service.to_computer, db=ctx.db,
+    )
+    server_ws_url = _default_agent_ws_url()
+    try:
+        result = await agent_provision_module.run_for_host(module_ctx, host, server_ws_url=server_ws_url)
+    except Exception as exc:  # noqa: BLE001 — фон: любая ошибка = запись в лог, не падение сервера
+        logger.warning("Auto agent install failed for host_id=%s: %s", host.id, exc)
+        ctx.db.system_logs.record(
+            "agent_install", "error", f"Хост «{host.name}»: {exc}", host_id=host.id,
+        )
+        return
+
+    level = "error" if result.get("status") == "error" else "success"
+    output = str(result.get("output") or "")[:4000]
+    ctx.db.system_logs.record(
+        "agent_install", level, f"Хост «{host.name}» ({server_ws_url}): {output}", host_id=host.id,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Helpers (SSH keys, module install, provisioning)
 # ---------------------------------------------------------------------------
@@ -1644,6 +1698,7 @@ def _build_app(app_context) -> web.Application:
     app.router.add_get("/api/inventory", api_inventory)
     app.router.add_get("/api/scheduled", api_scheduled)
     app.router.add_get("/api/reports", api_reports)
+    app.router.add_get("/api/system-logs", api_system_logs)
     app.router.add_get("/api/ssh-keys", api_ssh_keys)
 
     # API POST
@@ -1728,6 +1783,7 @@ def _build_app(app_context) -> web.Application:
     # WebSocket
     app.router.add_get("/ws", websocket_handler)
     app.router.add_get("/agent/ws", agent_websocket_handler)
+    app.router.add_get("/api/terminal/ws", api_terminal_ws)
 
     return app
 
