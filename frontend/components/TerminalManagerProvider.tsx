@@ -77,7 +77,15 @@ export function TerminalManagerProvider({ children }: { children: React.ReactNod
     // визуально "поднимаются" вверх по мере роста списка).
     setConnMetas((prev) => [...prev, { hostId, hostName, hostAddress, status: "connecting" }]);
 
+    // Проверяем, что это соединение всё ещё "текущее" для hostId — если
+    // disconnect() уже успел удалить его из connectionsRef (пользователь
+    // отключился раньше, чем реально закрылся сокет), отложенные onclose/
+    // onerror этого сокета не должны трогать connMetas: лишний setState на
+    // уже удалённую запись — не просто бесполезный ре-рендер, а замеченная
+    // на практике причина сбитого router.push сразу после disconnect().
+    const isCurrent = () => connectionsRef.current.get(hostId) === conn;
     const setStatus = (status: TerminalConnMeta["status"]) => {
+      if (!isCurrent()) return;
       setConnMetas((prev) => prev.map((m) => (m.hostId === hostId ? { ...m, status } : m)));
     };
 

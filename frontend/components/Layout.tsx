@@ -247,11 +247,6 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
               </div>
             </div>
           )}
-          {user && (
-            <div className="text-sm text-gray-300">
-              <span className="text-gray-400">Пользователь:</span> {user.username}
-            </div>
-          )}
           <Link
             href="/account"
             onClick={() => {

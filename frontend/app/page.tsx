@@ -6,7 +6,7 @@ import { formatDate } from "@/lib/utils";
 import { StatusBadge } from "@/components/Badge";
 import { DataTable } from "@/components/DataTable";
 import Link from "next/link";
-import { ArrowRight, Server, Users, Layers, FileText, Activity, AlertCircle, CheckCircle, XCircle, RefreshCw } from "lucide-react";
+import { ArrowRight, Server, Users, Layers, FileText, Activity, AlertCircle, CheckCircle, XCircle } from "lucide-react";
 
 interface GroupStat {
   id: number;
@@ -64,14 +64,9 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-3xl font-bold">Обзор</h2>
-          <p className="text-gray-500">Сводная панель состояния системы</p>
-        </div>
-        <button className="btn-secondary py-1.5 px-3 text-sm" onClick={load}>
-          <RefreshCw size={14} /> Обновить
-        </button>
+      <div>
+        <h2 className="text-3xl font-bold">Обзор</h2>
+        <p className="text-gray-500">Сводная панель состояния системы</p>
       </div>
 
       {/* Summary cards */}

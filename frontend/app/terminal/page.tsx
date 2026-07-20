@@ -102,6 +102,7 @@ function TerminalView() {
   function handleDisconnect() {
     if (!confirmDisconnect(host?.name || meta?.hostName || `#${hostId}`)) return;
     manager.disconnect(id);
+    router.push("/hosts");
   }
 
   return (

@@ -68,7 +68,7 @@ export default function HostsPage() {
 
   // Bulk selection
   const [selectionMode, setSelectionMode] = useState(false);
-  const [addHostCollapsed, setAddHostCollapsed] = useState(false);
+  const [addHostCollapsed, setAddHostCollapsed] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkReprovisionOpen, setBulkReprovisionOpen] = useState(false);
@@ -101,7 +101,9 @@ export default function HostsPage() {
         rows = rows.filter((h) => ids.includes(h.id));
       }
     }
-    return rows;
+    // Онлайн-хосты — сначала, остальные — после (порядок внутри каждой группы
+    // сохраняется, Array.sort в современных движках стабилен).
+    return [...rows].sort((a, b) => Number(b.is_active) - Number(a.is_active));
   }, [hosts, groups, search, groupFilter]);
 
   const allSelected = filteredHosts.length > 0 && filteredHosts.every((h) => selectedIds.has(h.id));

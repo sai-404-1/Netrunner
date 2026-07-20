@@ -7,7 +7,7 @@ import { BooleanBadge } from "@/components/Badge";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
-import { Pencil, Trash2, Play, Plus, X, ChevronDown, ChevronUp } from "lucide-react";
+import { Pencil, Trash2, Play, Plus, X, ChevronDown, ChevronUp, ChevronLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 interface Module {
@@ -197,6 +197,7 @@ export default function ModulesPage() {
   const [editModule, setEditModule] = useState<Module | null>(null);
   const [moduleFile, setModuleFile] = useState<File | null>(null);
   const [modTab, setModTab] = useState<"builtin" | "user">("builtin");
+  const [addModuleCollapsed, setAddModuleCollapsed] = useState(true);
   const [schemaOpen, setSchemaOpen] = useState(false);
   const [schemaCommand, setSchemaCommand] = useState("");
   const [schemaRows, setSchemaRows] = useState<SchemaRow[]>([]);
@@ -337,7 +338,18 @@ export default function ModulesPage() {
       </div>
 
       <div className="panel">
-        <h3 className="font-semibold mb-4">Добавить модуль</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold">Добавить модуль</h3>
+          <button
+            type="button"
+            className="btn-secondary p-1.5"
+            onClick={() => setAddModuleCollapsed((v) => !v)}
+            title={addModuleCollapsed ? "Развернуть" : "Свернуть"}
+          >
+            <ChevronLeft size={16} className={`transition-transform duration-200 ${addModuleCollapsed ? "" : "rotate-180"}`} />
+          </button>
+        </div>
+        {!addModuleCollapsed && (
         <form onSubmit={onSubmit} className="space-y-4">
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
             <label className="label">
@@ -400,6 +412,7 @@ export default function ModulesPage() {
             )}
           </div>
         </form>
+        )}
       </div>
 
       <div className="panel">
