@@ -485,7 +485,11 @@ async def api_hosts_reprovision(request: web.Request) -> web.Response:
     """Заново копирует SSH-ключ на хост (при отвале/удалении ключа).
 
     Использует сохранённый пароль хоста; если в запросе передан новый пароль —
-    берёт его и (при успехе) обновляет сохранённое значение.
+    берёт его и (при успехе) обновляет сохранённое значение. По умолчанию
+    копируется текущий привязанный ключ хоста; если передан ``ssh_key_id`` —
+    копируется выбранный ключ, и он же становится новым привязанным ключом
+    хоста (иначе netrunner продолжил бы ходить старым ключом, а на машину был
+    бы скопирован другой).
     """
     ctx = _ctx(request)
     payload = await _read_json(request)
@@ -502,13 +506,19 @@ async def api_hosts_reprovision(request: web.Request) -> web.Response:
             status=400,
         )
 
+    raw_key_id = payload.get("ssh_key_id")
+    ssh_key_id = int(raw_key_id) if raw_key_id else host.ssh_key_id
+
     await _provision_ssh_key(
-        ctx, host.username, host.address, host.port, password, host.ssh_key_id
+        ctx, host.username, host.address, host.port, password, ssh_key_id
     )
-    # Перепривязка удалась — сохраняем пароль (если был передан новый) и
-    # проверяем доступность хоста по обновлённому ключу.
+    # Перепривязка удалась — сохраняем пароль (если был передан новый), сам
+    # выбранный ключ (если он отличается от текущего) и проверяем доступность
+    # хоста по обновлённому ключу.
     if new_password:
         ctx.host_service.set_host_password(host_id, new_password)
+    if ssh_key_id != host.ssh_key_id:
+        ctx.db.hosts.update(host_id, ssh_key_id=ssh_key_id)
     check = await ctx.host_service.check_host_async(host_id)
     item = model_to_dict(ctx.db.hosts.get(host_id))
     item["last_seen"] = item["last_seen_at"]
