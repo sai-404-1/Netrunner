@@ -7,7 +7,7 @@ import { formatDate, readFileAsBase64 } from "@/lib/utils";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
-import { RefreshCw, Pencil, Trash2, Search, CheckCircle, List, LayoutGrid, KeyRound, CheckSquare, Play, Info, TerminalSquare } from "lucide-react";
+import { RefreshCw, Pencil, Trash2, Search, CheckCircle, List, LayoutGrid, KeyRound, CheckSquare, Play, Info, TerminalSquare, ChevronLeft } from "lucide-react";
 import { HostBoardView } from "@/components/HostBoardView";
 import { useAuth } from "@/components/AuthProvider";
 
@@ -68,6 +68,7 @@ export default function HostsPage() {
 
   // Bulk selection
   const [selectionMode, setSelectionMode] = useState(false);
+  const [addHostCollapsed, setAddHostCollapsed] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkReprovisionOpen, setBulkReprovisionOpen] = useState(false);
@@ -408,7 +409,18 @@ export default function HostsPage() {
       {viewMode === "list" && (
       <>
       {!isTeacher && <div className="panel">
-        <h3 className="font-semibold mb-4">Добавить хост</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold">Добавить хост</h3>
+          <button
+            type="button"
+            className="btn-secondary p-1.5"
+            onClick={() => setAddHostCollapsed((v) => !v)}
+            title={addHostCollapsed ? "Развернуть" : "Свернуть"}
+          >
+            <ChevronLeft size={16} className={`transition-transform duration-200 ${addHostCollapsed ? "" : "rotate-180"}`} />
+          </button>
+        </div>
+        {!addHostCollapsed && (
         <form onSubmit={onCreateHost} className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
           <label className="label">
             Имя хоста
@@ -461,6 +473,7 @@ export default function HostsPage() {
             <button type="button" className="btn-secondary" onClick={() => setCreateGroupOpen(true)}>Создать группу</button>
           </div>
         </form>
+        )}
       </div>}
 
       <div className="panel">
