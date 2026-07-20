@@ -48,11 +48,26 @@
   --shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
 }
 
+/* overscroll-behavior отключает "резиновый" bounce страницы при прокрутке трекпадом/
+   колесом за край контента (macOS Safari/Chrome). Без него в момент bounce видно, что
+   находится ЗА документом — а там дефолтный белый фон браузера, а не наш градиент,
+   потому что фон был только на <body>, а во время bounce обнажается <html>. Красим оба
+   и глушим bounce целиком, чтобы страница физически не "плавала". */
+html {
+  background: #f8fafc;
+  overscroll-behavior-y: none;
+}
+
+.dark html {
+  background: #0f172a;
+}
+
 body {
   font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: var(--text);
   background: linear-gradient(135deg, #eef2ff 0%, #f8fafc 45%, #e0f2fe 100%);
   min-height: 100vh;
+  overscroll-behavior-y: none;
 }
 
 .dark body {
