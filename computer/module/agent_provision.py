@@ -117,7 +117,7 @@ UNIT_EOF
 
 if ! python3 -c "import websockets" >/dev/null 2>&1; then
   sudo apt-get install -y python3-websockets >/dev/null 2>&1 \\
-    || sudo python3 -m pip install --break-system-packages --quiet websockets \\
+    || sudo PIP_ROOT_USER_ACTION=ignore python3 -m pip install --break-system-packages --quiet websockets \\
     || echo "[WARN] Не удалось установить пакет websockets - установите вручную"
 fi
 
