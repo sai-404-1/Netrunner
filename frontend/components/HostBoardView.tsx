@@ -166,7 +166,7 @@ export function HostBoardView({ hosts, onBoardsChange }: Props) {
           </button>
         )}
 
-        {user?.is_superuser && allUsers.length > 0 && (
+        {Boolean(user?.is_superuser) && allUsers.length > 0 && (
           <div className="flex items-center gap-2 ml-auto">
             <Users size={16} className="text-gray-400" />
             <select
@@ -221,7 +221,7 @@ export function HostBoardView({ hosts, onBoardsChange }: Props) {
                 <input className="input" name="height" type="number" defaultValue={900} min={300} />
               </label>
             </div>
-            {user?.is_superuser && allUsers.length > 0 && (
+            {Boolean(user?.is_superuser) && allUsers.length > 0 && (
               <label className="label">
                 Владелец
                 <select className="input" name="owner_user_id">

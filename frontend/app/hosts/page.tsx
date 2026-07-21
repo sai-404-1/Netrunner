@@ -643,7 +643,7 @@ export default function HostsPage() {
               <button className="btn-secondary" onClick={() => checkHost(infoHost.id)}>
                 <RefreshCw size={15} /> Проверить
               </button>
-              {user?.is_superuser && (
+              {Boolean(user?.is_superuser) && (
                 <button className="btn-secondary" onClick={() => router.push(`/terminal?host=${infoHost.id}`)}>
                   <TerminalSquare size={15} /> Терминал
                 </button>

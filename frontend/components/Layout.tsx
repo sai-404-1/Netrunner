@@ -196,7 +196,7 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
               })}
             </div>
           )}
-          {user?.is_superuser && (
+          {Boolean(user?.is_superuser) && (
             <div className="mt-2 pt-2 border-t border-white/20 flex flex-col gap-2">
               {adminNav.map((item) => renderNavItem(item))}
             </div>
