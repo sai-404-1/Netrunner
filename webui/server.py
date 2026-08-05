@@ -350,6 +350,14 @@ async def api_scheduled(request: web.Request) -> web.Response:
     return _ok(_ctx(request).db.scheduled.all())
 
 
+async def api_active_scheduled(request: web.Request) -> web.Response:
+    return _ok(_ctx(request).db.scheduled.filter(is_enabled=True))
+
+
+async def api_inactive_scheduled(request: web.Request) -> web.Response:
+    return _ok(_ctx(request).db.scheduled.filter(is_enabled=False))
+
+
 async def api_reports(request: web.Request) -> web.Response:
     report_type = request.query.get("type")
     return _ok(_ctx(request).db.reports.latest(50, report_type=report_type))
@@ -1732,6 +1740,8 @@ def _build_app(app_context) -> web.Application:
     app.router.add_post("/api/modules/update", api_modules_update)
     app.router.add_post("/api/modules/delete", api_modules_delete)
     app.router.add_post("/api/schedule", api_schedule_create)
+    app.router.add_get("/api/schedule/active", api_active_scheduled)
+    app.router.add_get("/api/schedule/inactive", api_inactive_scheduled)
     app.router.add_post("/api/schedule/update", api_schedule_update)
     app.router.add_post("/api/schedule/delete", api_schedule_delete)
     app.router.add_post("/api/scheduler/tick", api_scheduler_tick)

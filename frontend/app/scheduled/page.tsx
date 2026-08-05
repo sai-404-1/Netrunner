@@ -3,54 +3,35 @@
 import { useEffect, useState } from "react";
 import { apiGetClient, apiPostClient } from "@/lib/api-client";
 import { formatDate, toLocalISO } from "@/lib/utils";
-import { BooleanBadge } from "@/components/Badge";
-import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
-import { Pencil, Trash2, Settings } from "lucide-react";
-
-interface Template {
-  id: number;
-  name: string;
-  module_id: number;
-}
-
-interface Host {
-  id: number;
-  name: string;
-}
-
-interface Group {
-  id: number;
-  name: string;
-}
-
-interface ScheduledTask {
-  id: number;
-  name: string;
-  template_id: number;
-  target_type: "host" | "group";
-  target_id: number;
-  run_at: string;
-  is_enabled: boolean;
-}
+import { Pencil, Trash2, Settings, Settings2, RefreshCw } from "lucide-react";
+import type { ScheduledTask, Template, Host, Group } from "@/lib/schedule-types";
+import EditTaskModal from "./EditTaskModal";
+import TaskTable from "./TaskTable";
+import CreateTaskModal from "./CreateTaskModal";
 
 export default function ScheduledPage() {
   const showToast = useToast();
   const [tasks, setTasks] = useState<ScheduledTask[]>([]);
+  const [tasksInactive, setInactiveTasks] = useState<ScheduledTask[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [hosts, setHosts] = useState<Host[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [editTask, setEditTask] = useState<ScheduledTask | null>(null);
+  const [listTab, setListTab] = useState<"active" | "inactive">("active");
+  const [createTask, setCreateTask] = useState<true | false>(false);
 
   async function load() {
-    const [t, te, h, g] = await Promise.all([
-      apiGetClient("/api/scheduled"),
+    const [active, inactive, te, h, g] = await Promise.all([
+      apiGetClient("/api/schedule/active"),
+      apiGetClient("/api/schedule/inactive"),
       apiGetClient("/api/task-templates"),
       apiGetClient("/api/hosts"),
       apiGetClient("/api/groups"),
     ]);
-    setTasks(t || []);
+    setTasks(active || []);
+    setInactiveTasks(inactive || []);
     setTemplates(te || []);
     setHosts(h || []);
     setGroups(g || []);
@@ -60,9 +41,7 @@ export default function ScheduledPage() {
     load();
   }, []);
 
-  async function onCreate(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const fd = new FormData(e.currentTarget);
+  async function onCreate(fd: FormData) {
     try {
       await apiPostClient("/api/schedule", {
         name: fd.get("name"),
@@ -72,16 +51,14 @@ export default function ScheduledPage() {
         run_at: fd.get("run_at") ? toLocalISO(new Date(String(fd.get("run_at")))) : "",
       });
       showToast("Запланированная задача создана");
-      e.currentTarget.reset();
+      setCreateTask(false); // закрыть модал вместо e.currentTarget.reset()
       await load();
     } catch (err: any) {
       showToast(err.message, "error");
     }
   }
 
-  async function onUpdate(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const fd = new FormData(e.currentTarget);
+  async function onUpdate(fd: FormData) {
     try {
       await apiPostClient("/api/schedule/update", {
         id: Number(fd.get("id")),
@@ -114,7 +91,7 @@ export default function ScheduledPage() {
   async function tickScheduler() {
     try {
       await apiPostClient("/api/scheduler/tick", {});
-      showToast("Планировщик проверен");
+      showToast("Информация обновлена");
       await load();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -131,8 +108,6 @@ export default function ScheduledPage() {
     }
   }
 
-  const targets = (type: "host" | "group") => (type === "host" ? hosts : groups);
-
   return (
     <div className="space-y-6">
       <div>
@@ -141,148 +116,73 @@ export default function ScheduledPage() {
       </div>
 
       <div className="panel">
-        <h3 className="font-semibold mb-4">Создать запланированную задачу</h3>
-        <form onSubmit={onCreate} className="flex flex-wrap gap-4 items-end">
-          <label className="label flex-1 min-w-[200px]">
-            Название
-            <input className="input" name="name" placeholder="Плановая инвентаризация" required />
-          </label>
-          <label className="label flex-1 min-w-[200px]">
-            Шаблон
-            <select className="input" name="template_id" required>
-              {templates.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} #{t.id}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="label flex-1 min-w-[140px]">
-            Тип цели
-            <select className="input" name="target_type" defaultValue="host">
-              <option value="host">Хост</option>
-              <option value="group">Группа</option>
-            </select>
-          </label>
-          <label className="label flex-1 min-w-[200px]">
-            Цель
-            <select className="input" name="target_id" required>
-              {hosts.map((h) => (
-                <option key={h.id} value={h.id}>
-                  {h.name} #{h.id}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="label flex-1 min-w-[200px]">
-            Время запуска
-            <input className="input" name="run_at" type="datetime-local" required />
-          </label>
-          <button className="btn" type="submit">
-            Создать
-          </button>
-        </form>
-      </div>
-
-      <div className="panel">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold">Запланированные задачи</h3>
-          <button className="btn-secondary" onClick={tickScheduler}>
-            <Settings size={16} /> Прогнать планировщик
-          </button>
+        {/* Вкладки: Активные / Не активные */}
+        <div className="flex items-center gap-1 mb-4 justify-between">
+          <div className="flex items-center gap-1 border-b border-gray-200 dark:border-gray-700">
+            <button
+              onClick={() => setListTab("active")}
+              className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${listTab === "active" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
+                }`}
+            >
+              Активные
+            </button>
+            <button
+              onClick={() => setListTab("inactive")}
+              className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${listTab === "inactive" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
+                }`}
+            >
+              Не активные
+            </button>
+          </div>
+          <div className="flex gap-5">
+            <button className="btn-secondary" onClick={tickScheduler}>
+              <RefreshCw size={16} />
+            </button>
+            <button className="btn" onClick={() => setCreateTask(!createTask)} title="Запланировать плановую задачу">Запланировать</button>
+          </div>
         </div>
-        <DataTable
-          columns={[
-            { title: "Название", key: "name" },
-            { title: "Шаблон", render: (t) => templates.find((x) => x.id === t.template_id)?.name || t.template_id },
-            {
-              title: "Цель",
-              render: (t) => {
-                const target = targets(t.target_type).find((x) => x.id === t.target_id);
-                return `${t.target_type === "host" ? "хост" : "группа"}:${target?.name || t.target_id}`;
-              },
-            },
-            { title: "Запуск", render: (t) => formatDate(t.run_at) },
-            {
-              title: "Активна",
-              render: (t) => (
-                <label className="inline-flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" checked={t.is_enabled} onChange={() => toggleEnabled(t)} className="w-5 h-5" />
-                  <BooleanBadge value={t.is_enabled} />
-                </label>
-              ),
-            },
-            {
-              title: "",
-              render: (t) => (
-                <div className="flex gap-2 justify-end">
-                  <button className="btn-secondary p-2" onClick={() => setEditTask(t)} title="Редактировать">
-                    <Pencil size={16} />
-                  </button>
-                  <button className="btn-secondary p-2 text-red-600" onClick={() => deleteTask(t.id)} title="Удалить">
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              ),
-            },
-          ]}
-          rows={tasks}
-        />
+        {listTab == "inactive" && (
+          <TaskTable
+            rows={tasksInactive}
+            templates={templates}
+            hosts={hosts}
+            groups={groups}
+            onEdit={setEditTask}
+            onDelete={deleteTask}
+          />
+        )}
+
+        {listTab == "active" && (
+          <TaskTable
+            rows={tasks}
+            templates={templates}
+            hosts={hosts}
+            groups={groups}
+            onEdit={setEditTask}
+            onDelete={deleteTask}
+          />
+        )}
       </div>
 
       {editTask && (
-        <Modal title="Редактирование задачи" onClose={() => setEditTask(null)}>
-          <form onSubmit={onUpdate} className="grid gap-4">
-            <input type="hidden" name="id" value={editTask.id} />
-            <label className="label">
-              Название
-              <input className="input" name="name" defaultValue={editTask.name} required />
-            </label>
-            <label className="label">
-              Шаблон
-              <select className="input" name="template_id" defaultValue={editTask.template_id}>
-                {templates.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name} #{t.id}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="label">
-              Тип цели
-              <select className="input" name="target_type" defaultValue={editTask.target_type}>
-                <option value="host">Хост</option>
-                <option value="group">Группа</option>
-              </select>
-            </label>
-            <label className="label">
-              Цель
-              <select className="input" name="target_id" defaultValue={editTask.target_id}>
-                {targets(editTask.target_type).map((x) => (
-                  <option key={x.id} value={x.id}>
-                    {x.name} #{x.id}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="label">
-              Время запуска
-              <input className="input" name="run_at" type="datetime-local" defaultValue={editTask.run_at ? editTask.run_at.slice(0, 16) : ""} required />
-            </label>
-            <label className="label inline-flex flex-row items-center gap-3 cursor-pointer">
-              <input type="checkbox" name="is_enabled" defaultChecked={editTask.is_enabled} className="w-5 h-5" />
-              <span>Активна</span>
-            </label>
-            <div className="flex gap-3">
-              <button className="btn" type="submit">
-                Сохранить
-              </button>
-              <button type="button" className="btn-secondary" onClick={() => setEditTask(null)}>
-                Отмена
-              </button>
-            </div>
-          </form>
-        </Modal>
+        <EditTaskModal
+          task={editTask}
+          templates={templates}
+          hosts={hosts}
+          groups={groups}
+          onClose={() => setEditTask(null)}
+          onSubmit={onUpdate}
+        />
+      )}
+
+      {createTask && (
+        <CreateTaskModal
+          templates={templates}
+          hosts={hosts}
+          groups={groups}
+          onClose={() => setCreateTask(false)}
+          onCreate={onCreate}
+        />
       )}
     </div>
   );
