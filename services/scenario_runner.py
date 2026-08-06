@@ -123,7 +123,12 @@ class ScenarioRunner:
             host_id=host.id,
             module_id=module_row.id,
         )
-        context = ModuleContext(logger=self.logger, task_run_id=sr.id, db=self.db)
+        context = ModuleContext(
+            logger=self.logger,
+            task_run_id=sr.id,
+            db=self.db,
+            to_computer=self.host_service.to_computer,   # ← добавил
+        )
 
         try:
             if hasattr(instance, "run_for_host"):
@@ -134,6 +139,11 @@ class ScenarioRunner:
             output = ""
             if isinstance(result, dict):
                 output = result.get("output", result.get("summary_text", json.dumps(result, ensure_ascii=False, default=str)))
+                if result.get("status") == "error" or str(output).startswith("[ERROR]"):
+                    self.db.scenario_step_runs.finish_step(
+                        sr.id, status="failed", error_text=output, exit_code=1,
+                    )
+                    return False
             elif isinstance(result, str):
                 output = result
             else:

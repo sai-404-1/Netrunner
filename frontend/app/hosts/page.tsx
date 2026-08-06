@@ -411,7 +411,7 @@ export default function HostsPage() {
       {viewMode === "list" && (
       <>
       {!isTeacher && <div className="panel">
-        <div className="flex items-center justify-between mb-4">
+        <div className={"flex items-center justify-between " + (addHostCollapsed ? "mb-0" : "mb-4")}>
           <h3 className="font-semibold">Добавить хост</h3>
           <button
             type="button"

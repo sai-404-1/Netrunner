@@ -5,7 +5,7 @@ import { apiGetClient, apiPostClient } from "@/lib/api-client";
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/Badge";
 import { useToast } from "@/components/Toast";
-import { Plus, Play, Trash2, ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle, Circle } from "lucide-react";
+import { Plus, Play, Trash2, ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle, Circle, ChevronLeft } from "lucide-react";
 
 interface Scenario {
   id: number;
@@ -116,6 +116,7 @@ export default function ScenariosPage() {
   const [hosts, setHosts] = useState<{ id: number; name: string }[]>([]);
   const [groups, setGroups] = useState<{ id: number; name: string }[]>([]);
   const [runResult, setRunResult] = useState<string>("");
+  const [addSceranioCollapsed, setSceranioCollapsed] = useState(true);
   const [activeRun, setActiveRun] = useState<ScenarioRun | null>(null);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -286,7 +287,19 @@ export default function ScenariosPage() {
 
       {/* Create form */}
       <div className="panel">
-        <h3 className="font-semibold mb-4">Создать сценарий</h3>
+        <div className={"flex items-center justify-between " + (addSceranioCollapsed ? "mb-0" : "mb-4")}>
+          <h3 className="font-semibold">Создать сценарий</h3>
+          <button
+              type="button"
+              className="btn-secondary p-1.5"
+              onClick={() => setSceranioCollapsed((v) => !v)}
+              title={addSceranioCollapsed ? "Развернуть" : "Свернуть"}
+            >
+              <ChevronLeft size={16} className={`transition-transform duration-200 ${addSceranioCollapsed ? "" : "rotate-180"}`} />
+          </button>
+        </div>
+        { !addSceranioCollapsed && (
+        
         <form onSubmit={handleCreate} className="space-y-4">
           <div className="grid md:grid-cols-2 gap-4">
             <label className="label">
@@ -390,7 +403,6 @@ export default function ScenariosPage() {
               );
             })}
           </div>
-
           <div className="flex gap-3">
             <button type="button" className="btn-secondary" onClick={addStep}>
               <Plus size={16} /> Добавить шаг
@@ -398,6 +410,7 @@ export default function ScenariosPage() {
             <button className="btn" type="submit">Создать сценарий</button>
           </div>
         </form>
+        ) }
       </div>
 
       {/* Scenario list */}
