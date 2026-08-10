@@ -1,80 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { SetStateAction, useCallback, useEffect, useRef, useState } from "react";
 import { apiGetClient, apiPostClient } from "@/lib/api-client";
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/Badge";
 import { useToast } from "@/components/Toast";
 import { Plus, Play, Trash2, ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle, Circle, ChevronLeft } from "lucide-react";
-
-interface Scenario {
-  id: number;
-  name: string;
-  description: string | null;
-  steps: ScenarioStep[];
-  step_count: number;
-  run_count: number;
-}
-
-interface ScenarioStep {
-  id: number;
-  module_id: number;
-  step_order: number;
-  step_name: string;
-  config_json: string;
-  on_failure: string;
-}
-
-interface ScenarioRun {
-  id: number;
-  scenario_id: number;
-  scenario_name: string;
-  target_type: string;
-  target_id: number;
-  status: string;
-  started_at: string;
-  finished_at: string | null;
-  step_runs: ScenarioStepRun[];
-}
-
-interface ScenarioStepRun {
-  id: number;
-  step_id: number;
-  host_id: number;
-  module_id: number;
-  status: string;
-  output_text: string | null;
-  error_text: string | null;
-  exit_code: number | null;
-}
-
-interface Module {
-  id: number;
-  name: string;
-  slug: string;
-  supports_task_runner: boolean;
-  schema_json?: string;
-}
-
-interface SelectOption {
-  value: string;
-  label: string;
-}
-
-interface Placeholder {
-  name: string;
-  label: string;
-  default: string;
-  type: string;
-  options: SelectOption[];
-}
-
-interface StepForm {
-  module_id: string;
-  module_slug: string;
-  args: Record<string, string>;
-  on_failure: string;
-}
+import { Scenario, Placeholder, Module, ScenarioRun, StepForm } from "@/lib/scenario-types";
+import Scenarios from "./Scenarios";
+import ScenariosList from "./ScenariosList";
 
 function parsePlaceholders(schema_json?: string): Placeholder[] {
   if (!schema_json) return [];
@@ -414,62 +348,13 @@ export default function ScenariosPage() {
       </div>
 
       {/* Scenario list */}
-      <div className="panel">
-        <h3 className="font-semibold mb-4">Существующие сценарии</h3>
-        {loading ? (
-          <p className="text-gray-500">Загрузка...</p>
-        ) : scenarios.length === 0 ? (
-          <p className="text-gray-400">Сценариев пока нет</p>
-        ) : (
-          <div className="space-y-2">
-            {scenarios.map((sc) => (
-              <div key={sc.id} className="border border-gray-200 rounded-lg overflow-hidden">
-                <button
-                  className="w-full flex items-center justify-between p-3 hover:bg-gray-50 text-left"
-                  onClick={() =>
-                    setExpandedScenarios((prev) => {
-                      const next = new Set(prev);
-                      next.has(sc.id) ? next.delete(sc.id) : next.add(sc.id);
-                      return next;
-                    })
-                  }
-                >
-                  <div className="flex items-center gap-3">
-                    {expandedScenarios.has(sc.id) ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-                    <span className="font-medium">{sc.name}</span>
-                    <span className="text-sm text-gray-500">{sc.description}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-gray-500">
-                    <span>{sc.step_count} шагов</span>
-                    <button className="btn-danger py-1 px-2" onClick={(e) => { e.stopPropagation(); handleDelete(sc.id); }}>
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </button>
-                {expandedScenarios.has(sc.id) && (
-                  <div className="border-t border-gray-200 p-3 bg-gray-50">
-                    {sc.steps && sc.steps.length > 0 ? (
-                      <ul className="space-y-1 text-sm">
-                        {sc.steps.map((step, i) => (
-                          <li key={step.id} className="flex gap-2">
-                            <span className="text-gray-400">{i + 1}.</span>
-                            <span className="font-medium">{step.step_name}</span>
-                            <span className="text-gray-500">
-                              (модуль #{step.module_id}, on_failure: {step.on_failure}, config: {step.config_json})
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-gray-400 text-sm">Нет шагов</p>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      <ScenariosList
+        scenarios={scenarios}
+        loading={loading}
+        expandedScenarios={expandedScenarios}
+        setExpandedScenarios={setExpandedScenarios}
+        handleDelete={handleDelete}
+      />
 
       {/* Run form */}
       <div className="panel">
@@ -534,7 +419,7 @@ export default function ScenariosPage() {
                     <div
                       key={step.id}
                       className={`flex items-center justify-between gap-3 p-3 rounded-lg border ${
-                        st.state === "running" ? "border-blue-400 bg-blue-50" : "border-gray-200"
+                        st.state === "running" ? "border-blue-400 bg-blue-50" : "dark:border-gray-700"
                       }`}
                     >
                       <span className="flex items-center gap-2 min-w-0">
@@ -566,14 +451,14 @@ export default function ScenariosPage() {
         })()}
 
       {/* Run result */}
-      <div className="panel">
+      {/* <div className="panel">
         <h3 className="font-semibold mb-4">История запусков</h3>
         {runs.length === 0 ? (
           <p className="text-gray-400">Запусков пока нет</p>
         ) : (
           <div className="space-y-2">
             {runs.map((run) => (
-              <div key={run.id} className="flex items-center justify-between p-2 border border-gray-200 rounded-lg text-sm">
+              <div key={run.id} className="flex items-center justify-between p-2 border dark:border-gray-700 rounded-lg text-sm">
                 <span className="font-medium">{run.scenario_name}</span>
                 <StatusBadge status={run.status} />
                 <span className="text-gray-500">{new Date(run.started_at).toLocaleString()}</span>
@@ -586,7 +471,7 @@ export default function ScenariosPage() {
             {runResult}
           </pre>
         )}
-      </div>
+      </div> */}
     </div>
   );
 }
