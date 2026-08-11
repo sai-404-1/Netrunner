@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Async web server for NetRunner.
+"""Async server server for NetRunner.
 
 This module replaces the previous single-threaded http.server implementation
 with an aiohttp-based async server. Long-running operations (task execution,
@@ -51,7 +51,7 @@ from services.auth_service import AuthService
 from services.secrets import encrypt_secret
 from services.update_service import UpdateService
 from services.telegram_service import TelegramService
-from webui.auth_handlers import (
+from server.auth_handlers import (
     api_login,
     api_login_verify,
     api_logout,
@@ -59,8 +59,8 @@ from webui.auth_handlers import (
     api_me_update,
     api_register,
 )
-from webui.auth_middleware import auth_middleware
-from webui.admin_handlers import (
+from server.auth_middleware import auth_middleware
+from server.admin_handlers import (
     api_admin_users_list,
     api_admin_users_create,
     api_admin_users_update,
@@ -75,7 +75,7 @@ from webui.admin_handlers import (
     api_admin_host_agents,
     api_admin_host_events,
 )
-from webui.board_handlers import (
+from server.board_handlers import (
     api_boards_list,
     api_boards_create,
     api_boards_get,
@@ -83,7 +83,7 @@ from webui.board_handlers import (
     api_boards_delete,
     api_boards_save_layout,
 )
-from webui.terminal_handler import api_terminal_ws
+from server.terminal_handler import api_terminal_ws
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -1987,7 +1987,7 @@ def run_web_server(
     open_browser: bool = False,
     ping_interval: int = 60,
 ) -> None:
-    """Запускает локальную async web-панель NetRunner."""
+    """Запускает локальную async server-панель NetRunner."""
 
     app = _build_app(app_context)
 
@@ -2017,7 +2017,7 @@ def run_web_server(
     app.on_cleanup.append(_on_cleanup)
 
     url = f"http://{host}:{port}/"
-    print(f"NetRunner web-GUI запущен: {url}")
+    print(f"NetRunner server-GUI запущен: {url}")
     print("Для остановки нажмите Ctrl+C")
 
     if open_browser:

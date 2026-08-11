@@ -108,7 +108,8 @@ async def async_main(host, port="22", command: str = "uname -a", key_path=None):
     except Exception as e:
         return f"Error: {e}"
 
-    SSH_COMMAND_TIMEOUT = 60  # seconds; covers the remote command execution after connect
+    # TODO добавить отслеживание запущенных ssh процессов с возможностью их завершения
+    SSH_COMMAND_TIMEOUT = 600  # seconds; covers the remote command execution after connect
 
     async def _communicate():
         return await proc.communicate()

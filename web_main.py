@@ -4,7 +4,7 @@ import argparse
 import logging
 
 from services.app_context import create_app_context
-from webui.server import run_web_server
+from server.server import run_web_server
 
 
 logging.basicConfig(
@@ -14,9 +14,9 @@ logging.basicConfig(
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Запуск web-GUI NetRunner")
-    parser.add_argument("--host", default="127.0.0.1", help="Адрес web-сервера")
-    parser.add_argument("--port", type=int, default=8000, help="Порт web-сервера")
+    parser = argparse.ArgumentParser(description="Запуск server-GUI NetRunner")
+    parser.add_argument("--host", default="127.0.0.1", help="Адрес server-сервера")
+    parser.add_argument("--port", type=int, default=8000, help="Порт server-сервера")
     parser.add_argument("--db", default="data/netrunner.db", help="Путь к SQLite базе данных")
     parser.add_argument("--reports", default="reports", help="Каталог для отчётов")
     parser.add_argument("--open-browser", action="store_true", help="Открыть браузер после запуска")
@@ -34,7 +34,7 @@ def main() -> None:
             open_browser=args.open_browser,
         )
     except KeyboardInterrupt:
-        print("\nОстановка web-GUI...")
+        print("\nОстановка server-GUI...")
     finally:
         ctx.close()
 

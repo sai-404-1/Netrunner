@@ -70,7 +70,7 @@ http://127.0.0.1:8000/:path*`.
 - `database/` — лёгкий ORM-подобный слой поверх `sqlite3` (схема, модели, репозитории).
 - `services/` — бизнес-логика: контекст приложения, task-runner, планировщик, auth,
   реестр модулей, отчёты, шифрование секретов.
-- `webui/` — бэкенд-сервер на `aiohttp`: REST API `/api/*`, WebSocket `/ws`, админка, доски.
+- `server/` — бэкенд-сервер на `aiohttp`: REST API `/api/*`, WebSocket `/ws`, админка, доски.
 - `frontend/` — фронтенд на Next.js (App Router, TypeScript, Tailwind).
 - `modules/` — пользовательские модули, загруженные с диска.
 

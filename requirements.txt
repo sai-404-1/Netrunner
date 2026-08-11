@@ -1,13 +1,13 @@
 # NetRunner uses Python 3.11+ standard library plus the packages below.
 # SQLite — built-in sqlite3
 # SSH — via system openssh-client
-# HTTP — async web server via aiohttp (replaces the built-in http.server)
+# HTTP — async server server via aiohttp (replaces the built-in http.server)
 #
 # Optional: install paramiko for native SSH without the external client
 # paramiko>=3.5.0
 
-# Async web server for the NetRunner web GUI
+# Async server server for the NetRunner server GUI
 aiohttp>=3.8.0
 
-# SSH key generation in the web UI
+# SSH key generation in the server UI
 cryptography>=41.0.0

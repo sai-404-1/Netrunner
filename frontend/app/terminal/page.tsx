@@ -21,7 +21,7 @@ interface Host {
 }
 
 /** WebTerminal — интерактивный shell к хосту через ssh -tt + локальный PTY на
- * бэкенде (webui/terminal_handler.py), только суперпользователь.
+ * бэкенде (server/terminal_handler.py), только суперпользователь.
  *
  * Само WS-соединение и xterm-инстанс живут в TerminalManagerProvider (в
  * Layout, не перемонтируется при переходах между страницами) — эта страница

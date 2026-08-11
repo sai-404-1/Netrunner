@@ -101,7 +101,7 @@ def create_app_context(
     reports_dir: str = "reports",
     run_scheduler_on_start: bool = True,
 ) -> AppContext:
-    """Создаёт общий контекст NetRunner для CLI или web-GUI."""
+    """Создаёт общий контекст NetRunner для CLI или server-GUI."""
 
     db = open_database(db_path)
     host_service = HostService(db)

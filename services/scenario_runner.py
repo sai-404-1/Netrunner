@@ -133,10 +133,7 @@ class ScenarioRunner:
         try:
             if hasattr(instance, "run_for_host"):
                 result = await instance.run_for_host(context, host, **step_args)
-                print(result)
-                print(result)
-                print(result)
-                print(result)
+                self.logger.info(f"Выполнено: {result.get('command', None)}\nРезультат: {result.get('output', None)}")
             else:
                 result = await asyncio.to_thread(instance.run, context, targets=[host], **step_args)
 

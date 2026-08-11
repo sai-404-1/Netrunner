@@ -25,7 +25,7 @@ class Scheduler:
                 self.logger.error("Scheduler failed for task %s: %s", scheduled.id, exc)
 
     async def tick_async(self):
-        """Asynchronous version of tick for the async web server.
+        """Asynchronous version of tick for the async server server.
 
         Runs each due scheduled task and waits for completion before
         calling mark_ran(), so recurring tasks advance correctly.

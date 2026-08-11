@@ -398,7 +398,7 @@ class TaskRunner:
         trigger_type: str = "manual",
         task_run_id: int | None = None,
     ):
-        """Asynchronous version of run_template for use in the async web server."""
+        """Asynchronous version of run_template for use in the async server server."""
         template = self.db.task_templates.get(template_id)
         if not template:
             raise RuntimeError(f"Template #{template_id} not found")
