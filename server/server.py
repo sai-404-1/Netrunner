@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from aiohttp.web_fileresponse import FileResponse
+from aiohttp.web_response import Response
+
 """Async server server for NetRunner.
 
 This module replaces the previous single-threaded http.server implementation
@@ -31,7 +34,6 @@ import os
 import re
 import subprocess
 import sys
-import traceback
 import uuid
 import webbrowser
 from dataclasses import asdict, is_dataclass
@@ -43,7 +45,6 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519, rsa
 from cryptography.hazmat.primitives.serialization import BestAvailableEncryption, NoEncryption
 
-from computer.module.executor_ssh import _ssh_common_options
 from database import open_database
 from database.repos.base import utcnow_iso
 from services import HostService
@@ -84,7 +85,6 @@ from server.board_handlers import (
     api_boards_save_layout,
 )
 from server.terminal_handler import api_terminal_ws
-
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 logger = logging.getLogger("netrunner")
@@ -185,11 +185,11 @@ async def healthz_handler(request: web.Request) -> web.Response:
     return web.json_response({"ok": True})
 
 
-async def index_handler(request: web.Request) -> web.Response:
+async def index_handler(request: web.Request) -> web.FileResponse:
     return web.FileResponse(STATIC_DIR / "index.html")
 
 
-async def reports_handler(request: web.Request) -> web.Response:
+async def reports_handler(request: web.Request) -> Response | FileResponse:
     report_path = request.match_info["path"]
     reports_dir = Path(_ctx(request).reports_dir).resolve()
     target = (reports_dir / report_path).resolve()
@@ -608,7 +608,7 @@ async def api_uploads_create(request: web.Request) -> web.Response:
     return _ok(saved)
 
 
-async def api_uploads_download(request: web.Request) -> web.Response:
+async def api_uploads_download(request: web.Request) -> web.FileResponse | web.Response:
     if not _require_admin(request):
         return _error("Только для администратора", status=403)
     row = _ctx(request).db.uploaded_files.get(_safe_int(request.match_info["id"]))
@@ -837,7 +837,7 @@ async def api_admin_telegram_set(request: web.Request) -> web.Response:
         elif s:
             action = ("set", s)
 
-    def _work(db_path, action):
+    def _work(db_path, action: object):
         db = open_database(db_path)
         try:
             svc = TelegramService(db)
@@ -977,7 +977,7 @@ async def api_modules_create(request: web.Request) -> web.Response:
     module_path = str(payload.get("module_path") or "").strip()
     class_name = str(payload.get("class_name") or "").strip() or "UserModule"
     description = str(payload.get("description") or "").strip() or None
-    file_data = payload.get("file_data")
+    file_data = str(payload.get("file_data") or "").strip() or None
 
     schema_json = payload.get("schema_json") or None
 
@@ -1038,6 +1038,8 @@ async def api_schedule_create(request: web.Request) -> web.Response:
         target_id=_safe_int(payload.get("target_id")),
         run_at=run_at,
         is_enabled=1 if payload.get("is_enabled", True) else 0,
+
+        # TODO проверить что из-за None нет последствий и найти причину по которой возможен None
         interval_seconds=int(interval_raw) if interval_raw else None,
         max_runs=int(max_runs_raw) if max_runs_raw else None,
     )
@@ -1195,7 +1197,8 @@ async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
                     run = request.app["ctx"].db.task_runs.get(run_id)
                     if run is not None:
                         await ws.send_str(
-                            json.dumps({"type": "task_status", "run": model_to_dict(run)}, ensure_ascii=False, default=str)
+                            json.dumps({"type": "task_status", "run": model_to_dict(run)}, ensure_ascii=False,
+                                       default=str)
                         )
     finally:
         request.app["websockets"].discard(ws)
@@ -1222,7 +1225,8 @@ async def agent_websocket_handler(request: web.Request) -> web.WebSocketResponse
                 continue
             try:
                 data = json.loads(msg.data)
-            except Exception:
+            except json.JSONDecodeError:
+                logger.warning("Received invalid JSON payload from agent")
                 continue
 
             msg_type = data.get("type")
@@ -1261,7 +1265,7 @@ def _default_agent_ws_url() -> str:
     import socket
     try:
         ip = socket.gethostbyname(socket.gethostname())
-    except Exception:  # noqa: BLE001
+    except (socket.gaierror, OSError):
         ip = "127.0.0.1"
     return f"ws://{ip}:3001/api/python/agent/ws"
 
@@ -1272,7 +1276,7 @@ async def _auto_install_agent(app: web.Application, host) -> None:
     (например, нет passwordless sudo) просто пишется запись в системные логи
     («История» → «Логи»), которую видно в UI."""
     ctx = app["ctx"]
-    from computer.module.agent_provision import CustomModule as agent_provision_module
+    from computer.module.agent_provision import CustomModule as agentProvisionModule
     from services.task_runner import ModuleContext
 
     module_ctx = ModuleContext(
@@ -1280,7 +1284,7 @@ async def _auto_install_agent(app: web.Application, host) -> None:
     )
     server_ws_url = _default_agent_ws_url()
     try:
-        result = await agent_provision_module.run_for_host(module_ctx, host, server_ws_url=server_ws_url)
+        result = await agentProvisionModule.run_for_host(module_ctx, host, server_ws_url=server_ws_url)
     except Exception as exc:  # noqa: BLE001 — фон: любая ошибка = запись в лог, не падение сервера
         logger.warning("Auto agent install failed for host_id=%s: %s", host.id, exc)
         ctx.db.system_logs.record(
@@ -1300,12 +1304,12 @@ async def _auto_install_agent(app: web.Application, host) -> None:
 # ---------------------------------------------------------------------------
 
 def _install_uploaded_module(
-    ctx,
-    slug: str,
-    module_path: str,
-    file_data: str,
-    name: str | None = None,
-    description: str | None = None,
+        ctx,
+        slug: str,
+        module_path: str,
+        file_data: str,
+        name: str | None = None,
+        description: str | None = None,
 ) -> None:
     """Сохраняет загруженный .py-файл и импортирует класс UserModule в runtime."""
     modules_dir = Path("/app/modules")
@@ -1352,12 +1356,12 @@ def _resolve_ssh_key(ctx, ssh_key_id: int | None) -> Any:
 
 
 async def _provision_ssh_key(
-    ctx,
-    username: str,
-    address: str,
-    port: int,
-    password: str,
-    ssh_key_id: int | None = None,
+        ctx,
+        username: str,
+        address: str,
+        port: int,
+        password: str,
+        ssh_key_id: int | None = None,
 ) -> None:
     """Копирует выбранный SSH-ключ на удалённый хост через ssh-copy-id с паролем."""
     key = _resolve_ssh_key(ctx, ssh_key_id)
@@ -1465,7 +1469,7 @@ def _save_ssh_key(name: str, file_data: str) -> Path:
 
 
 def _generate_ssh_key(
-    key_type: str, passphrase: str | None = None
+        key_type: str, passphrase: str | None = None
 ) -> tuple[str, str, str, int]:
     """Generate an SSH key pair and return private PEM, public OpenSSH line, fingerprint and passphrase flag."""
     if key_type == "ed25519":
@@ -1499,7 +1503,7 @@ def _generate_ssh_key(
 
 
 def _write_generated_ssh_key(
-    name: str, private_pem: str, public_openssh: str
+        name: str, private_pem: str, public_openssh: str
 ) -> tuple[Path, Path]:
     """Store a generated key pair under /app/keys (or keys/ for non-Docker)."""
     keys_dir = Path("/app/keys")
@@ -1556,7 +1560,7 @@ async def error_middleware(request: web.Request, handler):
             payload = json.loads(error_text)
             if isinstance(payload, dict) and "ok" in payload:
                 return _json_response(payload, status=exc.status)
-        except Exception:
+        except (json.JSONDecodeError, TypeError):
             pass
         return _json_response({"ok": False, "error": error_text}, status=exc.status)
     except Exception as exc:
@@ -1640,7 +1644,7 @@ async def api_scenarios_run(request: web.Request) -> web.Response:
         trigger_type="manual",
     )
 
-    async def _bg():
+    async def _bg() -> None:
         try:
             await ctx.scenario_runner.run_scenario_async(
                 scenario_id=scenario_id,
@@ -1649,12 +1653,16 @@ async def api_scenarios_run(request: web.Request) -> web.Response:
                 trigger_type="manual",
                 scenario_run_id=run.id,
             )
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("Scenario run %s failed: %s", run.id, exc)
+        except Exception:  # noqa: BLE001
+            logger.exception("Ошибка при выполнении сценария %s", run.id)
             try:
                 ctx.db.scenario_runs.finish(run.id, status="failed")
-            except Exception:
-                pass
+            except Exception as db_err:  # noqa: BLE001
+                logger.error(
+                    "Не удалось установить статус 'failed' для запуска %s: %s",
+                    run.id,
+                    db_err,
+                )
 
     await _run_background(request.app, _bg())
     return _ok({"run_id": run.id, "status": run.status})
@@ -1808,28 +1816,27 @@ def _build_app(app_context) -> web.Application:
     return app
 
 
-
 async def api_update_check(request: web.Request) -> web.Response:
     """Проверить наличие обновлений через git."""
-    RUNNER_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    runner_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     try:
         result = subprocess.run(
             ["git", "fetch"],
-            cwd=RUNNER_DIR, capture_output=True, text=True, timeout=30
+            cwd=runner_dir, capture_output=True, text=True, timeout=30
         )
         result2 = subprocess.run(
             ["git", "rev-list", "--count", "HEAD..@{u}"],
-            cwd=RUNNER_DIR, capture_output=True, text=True, timeout=15
+            cwd=runner_dir, capture_output=True, text=True, timeout=15
         )
         behind = result2.stdout.strip()
         if behind and behind.isdigit() and int(behind) > 0:
             log = subprocess.run(
                 ["git", "--no-pager", "log", "-1", "@{u}", "--pretty=%B"],
-                cwd=RUNNER_DIR, capture_output=True, text=True, timeout=15
+                cwd=runner_dir, capture_output=True, text=True, timeout=15
             )
             diff = subprocess.run(
                 ["git", "diff", "--stat", "HEAD..@{u}"],
-                cwd=RUNNER_DIR, capture_output=True, text=True, timeout=15
+                cwd=runner_dir, capture_output=True, text=True, timeout=15
             )
             return _ok({
                 "behind": int(behind),
@@ -1849,20 +1856,20 @@ async def api_update_check(request: web.Request) -> web.Response:
 
 async def api_update_diff(request: web.Request) -> web.Response:
     """Показать diff того, что изменится."""
-    RUNNER_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    runner_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     try:
-        subprocess.run(["git", "fetch"], cwd=RUNNER_DIR, capture_output=True, text=True, timeout=30)
+        subprocess.run(["git", "fetch"], cwd=runner_dir, capture_output=True, text=True, timeout=30)
         result = subprocess.run(
             ["git", "diff", "HEAD..@{u}", "--stat"],
-            cwd=RUNNER_DIR, capture_output=True, text=True, timeout=15
+            cwd=runner_dir, capture_output=True, text=True, timeout=15
         )
         result2 = subprocess.run(
             ["git", "diff", "HEAD..@{u}", "-p", "--", "*.py", "*.ts", "*.tsx", "*.json", "*.sh", "Dockerfile", "*.yml"],
-            cwd=RUNNER_DIR, capture_output=True, text=True, timeout=15
+            cwd=runner_dir, capture_output=True, text=True, timeout=15
         )
         changed_files = subprocess.run(
             ["git", "diff", "--name-only", "HEAD..@{u}"],
-            cwd=RUNNER_DIR, capture_output=True, text=True, timeout=15
+            cwd=runner_dir, capture_output=True, text=True, timeout=15
         )
         return _ok({
             "stat": result.stdout.strip()[:3000],
@@ -1875,11 +1882,11 @@ async def api_update_diff(request: web.Request) -> web.Response:
 
 async def api_update_pull(request: web.Request) -> web.Response:
     """Применить обновления (git pull)."""
-    RUNNER_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    runner_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     try:
         result = subprocess.run(
             ["git", "pull"],
-            cwd=RUNNER_DIR, capture_output=True, text=True, timeout=60
+            cwd=runner_dir, capture_output=True, text=True, timeout=60
         )
         return _ok({
             "stdout": result.stdout.strip()[:1000],
@@ -1891,7 +1898,7 @@ async def api_update_pull(request: web.Request) -> web.Response:
     except Exception as e:
         return _ok({"error": str(e)[:200]})
 
-
+# TODO пересмотреть надобность
 async def _update_monitor(app: web.Application):
     """Фоновый монитор git: периодически проверяет наличие обновлений (режим «уведомлять»).
 
@@ -1927,7 +1934,7 @@ async def _update_monitor(app: web.Application):
         except asyncio.CancelledError:
             break
 
-
+# TODO пересмотреть надобность
 async def _telegram_poller(app: web.Application):
     """Фоновый поллер Telegram: ловит `/start <code>` и привязывает аккаунты.
 
@@ -1960,7 +1967,7 @@ async def _telegram_poller(app: web.Application):
         except asyncio.CancelledError:
             break
 
-
+# TODO пересмотреть надобность, поскольку присутствует WebSocket
 async def _periodic_ping(app: web.Application, interval: int):
     """Background daemon: periodically check all hosts using a fresh DB connection."""
     db_path = app["ctx"].db_path
@@ -1981,11 +1988,11 @@ async def _periodic_ping(app: web.Application, interval: int):
 
 
 def run_web_server(
-    app_context,
-    host: str = "127.0.0.1",
-    port: int = 8000,
-    open_browser: bool = False,
-    ping_interval: int = 60,
+        app_context,
+        host: str = "127.0.0.1",
+        port: int = 8000,
+        open_browser: bool = False,
+        ping_interval: int = 60,
 ) -> None:
     """Запускает локальную async server-панель NetRunner."""
 
