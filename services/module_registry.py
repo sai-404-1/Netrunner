@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import base64
+import importlib.util
 import json
 import re
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(slots=True)
@@ -111,3 +115,43 @@ class ModuleRegistry:
             return items
 
         return [{"title": item.title, "exec": item.instance} for item in self._items.values()]
+
+def _install_uploaded_module(
+        ctx,
+        slug: str,
+        module_path: str,
+        file_data: str,
+        name: str | None = None,
+        description: str | None = None,
+) -> None:
+    """Сохраняет загруженный .py-файл и импортирует класс UserModule в runtime."""
+    modules_dir = Path("/app/modules")
+    modules_dir.mkdir(parents=True, exist_ok=True)
+
+    file_name = Path(module_path).name
+    if not file_name.endswith(".py"):
+        file_name = f"{slug}.py"
+    target_path = modules_dir / file_name
+
+    raw = base64.b64decode(file_data)
+    target_path.write_bytes(raw)
+
+    spec = importlib.util.spec_from_file_location(slug, str(target_path))
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Не удалось создать spec для модуля")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[slug] = module
+    spec.loader.exec_module(module)
+
+    user_cls = getattr(module, "UserModule", None)
+    if user_cls is None:
+        raise RuntimeError("В модуле не найден класс UserModule")
+
+    instance = user_cls()
+    ctx.module_registry.register_instance(
+        instance,
+        is_builtin=False,
+        slug=slug,
+        name=name,
+        description=description,
+    )

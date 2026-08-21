@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import logging
+
+# TODO не забыть проверить и стереть это перед коммитом
+# import logging
+from .logger import Logger
+
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,8 +21,8 @@ from services.report_service import ReportService
 from services.scenario_runner import ScenarioRunner
 
 
-logger = logging.getLogger("netrunner")
-
+# logger = logging.getLogger("netrunner")
+logger = Logger()
 
 @dataclass(slots=True)
 class AppContext:

@@ -18,6 +18,7 @@ from database.db_transfer import (
     merge_database,
 )
 
+from server.tools import _ctx, _json_response, _read_json
 
 def _require_superuser(request: web.Request) -> None:
     user = request.get("auth_user")
@@ -28,33 +29,8 @@ def _require_superuser(request: web.Request) -> None:
         )
 
 
-def _ctx(request: web.Request):
-    return request.app["ctx"]
-
-
 def _auth_service(request: web.Request):
     return request.app["auth_service"]
-
-
-def _json_response(data: Any, status: int = 200) -> web.Response:
-    body = json.dumps(data, ensure_ascii=False, default=str).encode("utf-8")
-    return web.Response(
-        body=body,
-        status=status,
-        content_type="application/json",
-        charset="utf-8",
-    )
-
-
-async def _read_json(request: web.Request) -> dict[str, Any]:
-    try:
-        data = await request.json()
-    except Exception as exc:
-        raise web.HTTPBadRequest(
-            body=json.dumps({"ok": False, "error": f"Invalid JSON: {exc}"}, ensure_ascii=False),
-            content_type="application/json",
-        )
-    return data if isinstance(data, dict) else {}
 
 
 def _user_safe(user) -> dict:
@@ -80,6 +56,7 @@ async def api_admin_users_create(request: web.Request) -> web.Response:
     _require_superuser(request)
     payload = await _read_json(request)
     auth = _auth_service(request)
+
     result = auth.register(
         username=str(payload.get("username") or "").strip(),
         password=str(payload.get("password") or ""),

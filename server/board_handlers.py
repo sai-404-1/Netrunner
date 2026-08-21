@@ -5,25 +5,8 @@ from typing import Any
 
 from aiohttp import web
 
+from server.tools import _ctx, _json_response, _read_json
 
-def _ctx(request: web.Request):
-    return request.app["ctx"]
-
-
-def _json_response(data: Any, status: int = 200) -> web.Response:
-    body = json.dumps(data, ensure_ascii=False, default=str).encode("utf-8")
-    return web.Response(body=body, status=status, content_type="application/json", charset="utf-8")
-
-
-async def _read_json(request: web.Request) -> dict[str, Any]:
-    try:
-        data = await request.json()
-    except Exception as exc:
-        raise web.HTTPBadRequest(
-            body=json.dumps({"ok": False, "error": f"Invalid JSON: {exc}"}, ensure_ascii=False),
-            content_type="application/json",
-        )
-    return data if isinstance(data, dict) else {}
 
 
 def _require_auth(request: web.Request) -> dict:

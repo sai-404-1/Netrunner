@@ -9,6 +9,8 @@ from aiohttp import web
 from database import open_database
 from services.telegram_service import TelegramService
 
+from server.tools import _ctx, _json_response, _read_json
+
 
 def _mask_telegram(username: str | None) -> str:
     """«ivan» → «i••n» — подсказка, куда ушёл код, без раскрытия аккаунта."""
@@ -33,42 +35,12 @@ def _send_login_code(db_path, chat_id, code: str) -> None:
         db.close()
 
 
-async def _read_json(request: web.Request) -> dict[str, Any]:
-    try:
-        data = await request.json()
-    except Exception as exc:
-        raise web.HTTPBadRequest(
-            body=json.dumps({"ok": False, "error": f"Invalid JSON: {exc}"}, ensure_ascii=False)
-        )
-    if data is None:
-        return {}
-    if not isinstance(data, dict):
-        raise web.HTTPBadRequest(
-            body=json.dumps({"ok": False, "error": "JSON payload must be an object"}, ensure_ascii=False)
-        )
-    return data
-
-
-def _ctx(request: web.Request):
-    return request.app["ctx"]
-
-
 def _db(request: web.Request):
     return request.app["ctx"].db
 
 
 def _auth_service(request: web.Request):
     return request.app["auth_service"]
-
-
-def _json_response(data: Any, status: int = 200) -> web.Response:
-    body = json.dumps(data, ensure_ascii=False, default=str).encode("utf-8")
-    return web.Response(
-        body=body,
-        status=status,
-        content_type="application/json",
-        charset="utf-8",
-    )
 
 
 async def api_register(request: web.Request) -> web.Response:

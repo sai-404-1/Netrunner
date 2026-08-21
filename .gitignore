@@ -1,3 +1,7 @@
+# IDE config (never commit)
+.idea/
+.vscode/
+
 # Python virtual environment
 .venv/
 
@@ -18,12 +22,8 @@ __MACOSX/
 # it, but not published to the public repo.
 CLAUDE.md
 
-# Database files (generated, keep directory)
-data/*.db
-data/*.db-wal
-data/*.db-shm
-data/*.pre_restore
-data/*.pre_update
+# Database files & generated runtime data (keep directories, ignore contents)
+data/
 
 # Master key for host-password encryption (must never be committed)
 data/.secret_key

@@ -22,11 +22,17 @@ from __future__ import annotations
 
 import secrets
 
+from aiohttp import web
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
 from database.repos.base import utcnow_iso
+from server.domens.websocket import _default_agent_ws_url
 from services.secrets import decrypt_secret, encrypt_secret
+
+from .logger import Logger
+
+logger = Logger()
 
 DEFAULT_SSH_USERNAME = "netrunner-svc"
 
@@ -118,3 +124,32 @@ class AgentService:
         if agent:
             self.db.host_agents.touch(agent.id, status="connected")
             self.db.host_events.record(host_id, event_type, payload_json=payload_json)
+
+
+async def _auto_install_agent(app: web.Application, host) -> None:
+    """Фоновая попытка установки endpoint-агента сразу после добавления хоста.
+    Не блокирует создание хоста и не считается ошибкой добавления — при неудаче
+    (например, нет passwordless sudo) просто пишется запись в системные логи
+    («История» → «Логи»), которую видно в UI."""
+    ctx = app["ctx"]
+    from computer.module.agent_provision import CustomModule as agentProvisionModule
+    from services.task_runner import ModuleContext
+
+    module_ctx = ModuleContext(
+        logger=logger, task_run_id=0, to_computer=ctx.host_service.to_computer, db=ctx.db,
+    )
+    server_ws_url = _default_agent_ws_url()
+    try:
+        result = await agentProvisionModule.run_for_host(module_ctx, host, server_ws_url=server_ws_url)
+    except Exception as exc:  # noqa: BLE001 — фон: любая ошибка = запись в лог, не падение сервера
+        logger.warning("Auto agent install failed for host_id=%s: %s", host.id, exc)
+        ctx.db.system_logs.record(
+            "agent_install", "error", f"Хост «{host.name}»: {exc}", host_id=host.id,
+        )
+        return
+
+    level = "error" if result.get("status") == "error" else "success"
+    output = str(result.get("output") or "")[:4000]
+    ctx.db.system_logs.record(
+        "agent_install", level, f"Хост «{host.name}» ({server_ws_url}): {output}", host_id=host.id,
+    )
