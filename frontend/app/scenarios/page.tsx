@@ -1,11 +1,10 @@
 "use client";
 
-import { SetStateAction, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiGetClient, apiPostClient } from "@/lib/api-client";
-import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/Badge";
 import { useToast } from "@/components/Toast";
-import { Plus, Play, Trash2, ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle, Circle, ChevronLeft } from "lucide-react";
+import { Plus, Play, Trash2, Loader2, CheckCircle2, XCircle, Circle, ChevronLeft } from "lucide-react";
 import { Scenario, Placeholder, Module, ScenarioRun, StepForm } from "@/lib/scenario-types";
 import ScenariosList from "./ScenariosList";
 
