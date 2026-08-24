@@ -3,6 +3,8 @@
 import {Modal} from "@/components/Modal";
 import type {Group} from "@/lib/host-types";
 import {useEffect, useState} from "react";
+import {ChevronDown, ChevronLeft} from "lucide-react";
+import {hidden} from "next/dist/lib/picocolors";
 
 interface Props {
   groups: Group[];
@@ -17,6 +19,7 @@ export function AddHostModal({groups, onClose, onSubmit, onCreateGroup}: Props) 
   const [ipValue, setIpValue] = useState('');
   const [hostName, setHostName] = useState('');
   const [selectedGroup, setSelectedGroup] = useState('');
+  const [hiddenFields, setHiddenFields] = useState(true);
 
   function validateIP(ip: string): boolean {
     const ipv4Pattern = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
@@ -60,15 +63,10 @@ export function AddHostModal({groups, onClose, onSubmit, onCreateGroup}: Props) 
                  required/>
         </label>
 
-        {/* данный участок кода будет вынесен в раздел, подразумевающий расширенную первичную настройку */}
-        {/*<label className="label">*/}
-        {/*  Порт*/}
-        {/*  <input className="input" name="port" type="number" defaultValue={22} required/>*/}
-        {/*</label>*/}
-
         <label className="label">
           Группа
-          <select className="input" name="group_id" onChange={(e) => setSelectedGroup(e.target.selectedOptions.item(0).text)}>
+          <select className="input" name="group_id"
+                  onChange={(e) => setSelectedGroup(e.target.selectedOptions.item(0).text)}>
             <option value="">Без группы</option>
             {groups.map((g) => (
               <option key={g.id} value={g.id}>{g.name}</option>
@@ -80,7 +78,8 @@ export function AddHostModal({groups, onClose, onSubmit, onCreateGroup}: Props) 
         {/* TODO например: выбрана группа по имени 3928 и ip оканчивается на 95, имя соответственно будет 3928_95 */}
         <label className="label">
           Имя хоста
-          <input value={hostName} className="input" name="name" placeholder="Имя в списке" onChange={(e) => setHostName(e.target.value)} required/>
+          <input value={hostName} className="input" name="name" placeholder="Имя в списке"
+                 onChange={(e) => setHostName(e.target.value)} required/>
         </label>
 
         {/* данный участок кода будет вынесен в раздел, подразумевающий расширенную первичную настройку */}
@@ -101,13 +100,38 @@ export function AddHostModal({groups, onClose, onSubmit, onCreateGroup}: Props) 
         {/*         onChange={(e) => setNewKeyFile(e.target.files?.[0] || null)}/>*/}
         {/*</label>*/}
 
-        {/* TODO в контексте предметной области, целевой компьютер при первичной настройке всегда имеет один конкретный пароль
-            {/* TODO потому заполнением данного поля в будущем будет заниматься сервер, а не администратор */}
-        {/* данный участок кода будет вынесен в раздел, подразумевающий расширенную первичную настройку */}
-        {/*<label className="label">*/}
-        {/*  Пароль хоста*/}
-        {/*  <input className="input" name="password" type="password" placeholder="Для автокопирования SSH-ключа"/>*/}
-        {/*</label>*/}
+        {/* Примерно так это будет выглядеть */}
+        <button
+          type="button"
+          className="p-1.5 btn-secondary"
+          onClick={() => setHiddenFields((v) => !v)}
+          title={hiddenFields ? "Развернуть" : "Свернуть"}
+        >
+          <div className={`flex items-center ml-auto ${!hiddenFields ? "mb-4" : "mb-0"}`}>
+            <h4 className="font-semibold text-sm text-gray-500">Другие поля</h4>
+            <ChevronDown size={16}
+                         className={`text-gray-500 transition-transform duration-200 ${hiddenFields ? "" : "rotate-180"}`}/>
+          </div>
+        </button>
+        {!hiddenFields && (
+          <div className="flex flex-col panel md:col-span-2 lg:col-span-4">
+            <div className="flex flex-row justify-between">
+              <label className="label">
+                Пользователь
+                <input className="input" name="username" placeholder="root" required/>
+              </label>
+              <label className="label">
+                Пароль
+                <input className="input" name="password" type="password" placeholder="toor"/>
+              </label>
+              <label className="label">
+                Порт
+                <input className="input" name="port" type="number" defaultValue={22} required/>
+              </label>
+            </div>
+            <h6 className="text-left font-semibold text-sm mt-3 text-gray-500">Эти поля не обязательны</h6>
+          </div>
+        )}
         <label className="label md:col-span-2 lg:col-span-4">
           Описание
           <textarea className="input" name="description" rows={3}/>
@@ -120,5 +144,6 @@ export function AddHostModal({groups, onClose, onSubmit, onCreateGroup}: Props) 
         </div>
       </form>
     </Modal>
-  );
+  )
+    ;
 }
