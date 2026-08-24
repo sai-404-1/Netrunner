@@ -20,6 +20,9 @@ class ScenarioStepRepo(BaseRepository):
         )
         return [self._row_to_model(row) for row in rows]
 
+    def update_one(self, scenario_id: int, config_json: str):
+        return self.update(scenario_id, config_json=config_json)
+
     def max_order(self, scenario_id: int) -> int:
         row = self._fetchone(
             f'SELECT COALESCE(MAX(step_order), 0) FROM {self.table_name} WHERE scenario_id = ?',

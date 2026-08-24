@@ -2,6 +2,7 @@ import json
 
 from aiohttp import web
 
+from database.models import BaseModel
 from database.repos import utcnow_iso
 from server.tools import model_to_dict, _safe_int, _ctx, _ok, _read_json, _error
 from services.host_service import _run_background
@@ -60,6 +61,12 @@ async def api_scenarios_create(request: web.Request) -> web.Response:
             created_at=now,
         )
     return _ok(sc)
+
+async def api_scenarios_update(request: web.Request) -> web.Response:
+    db = _ctx(request).db
+    payload = await _read_json(request)
+    now = utcnow_iso()
+    db.scenario_steps.update_one(scenario_id=payload.get("scenario_id"), updated_at=now)
 
 
 async def api_scenarios_run(request: web.Request) -> web.Response:
