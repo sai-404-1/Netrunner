@@ -7,7 +7,6 @@ import { StatusBadge } from "@/components/Badge";
 import { useToast } from "@/components/Toast";
 import { Plus, Play, Trash2, ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle, Circle, ChevronLeft } from "lucide-react";
 import { Scenario, Placeholder, Module, ScenarioRun, StepForm } from "@/lib/scenario-types";
-import Scenarios from "./Scenarios";
 import ScenariosList from "./ScenariosList";
 
 function parsePlaceholders(schema_json?: string): Placeholder[] {
