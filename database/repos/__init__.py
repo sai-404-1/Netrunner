@@ -9,6 +9,7 @@ from .ssh_key_repo import SSHKeyRepo
 from .task_run_repo import TaskRunRepo
 from .task_template_repo import TaskTemplateRepo
 from .user_repo import UserRepo
+from .host_default_cred_repo import HostDefaultCredRepo
 
 __all__ = [
     'BaseRepository',
@@ -23,4 +24,5 @@ __all__ = [
     'TaskRunRepo',
     'TaskTemplateRepo',
     'UserRepo',
+    'HostDefaultCredRepo',
 ]

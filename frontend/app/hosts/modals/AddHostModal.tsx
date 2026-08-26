@@ -48,6 +48,7 @@ export function AddHostModal({groups, onClose, onSubmit, onCreateGroup}: Props) 
         }}
         className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 items-end"
       >
+        {/* возможно я чёт не перенёс */}
         {/* TODO в контексте предметной области, зачастую юзернейм на целевом компьютере один и тот же */}
         {/* TODO потому решено в будущем организовать автоматическое подставление юзернейма в данное поле */}
         {/* данный участок кода будет вынесен в раздел, подразумевающий расширенную первичную настройку */}
@@ -82,6 +83,10 @@ export function AddHostModal({groups, onClose, onSubmit, onCreateGroup}: Props) 
                  onChange={(e) => setHostName(e.target.value)} required/>
         </label>
 
+        {/* возможно стоит снести это вовсе, а в админке прописать дефолт для всех компов... */}
+        {/* впрочем при добавлении может потребоваться указать конкретный ключ.. тогда это может быть кстати */}
+        {/* при добавлении всех машин с одним ключом, если ключ будет утерян, то придётся заново создавать ключ и повторно цеплять машины */}
+        {/* возможно стоит добавить фичу при которой на машины будет вешаться кастомный ключ в зависимости от группы */}
         {/* данный участок кода будет вынесен в раздел, подразумевающий расширенную первичную настройку */}
         {/*<label className="label">*/}
         {/*  SSH-ключ*/}
@@ -129,7 +134,7 @@ export function AddHostModal({groups, onClose, onSubmit, onCreateGroup}: Props) 
                 <input className="input" name="port" type="number" defaultValue={22} required/>
               </label>
             </div>
-            <h6 className="text-left font-semibold text-sm mt-3 text-gray-500">Эти поля не обязательны</h6>
+            <h6 className="text-left text-sm mt-3 text-gray-500">Эти поля не обязательны к заполнению. Будут использоваться стандартные креды. Их можно настроить в админ-панели</h6>
           </div>
         )}
         <label className="label md:col-span-2 lg:col-span-4">

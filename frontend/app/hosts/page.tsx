@@ -339,6 +339,7 @@ export default function HostsPage() {
   return (
     <div className="space-y-6">
       <HostList
+        onHosts={() => setHosts}
         hosts={hosts}
         filteredHosts={filteredHosts}
         groups={groups}

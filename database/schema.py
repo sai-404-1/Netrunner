@@ -410,8 +410,14 @@ CREATE TABLE IF NOT EXISTS system_logs (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_system_logs_created ON system_logs (created_at);
-""")
 
+CREATE TABLE IF NOT EXISTS host_default_credentials (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL,
+    password_encrypted TEXT NOT NULL,
+    last_updated_at TEXT NOT NULL
+);
+""")
 
 def create_schema(conn) -> None:
     conn.executescript(SCHEMA_SQL)
