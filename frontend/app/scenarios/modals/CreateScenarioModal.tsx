@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toast";
 import { apiPostClient } from "@/lib/api-client";
 import { Plus, Trash2 } from "lucide-react";
-import { Module, Placeholder, StepForm } from "@/lib/scenario-types";
+import { Module, Placeholder, StepForm, Scenario } from "@/lib/scenario-types";
 
 function parsePlaceholders(schema_json?: string): Placeholder[] {
   if (!schema_json) return [];
@@ -25,21 +26,56 @@ function parsePlaceholders(schema_json?: string): Placeholder[] {
   }
 }
 
+/** Превращает шаг сценария (config_json) в форму редактирования. */
+function stepToForm(step: { id: number; module_id: number; step_name: string; config_json: string; on_failure: string }): StepForm {
+  let args: Record<string, string> = {};
+  try {
+    const parsed = JSON.parse(step.config_json || "{}");
+    if (parsed && typeof parsed === "object") {
+      args = Object.fromEntries(Object.entries(parsed).map(([k, v]) => [k, String(v ?? "")]));
+    }
+  } catch {
+    args = {};
+  }
+  return { module_id: String(step.module_id), module_slug: "", args, on_failure: step.on_failure || "stop" };
+}
+
 interface Props {
   modules: Module[];
   onClose: () => void;
-  /** Вызывается после успешного создания — родитель перезагружает данные. */
-  onCreated: () => void;
+  /** Вызывается после успешного сохранения — родитель перезагружает данные. */
+  onSaved: () => void;
+  /** Передан — режим редактирования; иначе создание. */
+  scenario?: Scenario | null;
+  /** Удаление сценария (только в режиме редактирования). */
+  onDelete?: () => void;
 }
 
-/** Модалка создания сценария: название, описание и шаги (модуль + on_failure + аргументы). */
-export function CreateScenarioModal({ modules, onClose, onCreated }: Props) {
+/** Модалка создания/редактирования сценария: название, разворачиваемое описание и шаги (модуль + on_failure + аргументы). */
+export function CreateScenarioModal({ modules, onClose, onSaved, scenario, onDelete }: Props) {
+  const editing = Boolean(scenario);
   const showToast = useToast();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [descExpanded, setDescExpanded] = useState(false);
   const [steps, setSteps] = useState<StepForm[]>([
     { module_id: "", module_slug: "", args: {}, on_failure: "stop" },
   ]);
+  const [saving, setSaving] = useState(false);
+  // подтверждения удаления
+  const [confirmStep, setConfirmStep] = useState<number | null>(null);
+  const [confirmScenario, setConfirmScenario] = useState(false);
+
+  // При открытии в режиме редактирования — заполнить состояние из сценария.
+  useEffect(() => {
+    if (scenario) {
+      setName(scenario.name);
+      setDescription(scenario.description || "");
+      if (scenario.steps && scenario.steps.length > 0) {
+        setSteps(scenario.steps.map(stepToForm));
+      }
+    }
+  }, [scenario]);
 
   const resetArgsForModule = (moduleId: string, stepIndex: number) => {
     const mod = modules.find((m) => m.id === parseInt(moduleId));
@@ -86,7 +122,7 @@ export function CreateScenarioModal({ modules, onClose, onCreated }: Props) {
     }
   };
 
-  const handleCreate = async (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) { showToast("Введите название сценария", "error"); return; }
 
@@ -104,28 +140,72 @@ export function CreateScenarioModal({ modules, onClose, onCreated }: Props) {
 
     if (!validSteps.length) { showToast("Добавьте хотя бы один шаг", "error"); return; }
 
+    setSaving(true);
     try {
-      await apiPostClient("/api/scenarios", { name: name.trim(), description: description.trim(), steps: validSteps });
-      showToast("Сценарий создан");
-      onCreated();
+      if (editing && scenario) {
+        await apiPostClient("/api/scenarios/update", {
+          scenario_id: scenario.id,
+          name: name.trim(),
+          description: description.trim(),
+          steps: validSteps,
+        });
+        showToast("Сценарий обновлён");
+      } else {
+        await apiPostClient("/api/scenarios", { name: name.trim(), description: description.trim(), steps: validSteps });
+        showToast("Сценарий создан");
+      }
+      onSaved();
       onClose();
     } catch (err: any) {
       showToast(err.message, "error");
+    } finally {
+      setSaving(false);
     }
   };
 
   return (
-    <Modal title="Создать сценарий" onClose={onClose} size="lg">
-      <form onSubmit={handleCreate} className="space-y-4">
-        <div className="grid md:grid-cols-2 gap-4">
+    <Modal title={editing ? "Редактировать сценарий" : "Создать сценарий"} onClose={onClose} size="lg">
+      <form onSubmit={handleSave} className="space-y-4">
+        <div className="space-y-4">
           <label className="label">
             Название
             <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Мой сценарий" />
           </label>
-          <label className="label">
-            Описание
-            <input className="input" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Описание сценария" />
-          </label>
+
+          {/* Описание — сворачиваемое: в потоке 2 строки, по клику/фокусу разворачивается плавающей панелью ПОВЕРХ нижележащего */}
+          <div className="relative">
+            <label className="label mb-0">
+              Описание
+              <textarea
+                className="input"
+                rows={2}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Описание сценария"
+                onFocus={() => setDescExpanded(true)}
+              />
+            </label>
+            {descExpanded && (
+              <div className="absolute inset-x-0 top-0 z-30 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 p-2 shadow-2xl">
+                <label className="label mb-0">
+                  Описание
+                  <textarea
+                    className="input"
+                    rows={8}
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Описание сценария"
+                    autoFocus
+                  />
+                </label>
+                <div className="flex justify-end mt-2">
+                  <button type="button" className="btn-secondary py-1 px-2 text-xs" onClick={() => setDescExpanded(false)}>
+                    Свернуть описание
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="space-y-3">
@@ -135,7 +215,7 @@ export function CreateScenarioModal({ modules, onClose, onCreated }: Props) {
             const placeholders = parsePlaceholders(mod?.schema_json);
 
             return (
-              <div key={i} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3">
+              <div key={i} className="border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 rounded-lg p-4 space-y-3">
                 <div className="flex items-start justify-between gap-3 flex-wrap">
                   <div className="grid sm:grid-cols-3 gap-3 flex-1">
                     <label className="label mb-0">
@@ -155,7 +235,7 @@ export function CreateScenarioModal({ modules, onClose, onCreated }: Props) {
                       </select>
                     </label>
                     <div className="flex items-end justify-end">
-                      <button type="button" className="btn-danger py-1.5 px-3" onClick={() => removeStep(i)} disabled={steps.length <= 1}>
+                      <button type="button" className="btn-danger py-1.5 px-3" onClick={() => setConfirmStep(i)} disabled={steps.length <= 1}>
                         <Trash2 size={16} />
                       </button>
                     </div>
@@ -220,12 +300,36 @@ export function CreateScenarioModal({ modules, onClose, onCreated }: Props) {
           })}
         </div>
         <div className="flex gap-3">
+          {editing && onDelete && (
+            <button type="button" className="btn-danger" onClick={() => setConfirmScenario(true)}>
+              <Trash2 size={16} /> Удалить сценарий
+            </button>
+          )}
           <button type="button" className="btn-secondary" onClick={addStep}>
             <Plus size={16} /> Добавить шаг
           </button>
-          <button className="btn" type="submit">Создать сценарий</button>
+          <button className="btn" type="submit" disabled={saving}>
+            {saving ? "Сохранение..." : editing ? "Сохранить" : "Создать сценарий"}
+          </button>
         </div>
       </form>
+
+      {confirmScenario && (
+        <ConfirmDialog
+          title="Удалить сценарий"
+          message={`Вы действительно хотите удалить сценарий «${name}»? Это действие необратимо.`}
+          onConfirm={() => onDelete?.()}
+          onClose={() => setConfirmScenario(false)}
+        />
+      )}
+      {confirmStep !== null && (
+        <ConfirmDialog
+          title="Удалить шаг"
+          message="Вы действительно хотите удалить этот шаг сценария?"
+          onConfirm={() => removeStep(confirmStep)}
+          onClose={() => setConfirmStep(null)}
+        />
+      )}
     </Modal>
   );
 }
