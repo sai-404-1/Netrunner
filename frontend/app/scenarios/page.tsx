@@ -129,7 +129,12 @@ export default function ScenariosPage() {
     }
   };
 
-  const selectedScenarios = scenarios.filter((s) => selectedIds.has(s.id));
+  // Порядок вставки в Set = порядок кликов пользователя. Строим панель
+  // «Будут выполнены» в этом же порядке, чтобы визуал совпадал с реальной
+  // очерёдностью запуска (иначе панель показывала бы сортировку по id).
+  const selectedScenarios = [...selectedIds]
+    .map((id) => scenarios.find((s) => s.id === id))
+    .filter((s): s is Scenario => Boolean(s));
 
   return (
     <div className="space-y-6">
