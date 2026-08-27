@@ -12,7 +12,15 @@ logger = Logger()
 
 
 def _apply_scenario_steps(db, scenario_id: int, steps_data: list, now: str) -> None:
-    """Пересоздаёт шаги сценария: чистит старые, пишет новые (порядок = step_order)."""
+    """Пересоздаёт шаги сценария: чистит старые, пишет новые (порядок = step_order).
+
+    TODO(будущее): пересоздание шагов каскадно стирает scenario_step_runs уже
+    прошедших запусков (FK step_id ON DELETE CASCADE) и меняет конфиг, на который
+    могли ссылаться идущие запуски. Риск: если сценарий редактируют во время
+    запуска, исполнитель получает неожиданный результат. План: два доп. столбца
+    у scenarios (is_locked / is_running): блокировать редактирование, пока
+    сценарий запущен, и блокировать запуск, пока сценарий редактируется.
+    """
     for old in db.scenario_steps.by_scenario(scenario_id):
         db.scenario_steps.delete(old.id)
     for i, step_data in enumerate(steps_data, start=1):
