@@ -10,7 +10,6 @@ import type {Group, Host, SshKey} from "@/lib/host-types";
 import {HostList} from "./HostList";
 import {AddHostModal} from "./modals/AddHostModal";
 import {EditHostModal} from "./modals/EditHostModal";
-import {HostInfoModal} from "./modals/HostInfoModal";
 import {ReprovisionModal} from "./modals/ReprovisionModal";
 import {BulkReprovisionModal} from "./modals/BulkReprovisionModal";
 import {GroupCreateModal} from "./modals/GroupCreateModal";
@@ -28,7 +27,6 @@ export default function HostsPage() {
   const [groupFilter, setGroupFilter] = useState("");
   const [checkingAll, setCheckingAll] = useState(false);
   const [editHost, setEditHost] = useState<Host | null>(null);
-  const [infoHost, setInfoHost] = useState<Host | null>(null);
   const [reprovisionHost, setReprovisionHost] = useState<Host | null>(null);
   const [reprovisioning, setReprovisioning] = useState(false);
   const [newKeyFile, setNewKeyFile] = useState<File | null>(null);
@@ -179,16 +177,6 @@ export default function HostsPage() {
     await load();
   }
 
-  async function checkHost(host: Host) {
-    try {
-      const result = await apiPostClient("/api/hosts/check", {id: host.id});
-      showToast(`Хост ${result.host?.name}: ${result.host?.is_active ? "доступен" : "недоступен"}`);
-      await load();
-    } catch (err: any) {
-      showToast(err.message, "error");
-    }
-  }
-
   async function onCreateHost(fd: FormData, keyFile: File | null) {
     try {
       let sshKeyId: number | null = null;
@@ -291,7 +279,6 @@ export default function HostsPage() {
     try {
       await apiPostClient("/api/hosts/delete", {id: host.id});
       showToast("Хост удалён");
-      setInfoHost(null);
       await load();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -354,7 +341,7 @@ export default function HostsPage() {
         onToggleSelectionMode={toggleSelectionMode}
         onToggleSelect={toggleSelect}
         onAddHost={() => setAddHostHidden((v) => !v)}
-        onInfoHost={setInfoHost}
+        onInfoHost={(h) => router.push(`/hosts/${h.id}`)}
         onEditGroup={setEditGroup}
         onDeleteGroup={deleteGroup}
         onBoardsChange={load}
@@ -366,18 +353,6 @@ export default function HostsPage() {
           onClose={() => setAddHostHidden(true)}
           onSubmit={onCreateHost}
           onCreateGroup={() => setCreateGroupOpen(true)}
-        />
-      )}
-      {infoHost && (
-        <HostInfoModal
-          host={infoHost}
-          canTerminal={Boolean(user?.is_superuser)}
-          onClose={() => setInfoHost(null)}
-          onCheck={checkHost}
-          onTerminal={(h) => router.push(`/terminal?host=${h.id}`)}
-          onReprovision={(h) => { setInfoHost(null); setReprovisionHost(h); }}
-          onEdit={(h) => { setInfoHost(null); setEditHost(h); }}
-          onDelete={deleteHost}
         />
       )}
       {editHost && (

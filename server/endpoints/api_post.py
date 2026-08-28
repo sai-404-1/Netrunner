@@ -3,6 +3,7 @@ from aiohttp import web
 from server.domens.groups import api_groups_create, api_groups_update, api_groups_delete, api_groups_add_host
 from server.domens.hosts import api_hosts_create, api_hosts_update, api_hosts_delete, api_hosts_check_all, \
     api_hosts_reprovision
+from server.domens.host_profile import api_host_power
 from server.domens.modules import api_modules_create, api_modules_update, api_modules_delete
 from server.domens.reports import api_reports_clear, api_reports_export
 from server.domens.scheduled import api_schedule_create, api_active_scheduled, api_inactive_scheduled, \
@@ -20,6 +21,7 @@ def add_routes(app: web.Application):
     app.router.add_post("/api/hosts/check", api_hosts_check_all)
     app.router.add_post("/api/hosts/check-all", api_hosts_check_all)
     app.router.add_post("/api/hosts/reprovision", api_hosts_reprovision)
+    app.router.add_post("/api/hosts/{id}/power", api_host_power)
 
     # FILE UPLOADS
     app.router.add_get("/api/uploads", api_uploads_list)
