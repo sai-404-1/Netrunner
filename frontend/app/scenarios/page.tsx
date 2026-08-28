@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiGetClient, apiPostClient } from "@/lib/api-client";
-import { StatusBadge } from "@/components/Badge";
 import { useToast } from "@/components/Toast";
-import { Play, Loader2, CheckCircle2, XCircle, Circle, Plus, X } from "lucide-react";
+import { Play, Plus, X } from "lucide-react";
 import { Scenario, Module, ScenarioRun } from "@/lib/scenario-types";
 import ScenariosList from "./ScenariosList";
+import RunExecution from "./RunExecution";
 import { CreateScenarioModal } from "./modals/CreateScenarioModal";
 
 export default function ScenariosPage() {
@@ -200,87 +200,8 @@ export default function ScenariosPage() {
         </form>
       </div>
 
-      {/* Живое выполнение: активные запуски и их шаги/модули */}
-      {activeRuns.length > 0 && (
-        <div className="space-y-4">
-          {activeRuns.map((activeRun) => {
-            const sc = scenarios.find((s) => s.id === activeRun.scenario_id);
-            const orderedSteps = (sc?.steps || []).slice().sort((a, b) => a.step_order - b.step_order);
-            const stepStat = (stepId: number) => {
-              const srs = activeRun.step_runs.filter((r) => r.step_id === stepId);
-              const running = srs.some((r) => r.status === "running" || r.status === "pending");
-              const failed = srs.filter((r) => r.status === "failed").length;
-              const done = srs.filter((r) => r.status === "completed").length;
-              const state = srs.length === 0 ? "queued" : running ? "running" : failed > 0 ? "failed" : "done";
-              return { state, done, failed, total: srs.length };
-            };
-            return (
-              <div key={activeRun.id} className="panel">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-semibold">Выполнение: {activeRun.scenario_name}</h3>
-                  <StatusBadge status={activeRun.status} />
-                </div>
-                <div className="space-y-2">
-                  {orderedSteps.map((step) => {
-                    const st = stepStat(step.id);
-                    const moduleName = modules.find((m) => m.id === step.module_id)?.name || "";
-                    const stepRuns = activeRun.step_runs.filter((r) => r.step_id === step.id);
-                    const hasOutput = stepRuns.some((r) => r.output_text || r.error_text);
-                    return (
-                      <div
-                        key={step.id}
-                        className={`rounded-lg border ${
-                          st.state === "running" ? "border-blue-400 bg-blue-50 dark:bg-blue-950/40" : "dark:border-gray-700"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-3 p-3">
-                          <span className="flex items-center gap-2 min-w-0">
-                            {st.state === "running" ? (
-                              <Loader2 size={16} className="animate-spin text-blue-500 shrink-0" />
-                            ) : st.state === "done" ? (
-                              <CheckCircle2 size={16} className="text-green-500 shrink-0" />
-                            ) : st.state === "failed" ? (
-                              <XCircle size={16} className="text-red-500 shrink-0" />
-                            ) : (
-                              <Circle size={16} className="text-gray-400 shrink-0" />
-                            )}
-                            <strong className="truncate">
-                              {step.step_order}. {step.step_name || moduleName}
-                            </strong>
-                            {moduleName && <span className="text-gray-500 text-xs shrink-0">{moduleName}</span>}
-                          </span>
-                          <span className="text-xs text-gray-500 shrink-0">
-                            {st.total > 0
-                              ? `${st.done}/${st.total} готово${st.failed ? `, ${st.failed} ошибок` : ""}`
-                              : "в очереди"}
-                          </span>
-                        </div>
-                        {hasOutput && (
-                          <details className="border-t dark:border-gray-700">
-                            <summary className="px-3 py-2 text-xs text-gray-500 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 select-none">
-                              Вывод шага
-                            </summary>
-                            <pre className="px-3 pb-3 text-xs bg-gray-50 dark:bg-gray-900 overflow-auto font-mono whitespace-pre-wrap">
-                              {stepRuns
-                                .map(
-                                  (r) =>
-                                    `[host ${r.host_id}] ${r.status}\n${r.output_text || ""}${
-                                      r.error_text ? "\n[ERR] " + r.error_text : ""
-                                    }`
-                                )
-                                .join("\n\n")}
-                            </pre>
-                          </details>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {/* Живое выполнение: вкладка на каждый компьютер, внутри — его очередь сценариев */}
+      <RunExecution runs={activeRuns} scenarios={scenarios} modules={modules} />
 
       {/* Scenario list — карточки: клик выбирает (мульти-выбор), карандаш редактирует */}
       <ScenariosList

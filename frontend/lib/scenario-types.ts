@@ -17,6 +17,11 @@ export interface ScenarioStep {
   on_failure: string;
 }
 
+export interface RunHost {
+  id: number;
+  name: string;
+}
+
 export interface ScenarioRun {
   id: number;
   scenario_id: number;
@@ -27,13 +32,17 @@ export interface ScenarioRun {
   started_at: string;
   finished_at: string | null;
   step_runs: ScenarioStepRun[];
+  /** Хосты запуска — приходят только из /api/scenarios/runs/{id} */
+  hosts?: RunHost[];
 }
 
 export interface ScenarioStepRun {
   id: number;
   step_id: number;
   host_id: number;
+  host_name: string;
   module_id: number;
+  /** completed | failed | skipped | running | pending */
   status: string;
   output_text: string | null;
   error_text: string | null;
