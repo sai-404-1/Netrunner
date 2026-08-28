@@ -65,5 +65,7 @@ export interface StepForm {
   module_id: string;
   module_slug: string;
   args: Record<string, string>;
+  /** file_distribute: выбранные id загруженных файлов (массив, не строка!) */
+  file_ids?: number[];
   on_failure: string;
 }

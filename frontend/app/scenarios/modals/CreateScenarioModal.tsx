@@ -7,6 +7,7 @@ import { useToast } from "@/components/Toast";
 import { apiPostClient } from "@/lib/api-client";
 import { Plus, Trash2 } from "lucide-react";
 import { Module, Placeholder, StepForm, Scenario } from "@/lib/scenario-types";
+import { FileManager } from "@/components/FileManager";
 
 function parsePlaceholders(schema_json?: string): Placeholder[] {
   if (!schema_json) return [];
@@ -29,15 +30,24 @@ function parsePlaceholders(schema_json?: string): Placeholder[] {
 /** Превращает шаг сценария (config_json) в форму редактирования. */
 function stepToForm(step: { id: number; module_id: number; step_name: string; config_json: string; on_failure: string }): StepForm {
   let args: Record<string, string> = {};
+  let fileIds: number[] | undefined;
   try {
     const parsed = JSON.parse(step.config_json || "{}");
     if (parsed && typeof parsed === "object") {
-      args = Object.fromEntries(Object.entries(parsed).map(([k, v]) => [k, String(v ?? "")]));
+      // file_ids — массив, держим отдельно (в args он превратится в строку)
+      if (Array.isArray(parsed.file_ids)) {
+        fileIds = parsed.file_ids.map((x: unknown) => Number(x)).filter((n: number) => Number.isFinite(n));
+      }
+      args = Object.fromEntries(
+        Object.entries(parsed)
+          .filter(([k]) => k !== "file_ids")
+          .map(([k, v]) => [k, String(v ?? "")])
+      );
     }
   } catch {
     args = {};
   }
-  return { module_id: String(step.module_id), module_slug: "", args, on_failure: step.on_failure || "stop" };
+  return { module_id: String(step.module_id), module_slug: "", args, file_ids: fileIds, on_failure: step.on_failure || "stop" };
 }
 
 interface Props {
@@ -87,7 +97,15 @@ export function CreateScenarioModal({ modules, onClose, onSaved, scenario, onDel
 
     setSteps((prev) => {
       const next = [...prev];
-      next[stepIndex] = { ...next[stepIndex], module_id: moduleId, module_slug: mod.slug, args: defaults };
+      next[stepIndex] = { ...next[stepIndex], module_id: moduleId, module_slug: mod.slug, args: defaults, file_ids: undefined };
+      return next;
+    });
+  };
+
+  const updateStepFileIds = (index: number, ids: number[]) => {
+    setSteps((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], file_ids: ids };
       return next;
     });
   };
@@ -130,10 +148,13 @@ export function CreateScenarioModal({ modules, onClose, onSaved, scenario, onDel
       .filter((s) => s.module_id)
       .map((s) => {
         const mod = modules.find((m) => m.id === parseInt(s.module_id));
+        const config: Record<string, unknown> = { ...s.args };
+        // file_distribute: file_ids сохраняем МАССИВОМ (иначе модуль не получит файлы)
+        if (s.file_ids && s.file_ids.length > 0) config.file_ids = s.file_ids;
         return {
           module_id: parseInt(s.module_id),
           step_name: mod?.name || `Шаг`,
-          config: s.args,
+          config,
           on_failure: s.on_failure,
         };
       });
@@ -293,6 +314,19 @@ export function CreateScenarioModal({ modules, onClose, onSaved, scenario, onDel
                         )}
                       </label>
                     ))}
+                  </div>
+                )}
+
+                {/* file_distribute: выбор файлов из хранилища Netrunner */}
+                {step.module_id && mod?.slug === "file_distribute" && (
+                  <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
+                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                      Файлы для рассылки ({step.file_ids?.length ?? 0} выбрано)
+                    </p>
+                    <FileManager
+                      selectedIds={step.file_ids ?? []}
+                      onSelectionChange={(ids) => updateStepFileIds(i, ids)}
+                    />
                   </div>
                 )}
               </div>

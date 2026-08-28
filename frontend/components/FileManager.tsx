@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { apiGetClient, apiPostClient } from "@/lib/api-client";
 import { useToast } from "@/components/Toast";
-import { Upload, Download, Trash2, Loader2, FileIcon } from "lucide-react";
+import { Upload, Download, Trash2, Loader2, FileIcon, Search } from "lucide-react";
 
 export interface UploadedFile {
   id: number;
@@ -31,6 +31,9 @@ export function FileManager({ selectedIds, onSelectionChange }: Props) {
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 25;
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   async function loadFiles() {
@@ -117,6 +120,15 @@ export function FileManager({ selectedIds, onSelectionChange }: Props) {
     else onSelectionChange([...selectedIds, id]);
   }
 
+  // Поиск + пагинация (444+ файлов рендерить разом нельзя — страница виснет)
+  const q = query.trim().toLowerCase();
+  const filtered = q ? files.filter((f) => f.name.toLowerCase().includes(q)) : files;
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const paged = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const from = filtered.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1;
+  const to = Math.min(safePage * PAGE_SIZE, filtered.length);
+
   return (
     <div className="pt-2 border-t border-gray-100 space-y-3">
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -158,6 +170,20 @@ export function FileManager({ selectedIds, onSelectionChange }: Props) {
         </div>
       )}
 
+      <div className="flex items-center gap-2">
+        <Search size={15} className="text-gray-400 shrink-0" />
+        <input
+          className="input py-1.5"
+          placeholder="Поиск по имени файла…"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setPage(1);
+          }}
+        />
+        <span className="text-xs text-gray-500 whitespace-nowrap">{filtered.length} файлов</span>
+      </div>
+
       <div className="border border-gray-200 rounded-lg overflow-hidden">
         {loading ? (
           <div className="p-4 text-sm text-gray-500 flex items-center gap-2">
@@ -168,6 +194,7 @@ export function FileManager({ selectedIds, onSelectionChange }: Props) {
             Файлов пока нет. Нажмите «Загрузить файлы», чтобы добавить.
           </div>
         ) : (
+          <>
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-50 text-left text-gray-500 border-b border-gray-200">
@@ -178,7 +205,7 @@ export function FileManager({ selectedIds, onSelectionChange }: Props) {
               </tr>
             </thead>
             <tbody>
-              {files.map((f) => (
+              {paged.map((f) => (
                 <tr key={f.id} className="border-b border-gray-100 last:border-0">
                   <td className="px-3 py-2">
                     <input
@@ -219,6 +246,33 @@ export function FileManager({ selectedIds, onSelectionChange }: Props) {
               ))}
             </tbody>
           </table>
+          <div className="flex items-center justify-between gap-3 px-3 py-2 border-t border-gray-200 bg-slate-50 text-xs text-gray-600">
+            <span>
+              {filtered.length === 0
+                ? "Ничего не найдено"
+                : `Показано ${from}–${to} из ${filtered.length}`}
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                className="btn-secondary py-1 px-2"
+                disabled={safePage <= 1}
+                onClick={() => setPage(safePage - 1)}
+              >
+                Назад
+              </button>
+              <span className="px-2">{safePage} / {totalPages}</span>
+              <button
+                type="button"
+                className="btn-secondary py-1 px-2"
+                disabled={safePage >= totalPages}
+                onClick={() => setPage(safePage + 1)}
+              >
+                Вперёд
+              </button>
+            </div>
+          </div>
+          </>
         )}
       </div>
 
