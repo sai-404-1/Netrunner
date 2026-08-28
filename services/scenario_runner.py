@@ -6,6 +6,7 @@ import traceback
 from dataclasses import dataclass, field
 from typing import Any
 
+from services.execution_settings import MODE_BATCH, ExecutionSettings
 from services.task_runner import ModuleContext
 
 
@@ -49,12 +50,14 @@ class ScenarioRunner:
     Упавший хост уводит с дистанции только себя: соседи продолжают до конца.
     """
 
-    def __init__(self, db, host_service, module_registry, logger):
+    def __init__(self, db, host_service, module_registry, logger, execution_settings=None):
         self.db = db
         self.host_service = host_service
         self.module_registry = module_registry
         self.logger = logger
-        self.max_parallel = 10
+        # Темп выполнения перечитывается перед каждым запуском, а не берётся
+        # один раз при старте: правка настройки в админке должна работать сразу.
+        self.execution_settings = execution_settings or ExecutionSettings(db)
 
     async def run_scenario_async(
         self,
@@ -94,6 +97,15 @@ class ScenarioRunner:
         if not targets:
             raise RuntimeError("Нет хостов для выполнения")
 
+        config = self.execution_settings.get_config()
+        if config["mode"] == MODE_BATCH:
+            self.logger.info(
+                "Темп: пакетами по %d машин, пауза между пакетами %d с",
+                config["batch_size"], config["batch_delay"],
+            )
+        else:
+            self.logger.info("Темп: до %d машин одновременно", config["max_parallel"])
+
         plans: list[_ScenarioPlan] = []
         for index, scenario_id in enumerate(scenario_ids):
             scenario = self.db.scenarios.get(scenario_id)
@@ -128,19 +140,12 @@ class ScenarioRunner:
                 run_id, scenario.name, len(targets), len(steps),
             )
 
-        semaphore = asyncio.Semaphore(self.max_parallel)
-
         async def _host_queue(host):
-            async with semaphore:
-                for plan in plans:
-                    status = await self._run_scenario_on_host(plan, host)
-                    self._report_host_finished(plan, host, status)
+            for plan in plans:
+                status = await self._run_scenario_on_host(plan, host)
+                self._report_host_finished(plan, host, status)
 
-        tasks = [
-            asyncio.create_task(_host_queue(host), name=f"sc-host-{host.id}")
-            for host in targets
-        ]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        results = await self._dispatch_hosts(targets, _host_queue, config)
 
         for host, result in zip(targets, results):
             if isinstance(result, BaseException):
@@ -153,6 +158,56 @@ class ScenarioRunner:
                 self._finish_run(plan)
 
         return [self.db.scenario_runs.get(plan.run_id) for plan in plans]
+
+    # --- темп выполнения --------------------------------------------------
+
+    async def _dispatch_hosts(self, targets, run_host, config) -> list:
+        """Запускает очередь на хостах в темпе, заданном настройкой.
+
+        Возвращает результаты в порядке `targets` (исключения — как значения),
+        чтобы вызывающий мог сопоставить их с хостами.
+        """
+        if config["mode"] == MODE_BATCH:
+            return await self._run_in_batches(targets, run_host, config)
+        return await self._run_with_limit(targets, run_host, config)
+
+    async def _run_in_batches(self, targets, run_host, config) -> list:
+        """Пакетами: следующая партия машин стартует только после того, как
+        предыдущая прошла свою очередь сценариев целиком."""
+        size = config["batch_size"]
+        delay = config["batch_delay"]
+        batches = [targets[i:i + size] for i in range(0, len(targets), size)]
+
+        results: list = []
+        for number, batch in enumerate(batches, start=1):
+            self.logger.info(
+                "Пакет %d/%d: %s",
+                number, len(batches), ", ".join(host.name for host in batch),
+            )
+            tasks = [
+                asyncio.create_task(run_host(host), name=f"sc-host-{host.id}")
+                for host in batch
+            ]
+            results.extend(await asyncio.gather(*tasks, return_exceptions=True))
+            if delay and number < len(batches):
+                self.logger.info("Пауза %d с перед следующим пакетом", delay)
+                await asyncio.sleep(delay)
+        return results
+
+    async def _run_with_limit(self, targets, run_host, config) -> list:
+        """Скользящий параллелизм: освободилось место — сразу заходит следующая
+        машина, партий не ждём."""
+        semaphore = asyncio.Semaphore(config["max_parallel"])
+
+        async def _guarded(host):
+            async with semaphore:
+                return await run_host(host)
+
+        tasks = [
+            asyncio.create_task(_guarded(host), name=f"sc-host-{host.id}")
+            for host in targets
+        ]
+        return await asyncio.gather(*tasks, return_exceptions=True)
 
     # --- планирование -----------------------------------------------------
 

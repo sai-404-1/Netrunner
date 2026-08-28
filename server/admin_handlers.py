@@ -360,3 +360,26 @@ async def api_admin_host_events(request: web.Request) -> web.Response:
         for r in rows
     ]
     return _json_response({"ok": True, "data": data})
+
+
+async def api_admin_execution_settings(request: web.Request) -> web.Response:
+    """Настройка темпа выполнения + описание полей для формы.
+
+    `schema` отдаётся вместе со значениями, чтобы страница «Администрирование»
+    рисовала форму по нему и не дублировала подписи и границы у себя.
+    """
+    _require_superuser(request)
+    settings = _ctx(request).execution_settings
+    return _json_response({
+        "ok": True,
+        "data": {"config": settings.get_config(), "schema": settings.schema()},
+    })
+
+
+async def api_admin_execution_settings_set(request: web.Request) -> web.Response:
+    """Частичное обновление: приходят только изменённые поля."""
+    _require_superuser(request)
+    payload = await _read_json(request)
+    settings = _ctx(request).execution_settings
+    config = settings.set_config(**payload)
+    return _json_response({"ok": True, "data": {"config": config}})

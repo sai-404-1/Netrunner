@@ -3,7 +3,7 @@ from aiohttp import web
 from server.admin_handlers import api_admin_users_list, api_admin_users_create, api_admin_users_update, \
     api_admin_users_delete, api_admin_user_modules, api_admin_user_modules_set, api_admin_user_groups, \
     api_admin_user_groups_set, api_admin_db_tables, api_admin_backup, api_admin_restore, api_admin_host_agents, \
-    api_admin_host_events
+    api_admin_host_events, api_admin_execution_settings, api_admin_execution_settings_set
 
 
 def add_routes(app: web.Application):
@@ -20,6 +20,10 @@ def add_routes(app: web.Application):
     # GROUPS
     app.router.add_get("/api/admin/user-groups", api_admin_user_groups)
     app.router.add_post("/api/admin/user-groups", api_admin_user_groups_set)
+
+    # ТЕМП ВЫПОЛНЕНИЯ (пакеты машин)
+    app.router.add_get("/api/admin/execution-settings", api_admin_execution_settings)
+    app.router.add_post("/api/admin/execution-settings", api_admin_execution_settings_set)
 
     # DATABASE
     app.router.add_get("/api/admin/db-tables", api_admin_db_tables)
