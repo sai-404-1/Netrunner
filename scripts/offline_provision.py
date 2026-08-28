@@ -28,7 +28,9 @@ import sys
 import urllib.request
 from pathlib import Path
 
-BASE_URL = os.environ.get("NETRUNNER_URL", "http://127.0.0.1:8000")
+# Бэкенд слушает 8000 внутри контейнера; снаружи он доступен через прокси
+# фронта: /api/python/* переписывается на бэкенд (см. frontend/next.config.js).
+BASE_URL = os.environ.get("NETRUNNER_URL", "http://127.0.0.1:3001/api/python")
 DOWNLOAD_DIR = Path(os.environ.get("NETRUNNER_OFFLINE_DIR", "offline-packages"))
 DEST_ON_HOST = "/tmp/netrunner-offline"
 DESKTOP_DIR = "/home/student/Рабочий стол"
@@ -231,10 +233,30 @@ def download_all(with_pycharm: bool) -> dict[str, list[Path]]:
 # --- заливка в NetRunner и сборка сценариев -------------------------------
 
 def api_login(session, username: str, password: str) -> str:
+    """Токен для API.
+
+    Пароль можно не передавать вовсе: если в окружении есть NETRUNNER_TOKEN,
+    берём его. Это удобнее и безопаснее — токен видно в куке netrunner_token
+    уже открытой сессии, а пароль тогда нигде не всплывает.
+    """
+    token = os.environ.get("NETRUNNER_TOKEN")
+    if token:
+        return token.strip()
+
     resp = session.post(f"{BASE_URL}/api/login",
                         json={"username": username, "password": password}, timeout=30)
-    resp.raise_for_status()
-    return resp.json()["token"]
+    data = resp.json()
+    if not data.get("ok"):
+        sys.exit(f"вход не удался: {data.get('error') or resp.status_code}")
+    if data.get("mfa_required"):
+        sys.exit(
+            "у этой учётной записи включена двухфакторка через Telegram — "
+            "скриптом её не пройти.\nВозьмите токен из куки netrunner_token "
+            "уже открытой сессии и запустите с NETRUNNER_TOKEN=<токен>"
+        )
+    if not data.get("token"):
+        sys.exit(f"сервер не вернул токен: {str(data)[:200]}")
+    return data["token"]
 
 
 def upload_files(session, token: str, files: list[Path]) -> list[int]:
@@ -339,7 +361,11 @@ def create_scenarios(downloaded: dict[str, list[Path]], username: str, password:
     token = api_login(session, username, password)
     headers = {"Authorization": f"Bearer {token}"}
 
-    modules = session.get(f"{BASE_URL}/api/modules", headers=headers, timeout=30).json()["data"]
+    resp = session.get(f"{BASE_URL}/api/modules", headers=headers, timeout=30)
+    payload = resp.json()
+    if not payload.get("ok"):
+        sys.exit(f"не удалось получить список модулей: {payload.get('error') or resp.status_code}")
+    modules = payload["data"]
     module_ids = {m["slug"]: m["id"] for m in modules}
     for required in ("file_distribute", "mass_ssh"):
         if required not in module_ids:
