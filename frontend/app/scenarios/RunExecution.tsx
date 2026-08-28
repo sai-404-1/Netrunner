@@ -1,9 +1,9 @@
 "use client";
 
 import { ReactElement, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Circle, Loader2, MinusCircle, XCircle } from "lucide-react";
+import { CheckCircle2, Circle, Loader2, MinusCircle, X, XCircle } from "lucide-react";
 import { StatusBadge } from "@/components/Badge";
-import { Module, RunHost, Scenario, ScenarioRun, ScenarioStepRun } from "@/lib/scenario-types";
+import { Module, RunHost, Scenario, ScenarioRun, ScenarioStep, ScenarioStepRun } from "@/lib/scenario-types";
 
 /** Состояние шага/сценария на конкретном хосте. */
 type HostState = "queued" | "running" | "done" | "failed" | "skipped";
@@ -61,14 +61,31 @@ function hostOverallState(states: HostState[]): HostState {
   return "done";
 }
 
+function stepsFromRuns(run: ScenarioRun): ScenarioStep[] {
+  const seen = new Map<number, ScenarioStepRun>();
+  for (const sr of run.step_runs) {
+    if (!seen.has(sr.step_id)) seen.set(sr.step_id, sr);
+  }
+  return [...seen.values()].map((sr, index) => ({
+    id: sr.step_id,
+    module_id: sr.module_id,
+    step_order: index + 1,
+    step_name: "",
+    config_json: "",
+    on_failure: "",
+  }));
+}
+
 export default function RunExecution({
   runs,
   scenarios,
   modules,
+  onClose,
 }: {
   runs: ScenarioRun[];
   scenarios: Scenario[];
   modules: Module[];
+  onClose?: () => void;
 }) {
   // Хосты собираем из целей запуска (приходят сразу) и из уже созданных
   // step_run — так вкладки видны ещё до первого выполненного шага.
@@ -95,14 +112,24 @@ export default function RunExecution({
 
   if (runs.length === 0 || hosts.length === 0) return null;
 
-  const stepIdsOf = (run: ScenarioRun) =>
-    (scenarios.find((s) => s.id === run.scenario_id)?.steps || [])
-      .slice()
-      .sort((a, b) => a.step_order - b.step_order);
+  const stepIdsOf = (run: ScenarioRun): ScenarioStep[] => {
+    const steps = scenarios.find((s) => s.id === run.scenario_id)?.steps;
+    if (steps && steps.length > 0) {
+      return steps.slice().sort((a, b) => a.step_order - b.step_order);
+    }
+    return stepsFromRuns(run);
+  };
 
   return (
     <div className="panel">
-      <h3 className="font-semibold mb-3">Выполнение</h3>
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <h3 className="font-semibold">Выполнение</h3>
+        {onClose && (
+          <button type="button" className="btn-secondary p-2" onClick={onClose} title="Перестать смотреть">
+            <X size={14} />
+          </button>
+        )}
+      </div>
       <p className="text-sm text-gray-500 mb-3">
         Каждый компьютер идёт по очереди сценариев сам по себе — вкладка показывает только его путь.
       </p>
