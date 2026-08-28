@@ -68,10 +68,7 @@ APPS: list[dict] = [
         "replaces": "#9 (flatpak com.jgraph.drawio.desktop)",
         "kind": "deb",
         "url": lambda: _github_asset("jgraph/drawio-desktop", "amd64"),
-        "desktop": {
-            "Name": "Draw.io", "Exec": "/opt/drawio/drawio", "Icon": "drawio",
-            "Categories": "Office;Graphics;", "Comment": "Диаграммы и блок-схемы",
-        },
+        "desktop_file": "drawio.desktop",
     },
     {
         "key": "dbeaver",
@@ -79,10 +76,7 @@ APPS: list[dict] = [
         "replaces": "#15 (flatpak io.dbeaver.DBeaverCommunity)",
         "kind": "deb",
         "url": lambda: "https://dbeaver.io/files/dbeaver-ce_latest_amd64.deb",
-        "desktop": {
-            "Name": "DBeaver CE", "Exec": "/usr/share/dbeaver-ce/dbeaver", "Icon": "dbeaver",
-            "Categories": "Development;Database;", "Comment": "DBeaver Community",
-        },
+        "desktop_file": "dbeaver-ce.desktop",
     },
     {
         "key": "vscode",
@@ -90,10 +84,7 @@ APPS: list[dict] = [
         "replaces": "#17 (flatpak com.visualstudio.code), дублирует #12",
         "kind": "deb",
         "url": lambda: "https://code.visualstudio.com/sha/download?build=stable&os=linux-deb-x64",
-        "desktop": {
-            "Name": "Visual Studio Code", "Exec": "/usr/bin/code --no-sandbox", "Icon": "vscode",
-            "Categories": "Development;IDE;", "Comment": "Code Editing. Redefined.",
-        },
+        "desktop_file": "code.desktop",
     },
     {
         "key": "onlyoffice",
@@ -101,10 +92,7 @@ APPS: list[dict] = [
         "replaces": "#16 (flatpak org.onlyoffice.desktopeditors), дублирует #14",
         "kind": "deb",
         "url": lambda: "https://download.onlyoffice.com/install/desktop/editors/linux/onlyoffice-desktopeditors_amd64.deb",
-        "desktop": {
-            "Name": "OnlyOffice", "Exec": "/usr/bin/desktopeditors", "Icon": "onlyoffice-desktopeditors",
-            "Categories": "Office;", "Comment": "OnlyOffice Desktop Editors",
-        },
+        "desktop_file": "onlyoffice-desktopeditors.desktop",
     },
     {
         "key": "gimp",
@@ -112,11 +100,7 @@ APPS: list[dict] = [
         "replaces": "#19 (flatpak org.gimp.GIMP)",
         "kind": "apt",          # .deb + дерево зависимостей тянем из noble-контейнера
         "apt_packages": ["gimp"],
-        "desktop": {
-            "Name": "GIMP", "Exec": "/usr/bin/gimp", "Icon": "gimp",
-            "Categories": "Graphics;2DGraphics;RasterGraphics;",
-            "Comment": "GNU Image Manipulation Program",
-        },
+        "desktop_file": "gimp.desktop",
     },
     {
         "key": "virtualbox",
@@ -124,10 +108,7 @@ APPS: list[dict] = [
         "replaces": "#18 (flatpak org.virtualbox.VirtualBox)",
         "kind": "apt",
         "apt_packages": ["virtualbox"],
-        "desktop": {
-            "Name": "Oracle VirtualBox", "Exec": "/usr/bin/virtualbox", "Icon": "virtualbox",
-            "Categories": "System;Emulator;", "Comment": "Oracle VM VirtualBox",
-        },
+        "desktop_file": "virtualbox.desktop",
     },
     {
         "key": "pycharm",
@@ -274,43 +255,61 @@ def upload_files(session, token: str, files: list[Path]) -> list[int]:
     return ids
 
 
-def desktop_entry_command(entry: dict) -> str:
-    """Шаг, который кладёт ярлык на рабочий стол студента.
+def _place_desktop(filename: str) -> str:
+    """Хвост команды: положить готовый .desktop на рабочий стол студента."""
+    return (
+        f'sudo mkdir -p "{DESKTOP_DIR}"; '
+        f'sudo cp /tmp/{filename} "{DESKTOP_DIR}/{filename}"; '
+        f'sudo chmod +x "{DESKTOP_DIR}/{filename}"; '
+        f'sudo chown {DESKTOP_OWNER}:{DESKTOP_OWNER} "{DESKTOP_DIR}/{filename}"'
+    )
 
-    Формат и путь — как в уже существующих сценариях, чтобы ярлыки выглядели
-    одинаково независимо от того, каким сценарием ставили программу.
+
+def desktop_from_package(filename: str) -> str:
+    """Ярлык из самого пакета.
+
+    Каждый .deb приносит свой .desktop в /usr/share/applications — там верные
+    Exec и Icon, выверенные сопровождающим. Копировать его надёжнее, чем
+    сочинять путь к бинарнику: у dbeaver и virtualbox запуск идёт вообще не
+    напрямую, а через обёртки.
     """
+    return f'cp /usr/share/applications/{filename} /tmp/{filename}; ' + _place_desktop(filename)
+
+
+def desktop_generated(entry: dict, filename: str) -> str:
+    """Ярлык, собранный вручную — для tar.gz, который своего .desktop не несёт."""
     lines = ["[Desktop Entry]", "Encoding=UTF-8", "Type=Application"]
     lines += [f"{key}={value}" for key, value in entry.items()]
     body = "\\n".join(lines) + "\\n"
-    name = entry["Name"].replace(" ", "_")
-    return (
-        f'printf "{body}" > /tmp/{name}.desktop; '
-        f'sudo mkdir -p "{DESKTOP_DIR}"; '
-        f'sudo cp /tmp/{name}.desktop "{DESKTOP_DIR}/{name}.desktop"; '
-        f'sudo chmod +x "{DESKTOP_DIR}/{name}.desktop"; '
-        f'sudo chown {DESKTOP_OWNER}:{DESKTOP_OWNER} "{DESKTOP_DIR}/{name}.desktop"'
-    )
+    return f'printf "{body}" > /tmp/{filename}; ' + _place_desktop(filename)
 
 
 def build_steps(app: dict, file_ids: list[int], module_ids: dict[str, int]) -> list[dict]:
     """Шаги сценария: раздать файлы -> поставить локально -> ярлык -> убрать за собой."""
+    # Свой каталог на приложение: сценарии могут идти подряд, и остатки одного
+    # не должны попасть в apt-install другого.
+    dest = f"{DEST_ON_HOST}/{app['key']}"
+
     steps = [{
         "module_id": module_ids["file_distribute"],
         "step_name": f"Раздать пакеты {app['title']}",
-        "config": {"dest_path": DEST_ON_HOST, "file_ids": file_ids},
+        "config": {"dest_path": dest, "file_ids": file_ids},
         "on_failure": "stop",
     }]
 
     if app["kind"] == "tarball":
         install = (
             f"sudo mkdir -p {app['install_dir']} && "
-            f"sudo tar -xzf {DEST_ON_HOST}/*.tar.gz -C {app['install_dir']} --strip-components=1"
+            f"sudo tar -xzf {dest}/*.tar.gz -C {app['install_dir']} --strip-components=1"
         )
+        icon = desktop_generated(app["desktop"], f"{app['key']}.desktop")
     else:
-        # apt install ./*.deb, а не dpkg -i: apt доставит зависимости из уже
-        # раздатых файлов и не оставит систему в полусломанном состоянии.
-        install = f"sudo apt-get install -y --allow-downgrades {DEST_ON_HOST}/*.deb"
+        # apt-get install ./*.deb, а не dpkg -i: apt разложит зависимости из
+        # раздатых файлов и не оставит систему в полусломанном состоянии, а
+        # чего не хватит — доберёт с зеркала дистрибутива (оно работает,
+        # ломается только flathub).
+        install = f"sudo apt-get install -y --allow-downgrades {dest}/*.deb"
+        icon = desktop_from_package(app["desktop_file"])
 
     steps.append({
         "module_id": module_ids["mass_ssh"],
@@ -321,13 +320,13 @@ def build_steps(app: dict, file_ids: list[int], module_ids: dict[str, int]) -> l
     steps.append({
         "module_id": module_ids["mass_ssh"],
         "step_name": "Ярлык на рабочий стол",
-        "config": {"command": desktop_entry_command(app["desktop"])},
+        "config": {"command": icon},
         "on_failure": "skip",
     })
     steps.append({
         "module_id": module_ids["mass_ssh"],
         "step_name": "Убрать временные файлы",
-        "config": {"command": f"sudo rm -rf {DEST_ON_HOST}"},
+        "config": {"command": f"sudo rm -rf {dest}"},
         "on_failure": "skip",
     })
     return steps
