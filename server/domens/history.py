@@ -14,13 +14,17 @@ def _parse_sources(request: web.Request) -> list[str] | None:
 async def api_history_entries(request: web.Request) -> web.Response:
     """Единая лента «История»: сервисные события NetRunner (history_entries).
 
-    Поддерживает фильтр по сервисам: /api/history?limit=200&sources=scenario,task
+    Поддерживает фильтр по сервисам и пагинацию:
+    /api/history?limit=50&offset=100&sources=scenario,task
+    Отдаёт {items: [...], total: N} — total для пагинации.
     """
-    limit = _safe_int(request.query.get("limit"), 200)
+    limit = _safe_int(request.query.get("limit"), 50)
+    offset = _safe_int(request.query.get("offset"), 0)
     sources = _parse_sources(request)
     ctx = _ctx(request)
-    entries = ctx.history.list(limit=limit, sources=sources)
-    return _ok([ctx.history.to_dict(e) for e in entries])
+    items = [ctx.history.to_dict(e) for e in ctx.history.list(limit=limit, sources=sources, offset=offset)]
+    total = ctx.history.count(sources=sources)
+    return _ok({"items": items, "total": total})
 
 
 async def api_history_entry(request: web.Request) -> web.Response:

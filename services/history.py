@@ -187,8 +187,11 @@ class HistoryService:
             host_id=host_id,
         )
 
-    def list(self, limit: int = 200, sources: list[str] | None = None):
-        return self._db.history_entries.recent(limit=limit, sources=sources)
+    def list(self, limit: int = 200, sources: list[str] | None = None, offset: int = 0):
+        return self._db.history_entries.recent(limit=limit, sources=sources, offset=offset)
+
+    def count(self, sources: list[str] | None = None) -> int:
+        return self._db.history_entries.count(sources=sources)
 
     def get_entry(self, entry_id: int):
         return self._db.history_entries.get(entry_id)

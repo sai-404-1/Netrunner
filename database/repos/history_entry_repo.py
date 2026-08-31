@@ -42,18 +42,31 @@ class HistoryEntryRepo(BaseRepository):
             created_at=utcnow_iso(),
         )
 
-    def recent(self, limit: int = 200, sources: list[str] | None = None):
-        """Последние записи, опционально отфильтрованные по source-слагам."""
+    def recent(self, limit: int = 200, sources: list[str] | None = None, offset: int = 0):
+        """Последние записи, опционально отфильтрованные по source-слагам и
+        с пагинацией (offset/limit)."""
         if sources:
             placeholders = ', '.join('?' for _ in sources)
             rows = self._fetchall(
                 f"SELECT * FROM {self.table_name} "
-                f"WHERE source IN ({placeholders}) ORDER BY id DESC LIMIT ?",
-                (*sources, limit),
+                f"WHERE source IN ({placeholders}) ORDER BY id DESC LIMIT ? OFFSET ?",
+                (*sources, limit, offset),
             )
         else:
             rows = self._fetchall(
-                f"SELECT * FROM {self.table_name} ORDER BY id DESC LIMIT ?",
-                (limit,),
+                f"SELECT * FROM {self.table_name} ORDER BY id DESC LIMIT ? OFFSET ?",
+                (limit, offset),
             )
         return [self._row_to_model(r) for r in rows]
+
+    def count(self, sources: list[str] | None = None) -> int:
+        """Общее число записей (для пагинации), опционально по source-слагам."""
+        if sources:
+            placeholders = ', '.join('?' for _ in sources)
+            row = self._fetchone(
+                f"SELECT COUNT(*) FROM {self.table_name} WHERE source IN ({placeholders})",
+                tuple(sources),
+            )
+        else:
+            row = self._fetchone(f"SELECT COUNT(*) FROM {self.table_name}")
+        return row[0] if row else 0

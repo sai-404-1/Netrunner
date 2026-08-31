@@ -40,7 +40,10 @@ interface ServiceReg {
  *  Колонки и фильтр-кнопки строятся динамически из реестра сервисов (API
  *  /api/history/types) — новый сервис появляется на фронте без пересборки. */
 export function HistoryView() {
+  const PAGE_SIZE = 50;
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
   const [services, setServices] = useState<ServiceReg[]>([]);
   const [active, setActive] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
@@ -56,13 +59,15 @@ export function HistoryView() {
     setLoading(true);
     try {
       const sources = Array.from(active);
-      const qs = sources.length ? `?limit=300&sources=${sources.join(",")}` : "?limit=300";
-      const r = (await apiGetClient(`/api/history${qs}`)) as HistoryEntry[];
-      setEntries(r || []);
+      const qs = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(page * PAGE_SIZE) });
+      if (sources.length) qs.set("sources", sources.join(","));
+      const r = (await apiGetClient(`/api/history?${qs.toString()}`)) as { items: HistoryEntry[]; total: number };
+      setEntries(r.items || []);
+      setTotal(r.total || 0);
     } finally {
       setLoading(false);
     }
-  }, [active]);
+  }, [active, page]);
 
   useEffect(() => {
     loadServices();
@@ -71,6 +76,13 @@ export function HistoryView() {
   useEffect(() => {
     if (services.length) load();
   }, [active, services.length, load]);
+
+  // При смене фильтра сбрасываем на первую страницу
+  useEffect(() => {
+    setPage(0);
+  }, [active]);
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   function toggle(slug: string) {
     setActive((prev) => {
@@ -161,6 +173,34 @@ export function HistoryView() {
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* Пагинация: Назад / счётчик / Вперёд */}
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm text-gray-500">
+          Показано {entries.length ? page * PAGE_SIZE + 1 : 0}–{Math.min((page + 1) * PAGE_SIZE, total)} из {total}
+        </span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="btn-secondary py-1.5 px-3 text-sm"
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            disabled={page === 0 || loading}
+          >
+            Назад
+          </button>
+          <span className="text-sm text-gray-500">
+            стр. {page + 1} / {totalPages}
+          </span>
+          <button
+            type="button"
+            className="btn-secondary py-1.5 px-3 text-sm"
+            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+            disabled={page >= totalPages - 1 || loading}
+          >
+            Вперёд
+          </button>
+        </div>
       </div>
 
       {/* Ленивая модалка подробностей конкретного ивента (по клику на строку) */}
