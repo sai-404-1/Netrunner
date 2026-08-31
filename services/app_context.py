@@ -133,8 +133,14 @@ def create_app_context(
     auth_service = AuthService(db=db)
     auth_service.create_default_user()
     report_service = ReportService(db=db, reports_dir=reports_dir)
-    scenario_runner = ScenarioRunner(db=db, host_service=host_service, module_registry=module_registry, logger=logger)
     history = HistoryService(db)
+    scenario_runner = ScenarioRunner(
+        db=db,
+        host_service=host_service,
+        module_registry=module_registry,
+        logger=logger,
+        history=history,
+    )
 
     if run_scheduler_on_start:
         scheduler.tick()

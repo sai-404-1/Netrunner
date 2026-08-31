@@ -10,11 +10,12 @@ from services.task_runner import ModuleContext
 class ScenarioRunner:
     """Async runner for multi-step scenarios against host targets."""
 
-    def __init__(self, db, host_service, module_registry, logger):
+    def __init__(self, db, host_service, module_registry, logger, history=None):
         self.db = db
         self.host_service = host_service
         self.module_registry = module_registry
         self.logger = logger
+        self.history = history
         self.max_parallel = 10
 
     async def run_scenario_async(
@@ -53,11 +54,38 @@ class ScenarioRunner:
             scenario_run.id, scenario.name, len(targets), len(steps),
         )
 
+        if self.history:
+            self.history.record(
+                source="scenario",
+                event_type="scenario_run",
+                title=f'Запуск сценария "{scenario.name}"',
+                description=f"Сценарий на {len(targets)} хостах, {len(steps)} шагов",
+                payload={
+                    "scenario_name": scenario.name,
+                    "hosts_count": len(targets),
+                    "target_type": target_type,
+                },
+                ref_type="scenario",
+                ref_id=scenario_id,
+                level="info",
+            )
+
         overall_status = "completed"
 
         for step in steps:
             success = await self._run_step_async(scenario_run.id, step, targets)
             if not success:
+                if self.history:
+                    self.history.record(
+                        source="scenario",
+                        event_type="scenario_step_failed",
+                        title=f'Шаг "{step.step_name or step.step_order}" сценария "{scenario.name}" упал',
+                        description="Шаг завершился с ошибкой",
+                        payload={"scenario_name": scenario.name, "step_name": step.step_name or str(step.step_order)},
+                        ref_type="scenario",
+                        ref_id=scenario_id,
+                        level="error",
+                    )
                 if step.on_failure == "stop":
                     self.logger.info(
                         "Шаг %d '%s' упал, on_failure=stop — сценарий остановлен",
@@ -72,6 +100,17 @@ class ScenarioRunner:
                     )
 
         self.db.scenario_runs.finish(scenario_run.id, status=overall_status)
+        if self.history:
+            self.history.record(
+                source="scenario",
+                event_type="scenario_run_done" if overall_status == "completed" else "scenario_failed",
+                title=f'Сценарий "{scenario.name}" завершён: {overall_status}',
+                description=f"Завершение сценария на {len(targets)} хостах",
+                payload={"scenario_name": scenario.name, "hosts_count": len(targets)},
+                ref_type="scenario",
+                ref_id=scenario_id,
+                level="success" if overall_status == "completed" else "error",
+            )
         self.logger.info("ScenarioRun #%d завершён: %s", scenario_run.id, overall_status)
         return self.db.scenario_runs.get(scenario_run.id)
 
