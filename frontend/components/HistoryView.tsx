@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { apiGetClient } from "@/lib/api-client";
 import { formatDate } from "@/lib/utils";
 import { StatusBadge } from "@/components/Badge";
-import { RefreshCw, Eye } from "lucide-react";
+import { Modal } from "@/components/Modal";
+import { RefreshCw } from "lucide-react";
 
 interface HistoryColumn {
   key: string;
@@ -102,17 +103,15 @@ export function HistoryView() {
         <td className="px-4 py-3 whitespace-nowrap">
           <StatusBadge status={r.level} />
         </td>
-        <td className="px-4 py-3 text-right">
-          <Eye size={15} className="inline opacity-60" />
-        </td>
       </tr>
     );
   }
 
   return (
     <div className="space-y-4">
-      {/* Фильтр-кнопки по сервисам: клик включает/выключает (мульти-выбор) */}
-      <div className="flex flex-wrap gap-2">
+      {/* Фильтр-кнопки по сервисам: как кнопка «Выбрать» во вкладке хостов —
+          активная синяя (btn), неактивная серая (btn-secondary) */}
+      <div className="flex flex-wrap items-center gap-2">
         {services.map((s) => {
           const on = active.has(s.slug);
           return (
@@ -120,7 +119,7 @@ export function HistoryView() {
               key={s.slug}
               type="button"
               onClick={() => toggle(s.slug)}
-              className={`badge cursor-pointer transition-colors ${on ? "badge-success" : "opacity-50 hover:opacity-80"}`}
+              className={on ? "btn py-1.5 px-3 text-sm" : "btn-secondary py-1.5 px-3 text-sm"}
               title={s.name}
             >
               {s.name}
@@ -129,7 +128,7 @@ export function HistoryView() {
         })}
         <button
           type="button"
-          className="btn-secondary ml-auto"
+          className="btn-secondary py-1.5 px-3 text-sm ml-auto"
           onClick={load}
           disabled={loading}
           title="Обновить список"
@@ -148,13 +147,12 @@ export function HistoryView() {
               <th className="px-4 py-3 text-left font-semibold border-b border-gray-200 dark:border-gray-700">Описание</th>
               <th className="px-4 py-3 text-left font-semibold border-b border-gray-200 dark:border-gray-700">Инициатор</th>
               <th className="px-4 py-3 text-left font-semibold border-b border-gray-200 dark:border-gray-700">Статус</th>
-              <th className="px-4 py-3 border-b border-gray-200 dark:border-gray-700"></th>
             </tr>
           </thead>
           <tbody>
             {entries.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                <td colSpan={6} className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
                   Нет записей истории.
                 </td>
               </tr>
@@ -167,28 +165,20 @@ export function HistoryView() {
 
       {/* Ленивая модалка подробностей конкретного ивента (по клику на строку) */}
       {detail && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onClick={() => setDetail(null)}
+        <Modal
+          title={detail.title}
+          onClose={() => setDetail(null)}
+          size="lg"
         >
-          <div
-            className="panel w-full max-w-2xl max-h-[80vh] overflow-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between mb-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="badge">{detail.source_name}</span>
-                  <StatusBadge status={detail.level} />
-                </div>
-                <h3 className="text-lg font-bold mt-2">{detail.title}</h3>
-                <p className="text-sm text-gray-500">{formatDate(detail.created_at)}</p>
-              </div>
-              <button className="btn-secondary" onClick={() => setDetail(null)}>Закрыть</button>
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <span className="badge">{detail.source_name}</span>
+              <StatusBadge status={detail.level} />
+              <span className="text-sm text-gray-500 ml-auto">{formatDate(detail.created_at)}</span>
             </div>
 
             {detail.description && (
-              <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">{detail.description}</p>
+              <p className="text-sm text-gray-700 dark:text-gray-300">{detail.description}</p>
             )}
 
             {detail.columns.filter((c) => c.value !== undefined && c.value !== null).length > 0 && (
@@ -205,12 +195,12 @@ export function HistoryView() {
             )}
 
             {detail.actor_name && (
-              <p className="text-sm text-gray-500 mt-4">
+              <p className="text-sm text-gray-500">
                 Инициатор: <span className="font-medium">{detail.actor_name}</span>
               </p>
             )}
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
