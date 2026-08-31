@@ -146,6 +146,16 @@ async def _auto_install_agent(app: web.Application, host) -> None:
         ctx.db.system_logs.record(
             "agent_install", "error", f"Хост «{host.name}»: {exc}", host_id=host.id,
         )
+        if hasattr(ctx, "history"):
+            ctx.history.record(
+                source="agent",
+                event_type="agent_install",
+                title=f"Ошибка установки агента на хост «{host.name}»",
+                description=str(exc),
+                payload={"host_name": host.name, "action": "install"},
+                host_id=host.id,
+                level="error",
+            )
         return
 
     level = "error" if result.get("status") == "error" else "success"
@@ -153,3 +163,13 @@ async def _auto_install_agent(app: web.Application, host) -> None:
     ctx.db.system_logs.record(
         "agent_install", level, f"Хост «{host.name}» ({server_ws_url}): {output}", host_id=host.id,
     )
+    if hasattr(ctx, "history"):
+        ctx.history.record(
+            source="agent",
+            event_type="agent_install",
+            title=f"Агент установлен на хост «{host.name}»" if level == "success" else f"Ошибка установки агента на хост «{host.name}»",
+            description=output,
+            payload={"host_name": host.name, "action": "install"},
+            host_id=host.id,
+            level=level,
+        )

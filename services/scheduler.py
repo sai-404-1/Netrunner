@@ -4,10 +4,11 @@ import asyncio
 
 
 class Scheduler:
-    def __init__(self, db, task_runner, logger):
+    def __init__(self, db, task_runner, logger, history=None):
         self.db = db
         self.task_runner = task_runner
         self.logger = logger
+        self.history = history
 
     def tick(self):
         due_tasks = self.db.scheduled.due()
@@ -34,6 +35,15 @@ class Scheduler:
 
         async def _run_and_mark(scheduled):
             try:
+                if self.history:
+                    self.history.record(
+                        source="scheduler",
+                        event_type="scheduler_run",
+                        title="Автозапуск по расписанию",
+                        description=f"Шаблон #{scheduled.template_id}, цель {scheduled.target_type}:{scheduled.target_id}",
+                        payload={"task_name": f"template-{scheduled.template_id}", "target": f"{scheduled.target_type}:{scheduled.target_id}"},
+                        level="info",
+                    )
                 await self.task_runner.run_template_async(
                     template_id=scheduled.template_id,
                     target_type=scheduled.target_type,
@@ -43,6 +53,15 @@ class Scheduler:
                 self.db.scheduled.mark_ran(scheduled.id)
             except Exception as exc:
                 self.logger.error("Scheduler failed for task %s: %s", scheduled.id, exc)
+                if self.history:
+                    self.history.record(
+                        source="scheduler",
+                        event_type="scheduler_failed",
+                        title="Автозапуск по расписанию завершился с ошибкой",
+                        description=str(exc),
+                        payload={"task_name": f"template-{scheduled.template_id}"},
+                        level="error",
+                    )
 
         # Run all due tasks concurrently, but each marks itself ran after completion.
         if due_tasks:

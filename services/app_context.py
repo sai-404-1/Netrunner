@@ -123,17 +123,19 @@ def create_app_context(
     _load_user_modules_from_disk(module_registry)
     bootstrap_task_templates(db)
 
+    history = HistoryService(db)
+
     task_runner = TaskRunner(
         db=db,
         host_service=host_service,
         module_registry=module_registry,
         logger=logger,
+        history=history,
     )
-    scheduler = Scheduler(db=db, task_runner=task_runner, logger=logger)
+    scheduler = Scheduler(db=db, task_runner=task_runner, logger=logger, history=history)
     auth_service = AuthService(db=db)
     auth_service.create_default_user()
     report_service = ReportService(db=db, reports_dir=reports_dir)
-    history = HistoryService(db)
     scenario_runner = ScenarioRunner(
         db=db,
         host_service=host_service,

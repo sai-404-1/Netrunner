@@ -33,11 +33,12 @@ class TaskRunner:
     Per-host results are logged as soon as they arrive via the context logger.
     """
 
-    def __init__(self, db, host_service, module_registry, logger):
+    def __init__(self, db, host_service, module_registry, logger, history=None):
         self.db = db
         self.host_service = host_service
         self.module_registry = module_registry
         self.logger = logger
+        self.history = history
         self._running_tasks: dict[int, asyncio.Task] = {}
 
     def cancel(self, run_id: int | None = None) -> bool:
@@ -141,6 +142,20 @@ class TaskRunner:
             db=self.db,
         )
 
+        if self.history:
+            module_name = module_row.name or module_row.slug
+            self.history.record(
+                source="task",
+                event_type="task_run",
+                title=f"Запуск модуля {module_name}",
+                description=f"Цель: {target_type}:{target_id}, {len(targets)} хостов",
+                actor_name=created_by,
+                payload={"module_name": module_name, "target": f"{target_type}:{target_id}", "hosts_count": len(targets)},
+                ref_type="task_run",
+                ref_id=task_run.id,
+                level="info",
+            )
+
         current = asyncio.current_task()
         if current is not None:
             self._running_tasks[task_run.id] = current
@@ -208,6 +223,20 @@ class TaskRunner:
                 for r in per_host_results
             )
             final_status = "error" if (module_reported_error or any_host_error) else "success"
+
+            if self.history:
+                module_name = module_row.name or module_row.slug
+                self.history.record(
+                    source="task",
+                    event_type="task_done" if final_status == "success" else "task_failed",
+                    title=f"Задача «{module_name}» завершена: {final_status}",
+                    description=f"Цель: {target_type}:{target_id}, {len(targets)} хостов",
+                    actor_name=created_by,
+                    payload={"module_name": module_name, "target": f"{target_type}:{target_id}", "hosts_count": len(targets)},
+                    ref_type="task_run",
+                    ref_id=task_run.id,
+                    level="success" if final_status == "success" else "error",
+                )
 
             self.db.task_runs.finish(
                 run_id=task_run.id,

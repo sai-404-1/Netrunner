@@ -75,6 +75,16 @@ async def agent_websocket_handler(request: web.Request) -> web.WebSocketResponse
                 agent_svc.record_event(
                     host_id, msg_type, payload_json=json.dumps(data, ensure_ascii=False, default=str)
                 )
+                if hasattr(ctx, "history"):
+                    ctx.history.record(
+                        source="agent_message",
+                        event_type="agent_msg",
+                        title=f"Сообщение от агента: {msg_type}",
+                        description=json.dumps(data, ensure_ascii=False, default=str)[:4000],
+                        payload={"host_name": f"host-{host_id}", "message_type": msg_type},
+                        host_id=host_id,
+                        level="info",
+                    )
     finally:
         if host_id is not None:
             agent_svc.record_disconnect(host_id)
