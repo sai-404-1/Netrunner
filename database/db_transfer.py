@@ -56,6 +56,7 @@ TABLES: tuple[_Table, ...] = (
     _Table("board_hosts", fks={"board_id": "boards", "host_id": "hosts"}, is_link=True),
     _Table("user_group_access", fks={"user_id": "users", "group_id": "groups"}, is_link=True),
     _Table("user_module_access", fks={"user_id": "users", "module_id": "modules"}, is_link=True),
+    _Table("history_entries", fks={"host_id": "hosts"}),
 )
 
 ALL_TABLE_NAMES: tuple[str, ...] = tuple(t.name for t in TABLES)

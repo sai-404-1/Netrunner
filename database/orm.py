@@ -24,6 +24,7 @@ from .repos.trusted_device_repo import TrustedDeviceRepo
 from .repos.host_agent_repo import HostAgentRepo
 from .repos.host_event_repo import HostEventRepo
 from .repos.system_log_repo import SystemLogRepo
+from .repos.history_entry_repo import HistoryEntryRepo
 from .repos.scenario_repo import ScenarioRepo, ScenarioStepRepo, ScenarioRunRepo, ScenarioStepRunRepo
 
 
@@ -52,6 +53,7 @@ class Database:
         self.host_agents = HostAgentRepo(self.conn)
         self.host_events = HostEventRepo(self.conn)
         self.system_logs = SystemLogRepo(self.conn)
+        self.history_entries = HistoryEntryRepo(self.conn)
         self.scenarios = ScenarioRepo(self.conn)
         self.scenario_steps = ScenarioStepRepo(self.conn)
         self.scenario_runs = ScenarioRunRepo(self.conn)
@@ -80,6 +82,7 @@ class Database:
             'host_agents': self.host_agents,
             'host_events': self.host_events,
             'system_logs': self.system_logs,
+            'history_entries': self.history_entries,
         }
 
     def model(self, name: str):

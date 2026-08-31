@@ -410,6 +410,30 @@ CREATE TABLE IF NOT EXISTS system_logs (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_system_logs_created ON system_logs (created_at);
+
+-- Единая лента «История»: общий журнал сервисных событий NetRunner. Сюда пишут
+-- все сервисы (сценарии, TaskRunner, агент, планировщик) через HistoryService.
+-- НЕ путать с system_logs (программные логи кода) или task_runs/scenario_runs
+-- (рабочие таблицы исполнения). source — slug зарегистрированного сервиса
+-- (scenario/task/agent/agent_message/scheduler), payload_json — специфичные поля,
+-- которые сервис сам решил записать (колонки из его реестра).
+CREATE TABLE IF NOT EXISTS history_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    actor_name TEXT,
+    actor_id INTEGER,
+    title TEXT NOT NULL,
+    description TEXT,
+    level TEXT NOT NULL DEFAULT 'info',
+    payload_json TEXT,
+    ref_type TEXT,
+    ref_id INTEGER,
+    host_id INTEGER REFERENCES hosts(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_history_entries_created ON history_entries (created_at);
+CREATE INDEX IF NOT EXISTS idx_history_entries_source ON history_entries (source);
 """)
 
 
