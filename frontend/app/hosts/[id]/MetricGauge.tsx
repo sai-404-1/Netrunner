@@ -28,7 +28,7 @@ export function MetricGauge({
   const value = percent ?? null;
 
   return (
-    <div className="rounded-[14px] border border-gray-200 dark:border-gray-700 p-4 bg-white/60 dark:bg-gray-800/60">
+    <div className="rounded-[14px] border border-gray-200 dark:border-gray-700 p-3 bg-white/60 dark:bg-gray-800/60">
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-sm font-semibold text-gray-600 dark:text-gray-300">{title}</span>
         {subtitle && (
@@ -37,7 +37,7 @@ export function MetricGauge({
           </span>
         )}
       </div>
-      <div className={`text-4xl font-bold tabular-nums leading-tight ${colors.text}`}>
+      <div className={`text-2xl font-bold tabular-nums leading-tight ${colors.text}`}>
         {value === null ? "—" : `${value}%`}
       </div>
       <div className="text-xs text-gray-500 h-4">{detail || ""}</div>
@@ -50,13 +50,13 @@ export function MetricGauge({
  *  можно было сравнивать глазами между собой. */
 function Sparkline({ values, stroke, fill }: { values: number[]; stroke: string; fill: string }) {
   const width = 200;
-  const height = 44;
+  const height = 32;
   const capacity = 30;
 
   const points = values.slice(-capacity);
   if (points.length < 2) {
     return (
-      <div className="h-[44px] flex items-center text-xs text-gray-400">
+      <div className="h-[32px] flex items-center text-xs text-gray-400">
         накапливаем замеры…
       </div>
     );
@@ -72,7 +72,7 @@ function Sparkline({ values, stroke, fill }: { values: number[]; stroke: string;
   });
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-[44px] mt-1" preserveAspectRatio="none">
+    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-[32px] mt-1" preserveAspectRatio="none">
       <polygon
         points={`${offset},${height} ${coords.join(" ")} ${width},${height}`}
         fill={fill}

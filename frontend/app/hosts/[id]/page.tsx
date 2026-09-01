@@ -269,24 +269,6 @@ export default function HostProfilePage() {
         <button className="btn-secondary p-2.5 mt-1" onClick={() => navigate("/hosts")} title="К списку хостов">
           <ArrowLeft size={18} />
         </button>
-        <div className="min-w-0 flex-1">
-          <input
-            className="w-full bg-transparent text-3xl font-bold outline-none border-b-2 border-transparent focus:border-blue-500 transition-colors"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            disabled={!perms.edit}
-            title={perms.edit ? "Нажмите, чтобы переименовать" : "Переименование недоступно для вашей роли"}
-          />
-          <p className="text-gray-500 mt-1">
-            {host.username}@{host.address}:{host.port}
-            {host.group_name ? ` · ${host.group_name}` : ""}
-          </p>
-        </div>
-        <span
-          className={`badge shrink-0 mt-2 ${host.is_active ? "badge-success" : "badge-error"}`}
-        >
-          {host.is_active ? "В сети" : "Недоступен"}
-        </span>
       </div>
 
       <div className="grid lg:grid-cols-2 gap-6 items-start">
@@ -295,16 +277,51 @@ export default function HostProfilePage() {
           <div className="panel space-y-4">
             <div className="flex items-center gap-3">
               <Monitor size={40} className="text-blue-500 shrink-0" />
-              <div className="flex flex-wrap gap-2">
-                {perms.terminal && (
-                  <button className="btn" onClick={() => navigate(`/terminal?host=${host.id}`)}>
-                    <TerminalSquare size={16} /> Открыть терминал
-                  </button>
-                )}
-                <button className="btn-secondary" onClick={check} disabled={checking}>
-                  <RefreshCw size={16} className={checking ? "animate-spin" : ""} /> Проверить
-                </button>
+              <div className="min-w-0 flex-1">
+                <div className="flex">
+                <input
+                  className="w-full bg-transparent text-2xl font-bold outline-none border-b-2 border-transparent focus:border-blue-500 transition-colors"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  disabled={!perms.edit}
+                  title={perms.edit ? "Нажмите, чтобы переименовать" : "Переименование недоступно для вашей роли"}
+                />
+                <span
+                  className={`badge shrink-0 mt-2 ${host.is_active ? "badge-success" : "badge-error"}`}
+                >
+                  {host.is_active ? "В сети" : "Недоступен"}
+                </span>
+                </div>
+                <p className="text-gray-500 mt-1">
+                  {host.username}@{host.address}:{host.port}
+                  {host.group_name ? ` · ${host.group_name}` : ""}
+                </p>
               </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {perms.terminal && (
+                <button className="btn" onClick={() => navigate(`/terminal?host=${host.id}`)}>
+                  <TerminalSquare size={16} /> Открыть терминал
+                </button>
+              )}
+              {perms.power && (
+                <>
+                  <button
+                    className="inline-flex items-center justify-center rounded-[10px] px-3 py-3 text-white bg-amber-500 hover:bg-amber-600 transition-colors"
+                    onClick={() => setPending({ kind: "reboot" })}
+                    title="Перезагрузить"
+                  >
+                    <RotateCcw size={16} />
+                  </button>
+                  <button
+                    className="btn-danger justify-center rounded-[10px] px-3 py-3"
+                    onClick={() => setPending({ kind: "poweroff" })}
+                    title="Выключить"
+                  >
+                    <Power size={16} />
+                  </button>
+                </>
+              )}
             </div>
 
             {/* Строка 3 — описание с inline-редактированием */}
@@ -321,20 +338,13 @@ export default function HostProfilePage() {
             </label>
 
             {/* Действия, отфильтрованные по уровню доступа роли */}
-            <div className="flex flex-wrap gap-2 pt-3 border-t dark:border-gray-700">
-              {perms.power && (
-                <>
-                  <button className="btn-secondary" onClick={() => setPending({ kind: "reboot" })}>
-                    <RotateCcw size={16} /> Перезагрузить
-                  </button>
-                  <button className="btn-secondary" onClick={() => setPending({ kind: "poweroff" })}>
-                    <Power size={16} /> Выключить
-                  </button>
-                </>
-              )}
+            <div className="flex flex-wrap gap-2 pt-3 dark:border-gray-700">
+              <button className="btn-secondary" onClick={check} disabled={checking}>
+                <RefreshCw size={16} className={checking ? "animate-spin" : ""} /> Пинг
+              </button>
               {perms.reprovision && (
                 <button className="btn-secondary" onClick={reprovision}>
-                  <KeyRound size={16} /> Перепривязать ключ
+                  <KeyRound size={16} /> Обновить ключ
                 </button>
               )}
               {perms.delete && (
@@ -346,42 +356,6 @@ export default function HostProfilePage() {
             {!perms.power && !perms.delete && (
               <p className="text-xs text-gray-500">
                 Управляющие действия скрыты: ваша роль их не позволяет.
-              </p>
-            )}
-          </div>
-
-          {/* Паспорт машины: последняя инвентаризация + агент */}
-          <div className="panel">
-            <h3 className="font-semibold mb-3 flex items-center gap-2">
-              <HardDrive size={16} /> Паспорт машины
-            </h3>
-            {inventory ? (
-              <dl className="grid sm:grid-cols-2 gap-x-4 gap-y-3 text-sm">
-                <Field label="ОС" value={inventory.os_name} />
-                <Field label="Ядро" value={inventory.kernel} />
-                <Field label="Процессор" value={inventory.cpu_model} />
-                <Field label="Память" value={gb(inventory.ram_mb)} />
-                <Field
-                  label="Диски"
-                  value={
-                    inventory.disks_total_gb != null
-                      ? `${inventory.disks_free_gb ?? "?"} / ${inventory.disks_total_gb} ГБ свободно`
-                      : null
-                  }
-                />
-                <Field label="Пакетов" value={inventory.package_count?.toString()} />
-                <Field label="Снято" value={formatDate(inventory.collected_at)} />
-                <Field label="SSH-ключ" value={host.ssh_key_name} />
-              </dl>
-            ) : (
-              <p className="text-sm text-gray-500">
-                Инвентаризация ещё не собиралась — запустите модуль «Сбор инвентаризации» ниже.
-              </p>
-            )}
-            {host.agent && (
-              <p className="text-xs text-gray-500 mt-3 pt-3 border-t dark:border-gray-700">
-                Агент: {host.agent.status}
-                {host.agent.last_seen_at ? ` · был на связи ${formatDate(host.agent.last_seen_at)}` : ""}
               </p>
             )}
           </div>
@@ -460,13 +434,51 @@ export default function HostProfilePage() {
         </div>
       </div>
 
-      {/* Запуск модулей в контексте этой машины */}
-      {perms.run_modules && (
-        <div className="panel">
-          <h3 className="font-semibold mb-3">Запуск на этой машине</h3>
-          <HostRunPanel hostId={host.id} modules={profile?.modules || []} />
-        </div>
-      )}
+      {/* Паспорт машины и запуск модулей — в строку (не колонку) */}
+          <div className="grid lg:grid-cols-2 gap-6">
+            <div className="panel">
+              <h3 className="font-semibold mb-3 flex items-center gap-2">
+                <HardDrive size={16} /> Паспорт машины
+              </h3>
+              {inventory ? (
+                <dl className="grid sm:grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                  <Field label="ОС" value={inventory.os_name} />
+                  <Field label="Ядро" value={inventory.kernel} />
+                  <Field label="Процессор" value={inventory.cpu_model} />
+                  <Field label="Память" value={gb(inventory.ram_mb)} />
+                  <Field
+                    label="Диски"
+                    value={
+                      inventory.disks_total_gb != null
+                        ? `${inventory.disks_free_gb ?? "?"} / ${inventory.disks_total_gb} ГБ свободно`
+                        : null
+                    }
+                  />
+                  <Field label="Пакетов" value={inventory.package_count?.toString()} />
+                  <Field label="Снято" value={formatDate(inventory.collected_at)} />
+                  <Field label="SSH-ключ" value={host.ssh_key_name} />
+                </dl>
+              ) : (
+                <p className="text-sm text-gray-500">
+                  Инвентаризация ещё не собиралась — запустите модуль «Сбор инвентаризации» ниже.
+                </p>
+              )}
+              {host.agent && (
+                <p className="text-xs text-gray-500 mt-3 pt-3 border-t dark:border-gray-700">
+                  Агент: {host.agent.status}
+                  {host.agent.last_seen_at ? ` · был на связи ${formatDate(host.agent.last_seen_at)}` : ""}
+                </p>
+              )}
+            </div>
+
+            {/* Запуск модулей в контексте этой машины — на одном уровне с паспортом */}
+            {perms.run_modules && (
+              <div className="panel">
+                <h3 className="font-semibold mb-3">Запуск на этой машине</h3>
+                <HostRunPanel hostId={host.id} modules={profile?.modules || []} />
+              </div>
+            )}
+          </div>
 
       {/* Логирование системы: таймлайн событий хоста */}
       <div className="panel">
