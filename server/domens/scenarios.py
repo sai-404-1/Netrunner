@@ -34,6 +34,32 @@ def _apply_scenario_steps(db, scenario_id: int, steps_data: list, now: str) -> N
             created_at=now,
         )
 
+def _host_names(db) -> dict:
+    return {h.id: h.name for h in db.hosts.all()}
+
+
+def _step_runs_with_hosts(db, step_runs: list, names: dict | None = None) -> list:
+    """step_run + имя хоста: в интерфейсе вывод разложен по вкладкам компьютеров,
+    голый host_id там читать нечем."""
+    names = names if names is not None else _host_names(db)
+    result = []
+    for sr in step_runs:
+        item = model_to_dict(sr)
+        item["host_name"] = names.get(sr.host_id, f"#{sr.host_id}")
+        result.append(item)
+    return result
+
+
+def _run_hosts(ctx, run) -> list:
+    """Хосты, на которых идёт запуск — нужны фронту, чтобы отрисовать вкладки
+    сразу, ещё до появления первых step_run."""
+    try:
+        targets = ctx.host_service.resolve_targets(run.target_type, run.target_id)
+    except Exception:  # noqa: BLE001
+        return []
+    return [{"id": h.id, "name": h.name} for h in targets]
+
+
 async def api_scenarios_list(request: web.Request) -> web.Response:
     db = _ctx(request).db
     scenarios = []
@@ -51,13 +77,13 @@ async def api_scenarios_runs(request: web.Request) -> web.Response:
     runs = db.scenario_runs.all(order_by="id DESC")
     query = request.query
     limit = _safe_int(query.get("limit", 50), 50)
+    names = _host_names(db)
     result = []
     for r in runs[:limit]:
         item = model_to_dict(r)
         sc = db.scenarios.get(r.scenario_id)
         item["scenario_name"] = sc.name if sc else f"#{r.scenario_id}"
-        step_runs = db.scenario_step_runs.by_run(r.id)
-        item["step_runs"] = step_runs
+        item["step_runs"] = _step_runs_with_hosts(db, db.scenario_step_runs.by_run(r.id), names)
         result.append(item)
     return _ok(result)
 
@@ -129,20 +155,22 @@ async def api_scenarios_run(request: web.Request) -> web.Response:
     run_ids = [r.id for r in runs]
 
     async def _bg() -> None:
-        # Выполняем сценарии строго по очереди (каждый ждёт завершения предыдущего).
-        for sid, run in zip(scenario_ids, runs):
-            try:
-                await ctx.scenario_runner.run_scenario_async(
-                    scenario_id=sid,
-                    target_type=target_type,
-                    target_id=target_id,
-                    trigger_type="manual",
-                    scenario_run_id=run.id,
-                )
-            except Exception:  # noqa: BLE001
-                logger.exception("Ошибка при выполнении сценария %s", run.id)
+        # Очередь сценариев отдаётся раннеру целиком: он ведёт её пер-хост, так
+        # что каждый компьютер идёт по своей очереди независимо от соседей.
+        try:
+            await ctx.scenario_runner.run_scenarios_async(
+                scenario_ids=scenario_ids,
+                target_type=target_type,
+                target_id=target_id,
+                trigger_type="manual",
+                scenario_run_ids=run_ids,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Ошибка при выполнении сценариев %s", run_ids)
+            for run in runs:
                 try:
-                    ctx.db.scenario_runs.finish(run.id, status="failed")
+                    if ctx.db.scenario_runs.get(run.id).status == "running":
+                        ctx.db.scenario_runs.finish(run.id, status="failed")
                 except Exception:  # noqa: BLE001
                     logger.error("Не удалось пометить run %s как failed", run.id)
 
@@ -160,7 +188,8 @@ async def api_scenarios_run_status(request: web.Request) -> web.Response:
     item = model_to_dict(run)
     sc = ctx.db.scenarios.get(run.scenario_id)
     item["scenario_name"] = sc.name if sc else f"#{run.scenario_id}"
-    item["step_runs"] = ctx.db.scenario_step_runs.by_run(run_id)
+    item["step_runs"] = _step_runs_with_hosts(ctx.db, ctx.db.scenario_step_runs.by_run(run_id))
+    item["hosts"] = _run_hosts(ctx, run)
     return _ok(item)
 
 

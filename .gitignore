@@ -59,3 +59,4 @@ docker-compose.override.yml
 
 # GigaChat (gigacode) agent metadata
 .gigacode/
+offline-packages/
