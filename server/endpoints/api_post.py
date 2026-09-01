@@ -11,6 +11,7 @@ from server.domens.scheduled import api_schedule_create, api_active_scheduled, a
 from server.domens.ssh import api_ssh_keys_create, api_keys_generate
 from server.domens.tasks import api_run, api_run_cancel, api_task_runs_clear
 from server.domens.uploads import api_uploads_list, api_uploads_create, api_uploads_download, api_uploads_delete
+from server.domens.default_creds import api_default_creds_update
 
 
 def add_routes(app: web.Application):
@@ -60,5 +61,6 @@ def add_routes(app: web.Application):
     app.router.add_post("/api/task-runs/clear", api_task_runs_clear)
     app.router.add_post("/api/ssh-keys", api_ssh_keys_create)
     app.router.add_post("/api/keys/generate", api_keys_generate)
+    app.router.add_post("/api/default-creds/update", api_default_creds_update)
 
     return app

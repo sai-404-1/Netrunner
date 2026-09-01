@@ -11,6 +11,7 @@ from server.domens.scheduled import api_scheduled
 from server.domens.reports import api_reports
 from server.domens.system import api_system_logs
 from server.domens.ssh import api_ssh_keys
+from server.domens.default_creds import api_default_creds_get
 
 
 def add_routes(app: web.Application):
@@ -29,5 +30,6 @@ def add_routes(app: web.Application):
     app.router.add_get("/api/reports", api_reports)
     app.router.add_get("/api/system-logs", api_system_logs)
     app.router.add_get("/api/ssh-keys", api_ssh_keys)
+    app.router.add_get("/api/default-creds", api_default_creds_get)
 
     return app

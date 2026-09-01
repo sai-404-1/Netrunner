@@ -2,7 +2,7 @@ from aiohttp import web
 from server.tools import _ctx, _ok, model_to_dict, _read_json, _safe_int, _error
 from services.agent_service import _auto_install_agent
 from services.host_service import _provision_ssh_key, _run_background
-from services.secrets import encrypt_secret
+from services.secrets import encrypt_secret, decrypt_secret
 
 
 async def api_hosts(request: web.Request) -> web.Response:
@@ -39,6 +39,20 @@ async def api_hosts_create(request: web.Request) -> web.Response:
     address = str(payload.get("address") or "").strip()
     port = _safe_int(payload.get("port"), 22)
     password = str(payload.get("password") or "").strip() or None
+
+    # Автозаполнение стандартных кредов (таблица host_default_credentials):
+    # если пользователь НЕ ввёл свой username/пароль (поле не изменялось —
+    # пришло пустым), сервер подставляет стандартные креды. Если же ввёл —
+    # применяем то, что ввёл пользователь.
+    defaults = ctx.db.host_default_cred.get_default() if hasattr(ctx.db, "host_default_cred") else None
+    if not username and defaults is not None and defaults.username:
+        username = defaults.username
+    if not password and defaults is not None and defaults.password_encrypted:
+        try:
+            password = decrypt_secret(defaults.password_encrypted)
+        except Exception:
+            password = None
+
     if password:
         await _provision_ssh_key(ctx, username, address, port, password, ssh_key_id)
     host = ctx.host_service.add_host(

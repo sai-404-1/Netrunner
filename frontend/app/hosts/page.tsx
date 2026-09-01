@@ -74,6 +74,14 @@ export default function HostsPage() {
     return [...rows].sort((a, b) => Number(b.is_active) - Number(a.is_active));
   }, [hosts, groups, search, groupFilter]);
 
+  // Название выбранной группы для чипа-фильтра (null — фильтр не активен).
+  const selectedGroupName = useMemo(() => {
+    if (!groupFilter) return null;
+    if (groupFilter === "none") return "Без группы";
+    const g = groups.find((gr) => String(gr.id) === groupFilter);
+    return g ? g.name : null;
+  }, [groupFilter, groups]);
+
   const allSelected = filteredHosts.length > 0 && filteredHosts.every((h) => selectedIds.has(h.id));
   const someSelected = selectedIds.size > 0;
 
@@ -323,6 +331,16 @@ export default function HostsPage() {
     }
   }
 
+  // Выбор группы в табе «Группы» → применять фильтр по ней и уходить на «Хосты».
+  function selectGroup(groupId: string) {
+    setGroupFilter(groupId);
+    // переключение на таб «Хосты» делает HostList через колбэк onListTab
+  }
+
+  function clearGroupFilter() {
+    setGroupFilter("");
+  }
+
   return (
     <div className="space-y-6">
       <HostList
@@ -332,11 +350,14 @@ export default function HostsPage() {
         groups={groups}
         search={search}
         groupFilter={groupFilter}
+        selectedGroupName={selectedGroupName}
         checkingAll={checkingAll}
         selectionMode={selectionMode}
         selectedIds={selectedIds}
         onSearch={setSearch}
         onGroupFilter={setGroupFilter}
+        onSelectGroup={selectGroup}
+        onClearGroupFilter={clearGroupFilter}
         onCheckAll={checkAll}
         onToggleSelectionMode={toggleSelectionMode}
         onToggleSelect={toggleSelect}

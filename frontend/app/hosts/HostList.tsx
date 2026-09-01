@@ -9,7 +9,7 @@ import {
   List,
   LayoutGrid,
   Pencil,
-  Trash2, LucideMonitorX,
+  Trash2, X, LucideMonitorX,
 } from "lucide-react";
 import {DataTable} from "@/components/DataTable";
 import {HostBoardView} from "@/components/HostBoardView";
@@ -22,11 +22,14 @@ interface Props {
   groups: Group[];
   search: string;
   groupFilter: string;
+  selectedGroupName: string | null;
   checkingAll: boolean;
   selectionMode: boolean;
   selectedIds: Set<number>;
   onSearch: (s: string) => void;
   onGroupFilter: (s: string) => void;
+  onSelectGroup: (id: string) => void;
+  onClearGroupFilter: () => void;
   onCheckAll: () => void;
   onToggleSelectionMode: () => void;
   onToggleSelect: (id: number) => void;
@@ -46,11 +49,14 @@ export function HostList({
                            groups,
                            search,
                            groupFilter,
+                           selectedGroupName,
                            checkingAll,
                            selectionMode,
                            selectedIds,
                            onSearch,
                            onGroupFilter,
+                           onSelectGroup,
+                           onClearGroupFilter,
                            onCheckAll,
                            onToggleSelectionMode,
                            onToggleSelect,
@@ -96,52 +102,65 @@ export function HostList({
 
       {viewMode === "list" && (
         <>
-          <div className="panel">
+          {/* Вкладки + поиск + добавление — в одном ряду (как на странице истории):
+              слева вкладки, по центру поиск, справа кнопка добавления */}
+          <div className="flex items-center gap-4 border-gray-200 dark:border-gray-700">
+            <div className="flex items-center gap-1 shrink-0 -mb-2">
+              <button
+                onClick={() => setListTab("hosts")}
+                className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${
+                  listTab === "hosts" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                Хосты
+              </button>
+              <button
+                onClick={() => setListTab("groups")}
+                className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${
+                  listTab === "groups" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                Группы
+              </button>
+            </div>
 
-            {/* Панель действий: выбор, поиск, фильтр, проверка — строкой */}
-            <div className="flex flex-wrap items-center gap-3 mb-4">
-              {/* Вкладки: Хосты / Группы */}
-              <div className="flex justify-between panel p-1.5 items-center gap-1 border-gray-200 dark:border-gray-700">
-                <button
-                  onClick={() => setListTab("hosts")}
-                  className={`px-2 py-1 btn-secondary text-sm font-semibold border-b-1 -mb-px transition-colors ${
-                    listTab === "hosts" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
-                  }`}
+            <div className="flex-1 flex justify-center gap-3">
+              {/* Чип выбранной группы — как у выбора сценария: с крестиком для снятия */}
+              {selectedGroupName && (
+                <span
+                  className="inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1.5 rounded-full bg-blue-100 dark:bg-blue-950/50 text-sm font-medium text-blue-700 dark:text-blue-300 cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors"
+                  onClick={onClearGroupFilter}
+                  title="Убрать фильтр по группе"
                 >
-                  Хосты
-                </button>
-                <button
-                  onClick={() => setListTab("groups")}
-                  className={`px-2 py-1 btn-secondary text-sm font-semibold border-b-1 -mb-px transition-colors ${
-                    listTab === "groups" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
-                  }`}
-                >
-                  Группы
-                </button>
+                  {selectedGroupName}
+                  <button type="button" className="p-0.5 rounded-full hover:bg-blue-200 dark:hover:bg-blue-800" aria-label="Убрать фильтр">
+                    <X size={14}/>
+                  </button>
+                </span>
+              )}
+              <div className="relative w-72">
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
+                <input className="input pl-9" placeholder="Поиск по имени" value={search}
+                       onChange={(e) => onSearch(e.target.value)}/>
               </div>
-
-              {/*<button className={selectionMode ? "btn" : "btn-secondary"} onClick={onToggleSelectionMode}>*/}
-              {/*  <CheckSquare size={16}/>*/}
-              {/*</button>*/}
-              <div className="flex flex-row gap-3 ml-auto mr-auto ">
-                <div className="relative">
-                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
-                  <input className="input pl-9" placeholder="Поиск по имени" value={search}
-                         onChange={(e) => onSearch(e.target.value)}/>
-                </div>
+              {/* Панель действий: проверка всех */}
+              <div className="flex items-center justify-end">
                 <button className="btn-secondary p-3" onClick={onCheckAll} disabled={checkingAll}>
                   <RefreshCw size={16} className={checkingAll ? "animate-spin" : ""}/>
                 </button>
               </div>
-              <button
-                type="button"
-                className="btn"
-                onClick={onAddHost}
-              >
-                <PlusIcon size={16}/>Добавить хост
-              </button>
             </div>
 
+            <button
+              type="button"
+              className="btn shrink-0"
+              onClick={onAddHost}
+            >
+              <PlusIcon size={16}/>Добавить хост
+            </button>
+          </div>
+
+          <div className="panel">
             {listTab === "hosts" && (
               <>
                 {/* Сетка хостов: 1 колонка на телефоне, 2-3 на широких экранах.
@@ -212,24 +231,11 @@ export function HostList({
                           }`
                           : "border-2 border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700"
                       }`}
-                      onClick={(e) => {
-                        // if (selectionMode) {
-                        //   onToggleSelect(h.id)
-                        // } else {
-                        //   e.stopPropagation();
-                        //   onInfoHost(h);
-                        // }
-                        if (groupFilter === "none") {
-                          hosts = hosts.filter((h) => !h.group_id);              // спец-значение "none" = без группы
-                        } else if (groupFilter) {                              // выбрана конкретная группа
-                          const group = groups.find((g) => String(g.id) === groupFilter);
-                          if (group) {
-                            const ids = group.hosts.map((h) => (typeof h === "number" ? h : h.id));
-                            hosts = hosts.filter((h) => ids.includes(h.id));
-                          }
-                        }
-                        onHosts(hosts)
-                        setListTab("hosts")
+                      onClick={() => {
+                        // Выбор группы: применяем фильтр по ней и переключаемся
+                        // на таб «Хосты» (фильтрацию делает родитель через groupFilter).
+                        onSelectGroup(String(g.id));
+                        setListTab("hosts");
                       }}
                       title="Информация"
                     >
