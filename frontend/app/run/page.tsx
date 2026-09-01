@@ -7,6 +7,7 @@ import { useToast } from "@/components/Toast";
 import { OutputModal } from "@/components/Modal";
 import { FileManager } from "@/components/FileManager";
 import { X, Maximize2, Loader2 } from "lucide-react";
+import { Placeholder, parsePlaceholders } from "@/lib/module-schema";
 
 export default function RunPage() {
   return (
@@ -41,37 +42,6 @@ interface TaskRun {
   stderr_text?: string;
   per_host_json?: string;
   progress?: { done: number; total: number };
-}
-
-interface SelectOption {
-  value: string;
-  label: string;
-}
-
-interface Placeholder {
-  name: string;
-  label: string;
-  default: string;
-  type: string;
-  options: SelectOption[];
-}
-
-function parsePlaceholders(schema_json?: string): Placeholder[] {
-  if (!schema_json) return [];
-  try {
-    const schema = JSON.parse(schema_json);
-    return (schema.placeholders || []).map(([name, label, def, type, options]: any) => ({
-      name,
-      label,
-      default: String(def ?? ""),
-      type: type || "text",
-      options: (options || []).map((o: any) =>
-        Array.isArray(o) ? { value: String(o[0]), label: String(o[1]) } : { value: String(o), label: String(o) }
-      ),
-    }));
-  } catch {
-    return [];
-  }
 }
 
 function RunForm() {

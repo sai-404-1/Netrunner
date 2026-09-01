@@ -101,8 +101,10 @@ def _default_agent_ws_url() -> str:
     import socket
     try:
         ip = socket.gethostbyname(socket.gethostname())
+        logger.debug(f"Был применён IP для вебсокета: {ip}")
     except (socket.gaierror, OSError):
         ip = "127.0.0.1"
+        logger.debug(f"Ошибка определения имени хоста (IP) для вебсокета: {ip}")
     return f"ws://{ip}:3001/api/python/agent/ws"
 
 

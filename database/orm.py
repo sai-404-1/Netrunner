@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from .connection import connect
+from .repos import HostDefaultCredRepo
 from .schema import create_schema
 from .repos.host_repo import HostRepo
 from .repos.ssh_key_repo import SSHKeyRepo
@@ -58,6 +59,7 @@ class Database:
         self.scenario_steps = ScenarioStepRepo(self.conn)
         self.scenario_runs = ScenarioRunRepo(self.conn)
         self.scenario_step_runs = ScenarioStepRunRepo(self.conn)
+        self.host_default_cred = HostDefaultCredRepo(self.conn)
 
         self._model_map = {
             'ssh_keys': self.ssh_keys,
@@ -83,6 +85,7 @@ class Database:
             'host_events': self.host_events,
             'system_logs': self.system_logs,
             'history_entries': self.history_entries,
+            'host_default_credentials': self.host_default_cred,
         }
 
     def model(self, name: str):

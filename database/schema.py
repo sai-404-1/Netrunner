@@ -434,8 +434,14 @@ CREATE TABLE IF NOT EXISTS history_entries (
 );
 CREATE INDEX IF NOT EXISTS idx_history_entries_created ON history_entries (created_at);
 CREATE INDEX IF NOT EXISTS idx_history_entries_source ON history_entries (source);
-""")
 
+CREATE TABLE IF NOT EXISTS host_default_credentials (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL,
+    password_encrypted TEXT NOT NULL,
+    last_updated_at TEXT NOT NULL
+);
+""")
 
 def create_schema(conn) -> None:
     conn.executescript(SCHEMA_SQL)

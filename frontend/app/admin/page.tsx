@@ -94,6 +94,8 @@ export default function AdminPage() {
   const [dbTables, setDbTables] = useState<DbTable[]>([]);
   const [selectedTables, setSelectedTables] = useState<Set<string>>(new Set());
   const [restoreMode, setRestoreMode] = useState<RestoreMode>("classic");
+  const [defaultCreds, setDefaultCreds] = useState<{ username: string; has_password: boolean }>({ username: "", has_password: false });
+  const [credsSaving, setCredsSaving] = useState(false);
 
   useEffect(() => {
     if (user && !user.is_superuser) {
@@ -113,6 +115,42 @@ export default function AdminPage() {
   useEffect(() => {
     loadUsers();
   }, [loadUsers]);
+
+  const loadDefaultCreds = useCallback(async () => {
+    try {
+      const data = await apiGetClient("/api/default-creds");
+      setDefaultCreds(data || { username: "", has_password: false });
+    } catch (err: any) {
+      setDefaultCreds({ username: "", has_password: false });
+    }
+  }, []);
+
+  useEffect(() => {
+    loadDefaultCreds();
+  }, [loadDefaultCreds]);
+
+  async function saveDefaultCreds(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const fd = new FormData(form);
+    const username = String(fd.get("default_username") || "").trim();
+    const password = String(fd.get("default_password") || "");
+    setCredsSaving(true);
+    try {
+      const body: Record<string, string> = {};
+      // Всегда отправляем username (актуальный), пароль — только если введён.
+      body.username = username;
+      if (password) body.password = password;
+      const res = await apiPostClient("/api/default-creds/update", body);
+      setDefaultCreds({ username: res?.username ?? username, has_password: res?.has_password ?? false });
+      showToast("Стандартные креды сохранены");
+      form.reset();
+    } catch (err: any) {
+      showToast(err.message, "error");
+    } finally {
+      setCredsSaving(false);
+    }
+  }
 
   async function onCreateUser(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -425,121 +463,155 @@ export default function AdminPage() {
       </div>
 
       <div className="grid md:grid-cols-2 gap-6 items-start">
-      <div className="panel">
-        <h3 className="font-semibold mb-1">Резервное копирование</h3>
-        <p className="text-sm text-gray-500 mb-4">
-          Полный бэкап создаётся через SQLite Online Backup API — безопасно на живой
-          базе. Частичный бэкап содержит полную схему, но только выбранные таблицы.
-        </p>
+        <div className="grid gap-6">
+          <div className="panel">
+            <h3 className="font-semibold mb-1">Резервное копирование</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              Полный бэкап создаётся через SQLite Online Backup API — безопасно на живой
+              базе. Частичный бэкап содержит полную схему, но только выбранные таблицы.
+            </p>
 
-        <div className="flex gap-4 mb-3">
-          <label className="flex items-center gap-2 text-sm cursor-pointer">
-            <input
-              type="radio"
-              name="backupMode"
-              className="accent-blue-600"
-              checked={backupMode === "full"}
-              onChange={() => chooseBackupMode("full")}
-            />
-            Полный бэкап
-          </label>
-          <label className="flex items-center gap-2 text-sm cursor-pointer">
-            <input
-              type="radio"
-              name="backupMode"
-              className="accent-blue-600"
-              checked={backupMode === "tables"}
-              onChange={() => chooseBackupMode("tables")}
-            />
-            Выбранные таблицы
-          </label>
-        </div>
-
-        {backupMode === "tables" && (
-          <div className="mb-4 border border-gray-200 rounded-[10px] p-3 max-h-[40vh] overflow-y-auto">
-            {dbTables.length === 0 ? (
-              <p className="text-sm text-gray-500">Загрузка таблиц…</p>
-            ) : (
-              <div className="grid sm:grid-cols-2 gap-2">
-                {dbTables.map((t) => (
-                  <label
-                    key={t.table}
-                    className="flex items-center gap-2 text-sm cursor-pointer p-1.5 rounded hover:bg-gray-50"
-                  >
-                    <input
-                      type="checkbox"
-                      className="w-4 h-4 accent-blue-600"
-                      checked={selectedTables.has(t.table)}
-                      onChange={() => toggleTable(t.table)}
-                    />
-                    <span className="flex-1">{TABLE_LABELS[t.table] || t.table}</span>
-                    <span className="text-xs text-gray-400">{t.rows}</span>
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        <div>
-          <button className="btn flex items-center gap-2" onClick={downloadBackup}>
-            <Download size={16} />
-            Скачать бэкап
-          </button>
-        </div>
-      </div>
-      <div className="panel">
-        <h3 className="font-semibold mb-1">Восстановление</h3>
-        <p className="text-sm text-gray-500 mb-3">
-          После восстановления сервер автоматически перезапустится. Перед операцией
-          сохраняется копия текущей базы (<code>.pre_restore</code>).
-        </p>
-
-        <div className="space-y-2 mb-3 max-w-2xl">
-          {(Object.keys(RESTORE_MODE_INFO) as RestoreMode[]).map((mode) => {
-            const info = RESTORE_MODE_INFO[mode];
-            return (
-              <label
-                key={mode}
-                className={`flex items-start gap-3 p-3 rounded-[10px] border cursor-pointer ${
-                  restoreMode === mode ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:bg-gray-50"
-                }`}
-              >
+            <div className="flex gap-4 mb-3">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <input
                   type="radio"
-                  name="restoreMode"
-                  className="accent-blue-600 mt-0.5"
-                  checked={restoreMode === mode}
-                  onChange={() => setRestoreMode(mode)}
+                  name="backupMode"
+                  className="accent-blue-600"
+                  checked={backupMode === "full"}
+                  onChange={() => chooseBackupMode("full")}
                 />
-                <span className="flex-1">
-                  <span className="text-sm font-medium flex items-center gap-2">
-                    {info.label}
-                    {info.danger && <span className="badge badge-error text-xs">деструктивно</span>}
-                  </span>
-                  <span className="block text-xs text-gray-500 mt-0.5">{info.desc}</span>
-                </span>
+                Полный бэкап
               </label>
-            );
-          })}
-        </div>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="radio"
+                  name="backupMode"
+                  className="accent-blue-600"
+                  checked={backupMode === "tables"}
+                  onChange={() => chooseBackupMode("tables")}
+                />
+                Выбранные таблицы
+              </label>
+            </div>
 
-        <button
-          className="btn-secondary flex items-center gap-2"
-          onClick={() => restoreInputRef.current?.click()}
-          disabled={restoring}
-        >
-          <Upload size={16} />
-          {restoring ? "Восстановление…" : "Выбрать файл и восстановить"}
-        </button>
-        <input
-          ref={restoreInputRef}
-          type="file"
-          accept=".db"
-          className="hidden"
-          onChange={uploadRestore}
-        />
+            {backupMode === "tables" && (
+              <div className="mb-4 border border-gray-200 rounded-[10px] p-3 max-h-[40vh] overflow-y-auto">
+                {dbTables.length === 0 ? (
+                  <p className="text-sm text-gray-500">Загрузка таблиц…</p>
+                ) : (
+                  <div className="grid sm:grid-cols-2 gap-2">
+                    {dbTables.map((t) => (
+                      <label
+                        key={t.table}
+                        className="flex items-center gap-2 text-sm cursor-pointer p-1.5 rounded hover:bg-gray-50"
+                      >
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4 accent-blue-600"
+                          checked={selectedTables.has(t.table)}
+                          onChange={() => toggleTable(t.table)}
+                        />
+                        <span className="flex-1">{TABLE_LABELS[t.table] || t.table}</span>
+                        <span className="text-xs text-gray-400">{t.rows}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div>
+              <button className="btn flex items-center gap-2" onClick={downloadBackup}>
+                <Download size={16} />
+                Скачать бэкап
+              </button>
+            </div>
+          </div>
+          {/* Стандартные креды — отдельный блок под «Резервным копированием» */}
+      <div className="panel">
+        <h3 className="font-semibold mb-1">Стандартные креды</h3>
+        <p className="text-sm text-gray-500 mb-4">
+          Используются при добавлении хоста, если его поля «Пользователь» и «Пароль»
+          не заполнены. Пароль хранится зашифрованным.
+        </p>
+        <form onSubmit={saveDefaultCreds} className="grid sm:grid-cols-3 gap-4 items-end max-w-3xl">
+          <label className="label">
+            Пользователь
+            <input
+              className="input"
+              name="default_username"
+              placeholder={defaultCreds.username ? defaultCreds.username : "не задан"}
+              autoComplete="off"
+            />
+          </label>
+          <label className="label">
+            Пароль
+            <input
+              className="input"
+              name="default_password"
+              type="password"
+              placeholder="•••••"
+              autoComplete="new-password"
+            />
+          </label>
+          <button className="btn" type="submit" disabled={credsSaving}>
+            {credsSaving ? "Сохранение..." : "Сохранить"}
+          </button>
+        </form>
       </div>
+        </div>
+        <div className="panel">
+          <h3 className="font-semibold mb-1">Восстановление</h3>
+          <p className="text-sm text-gray-500 mb-3">
+            После восстановления сервер автоматически перезапустится. Перед операцией
+            сохраняется копия текущей базы (<code>.pre_restore</code>).
+          </p>
+
+          <div className="space-y-2 mb-3 max-w-2xl">
+            {(Object.keys(RESTORE_MODE_INFO) as RestoreMode[]).map((mode) => {
+              const info = RESTORE_MODE_INFO[mode];
+              return (
+                <label
+                  key={mode}
+                  className={`flex items-start gap-3 p-3 rounded-[10px] border cursor-pointer ${
+                    restoreMode === mode ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:bg-gray-50"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="restoreMode"
+                    className="accent-blue-600 mt-0.5"
+                    checked={restoreMode === mode}
+                    onChange={() => setRestoreMode(mode)}
+                  />
+                  <span className="flex-1">
+                    <span className="text-sm font-medium flex items-center gap-2">
+                      {info.label}
+                      {info.danger && <span className="badge badge-error text-xs">деструктивно</span>}
+                    </span>
+                    <span className="block text-xs text-gray-500 mt-0.5">{info.desc}</span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+
+          <button
+            className="btn-secondary flex items-center gap-2"
+            onClick={() => restoreInputRef.current?.click()}
+            disabled={restoring}
+          >
+            <Upload size={16} />
+            {restoring ? "Восстановление…" : "Выбрать файл и восстановить"}
+          </button>
+          <input
+            ref={restoreInputRef}
+            type="file"
+            accept=".db"
+            className="hidden"
+            onChange={uploadRestore}
+          />
+        </div>
       </div>
 
       {modulesUser && (
