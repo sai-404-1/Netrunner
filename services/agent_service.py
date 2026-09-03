@@ -133,6 +133,35 @@ class AgentService:
             if event_type in ("online", "heartbeat"):
                 self.db.hosts.update(host_id, is_active=1, last_seen_at=utcnow_iso())
 
+    # Порог актуальности heartbeat агента: 180с = 3 пропущенных heartbeat
+    # (агент шлёт heartbeat каждые 60с). После этого хост считается офлайн.
+    AGENT_HEARTBEAT_STALE_SEC = 180
+
+    def agent_host_ids(self) -> set[int]:
+        """ID хостов, у которых ЕСТЬ запись endpoint-агента. Такие хосты
+        SSH-пинговать не нужно: их статус поддерживают online/heartbeat агента."""
+        return {a.host_id for a in self.db.host_agents.all()}
+
+    def mark_stale_agents_offline(self) -> int:
+        """Offline-свип: хосты с агентом, от которого нет heartbeat дольше
+        AGENT_HEARTBEAT_STALE_SEC, помечаются is_active=0. Возвращает число
+        переключённых хостов. Только SQL, без SSH — стоимость около нуля."""
+        from datetime import datetime, timedelta, timezone
+
+        threshold = (datetime.now(timezone.utc) - timedelta(seconds=self.AGENT_HEARTBEAT_STALE_SEC)).isoformat()
+        switched = 0
+        for agent in self.db.host_agents.all():
+            seen = agent.last_seen_at
+            # Без last_seen (агент ставился, но ни разу не подключался) — не трогаем:
+            # статус хоста определяет SSH-пинг, как для agentless-хоста.
+            if not seen or seen >= threshold:
+                continue
+            host = self.db.hosts.get(agent.host_id)
+            if host is not None and host.is_active:
+                self.db.hosts.update(agent.host_id, is_active=0)
+                switched += 1
+        return switched
+
 
 async def _auto_install_agent(app: web.Application, host) -> None:
     """Фоновая попытка установки endpoint-агента сразу после добавления хоста.
