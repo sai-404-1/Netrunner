@@ -75,7 +75,10 @@ async def agent_websocket_handler(request: web.Request) -> web.WebSocketResponse
                 agent_svc.record_event(
                     host_id, msg_type, payload_json=json.dumps(data, ensure_ascii=False, default=str)
                 )
-                if hasattr(ctx, "history"):
+                # Heartbeat шлётся каждые 60с на каждый хост — писать его в историю
+                # нельзя (288k записей/сутки при 200 хостах раздуют БД). В историю
+                # идут только значимые события: online, подключение/отключение.
+                if hasattr(ctx, "history") and msg_type != "heartbeat":
                     ctx.history.record(
                         source="agent_message",
                         event_type="agent_msg",

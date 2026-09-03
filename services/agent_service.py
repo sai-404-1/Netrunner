@@ -108,12 +108,17 @@ class AgentService:
         if agent:
             self.db.host_agents.touch(agent.id, status="connected")
             self.db.host_events.record(host_id, "agent_connected")
+            # Агент установил WS-соединение = хост в сети. Обновляем статус хоста
+            # сразу, без SSH-пинга (агент сам докладывает о себе).
+            self.db.hosts.update(host_id, is_active=1, last_seen_at=utcnow_iso())
 
     def record_disconnect(self, host_id: int) -> None:
         agent = self.db.host_agents.by_host(host_id)
         if agent:
             self.db.host_agents.mark_disconnected(agent.id)
             self.db.host_events.record(host_id, "agent_disconnected")
+            # НЕ трогаем hosts.is_active здесь: WS мог упасть при живом хосте.
+            # Offline-статус решает фоновый свип по протухшему last_seen_at.
 
     def record_event(self, host_id: int, event_type: str, payload_json: str | None = None) -> None:
         """Универсальный приёмник статусов агента — любой ``event_type`` (heartbeat,
@@ -124,6 +129,9 @@ class AgentService:
         if agent:
             self.db.host_agents.touch(agent.id, status="connected")
             self.db.host_events.record(host_id, event_type, payload_json=payload_json)
+            # online/heartbeat = хост жив. Обновляем статус хоста без SSH-пинга.
+            if event_type in ("online", "heartbeat"):
+                self.db.hosts.update(host_id, is_active=1, last_seen_at=utcnow_iso())
 
 
 async def _auto_install_agent(app: web.Application, host) -> None:
