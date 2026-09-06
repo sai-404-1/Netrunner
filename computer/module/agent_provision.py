@@ -91,14 +91,25 @@ class UserModule:
         remote_script = f"""set -e
 if ! id {shlex.quote(ssh_username)} >/dev/null 2>&1; then
   sudo useradd -m -s /bin/bash {shlex.quote(ssh_username)}
+  sudo mkdir -p /home/{ssh_username}/.ssh
+  sudo touch /home/{ssh_username}/.ssh/authorized_keys
+  sudo chown -R {shlex.quote(ssh_username)}:{shlex.quote(ssh_username)} /home/{ssh_username}/.ssh
+  sudo chmod 700 /home/{ssh_username}/.ssh
+  sudo chmod 600 /home/{ssh_username}/.ssh/authorized_keys
 fi
-sudo mkdir -p /home/{ssh_username}/.ssh
+
+# Публичный ключ сервисного пользователя (вход по ключу, без пароля).
 sudo tee /home/{ssh_username}/.ssh/authorized_keys > /dev/null << 'PUBKEY_EOF'
 {public_key}
 PUBKEY_EOF
 sudo chown -R {shlex.quote(ssh_username)}:{shlex.quote(ssh_username)} /home/{ssh_username}/.ssh
-sudo chmod 700 /home/{ssh_username}/.ssh
-sudo chmod 600 /home/{ssh_username}/.ssh/authorized_keys
+
+# Полномочия уровня root для сервисного пользователя через sudoers.d.
+sudo tee /etc/sudoers.d/{shlex.quote(ssh_username)} > /dev/null << 'SUDOERS_EOF'
+{shlex.quote(ssh_username)} ALL=(ALL) NOPASSWD: ALL
+SUDOERS_EOF
+sudo chmod 0440 /etc/sudoers.d/{shlex.quote(ssh_username)}
+sudo chown root:root /etc/sudoers.d/{shlex.quote(ssh_username)}
 
 sudo mkdir -p /etc/netrunner-agent /opt/netrunner-agent
 sudo tee /etc/netrunner-agent/config.json > /dev/null << 'CONFIG_EOF'
