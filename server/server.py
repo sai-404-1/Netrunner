@@ -55,6 +55,27 @@ async def _periodic_ping(app: web.Application, interval: int):
             logger.warning("Periodic host ping failed: %s", _ping_exc)
 
 
+async def _scheduler_loop(app: web.Application, interval: int = 30):
+    """Background daemon: периодически (раз в interval сек) дёргает планировщик.
+
+    Это и есть «фоновый цикл» планировщика, которого не хватало: раньше tick_async
+    вызывался только разово при старте и вручную кнопкой на /scheduled. Теперь
+    запланированные задачи (в т.ч. отложенные «на потом») выполняются сами, пока
+    сервер жив. Планировщик использует БД контекста приложения (тот же event loop,
+    отдельный коннект не нужен — в отличие от _periodic_ping, который гоняет SSH
+    и не должен блокировать общий коннект).
+    """
+    while True:
+        try:
+            await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            break
+        try:
+            await app["ctx"].scheduler.tick_async()
+        except Exception as _sched_exc:
+            logger.warning("Scheduler tick failed: %s", _sched_exc)
+
+
 def run_web_server(
         app_context,
         host: str = "127.0.0.1",
@@ -71,11 +92,12 @@ def run_web_server(
         if ping_interval > 0:
             ping_task = asyncio.create_task(_periodic_ping(_app, ping_interval))
             _app["ping_task"] = ping_task
+        _app["scheduler_task"] = asyncio.create_task(_scheduler_loop(_app, interval=30))
         _app["update_task"] = asyncio.create_task(_update_monitor(_app))
         _app["telegram_task"] = asyncio.create_task(_telegram_poller(_app))
 
     async def _on_cleanup(_app):
-        for _key in ("ping_task", "update_task", "telegram_task"):
+        for _key in ("ping_task", "scheduler_task", "update_task", "telegram_task"):
             if _key in _app:
                 _app[_key].cancel()
                 try:

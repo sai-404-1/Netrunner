@@ -85,6 +85,7 @@ def bootstrap_task_templates(db) -> None:
         ("Сбор инвентаризации", "inventory_collect", {}, "Сбор системной информации по выбранным хостам"),
         ("Массовый SSH", "mass_ssh", {}, "Выполнение произвольной команды по SSH"),
         ("APT package manager", "apt_package_manager", {"action": "update"}, "Обновление/установка/удаление пакетов APT"),
+        ("Переустановка endpoint-агента", "agent_provision", {}, "Переустановка endpoint-агента на хостах (без ротации ключа/токена, общение через netrunner-svc)"),
     ]
 
     for name, module_slug, default_args, description in templates:
