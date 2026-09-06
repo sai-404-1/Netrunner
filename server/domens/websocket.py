@@ -93,11 +93,23 @@ async def agent_websocket_handler(request: web.Request) -> web.WebSocketResponse
 
 
 def _default_agent_ws_url() -> str:
-    """Угадывает адрес сервера для конфига агента: LAN-IP этой машины + порт
-    Next.js в Docker (3001) + префикс /api/python/, который проксируется на
-    бэкенд. Эвристика для автоустановки при добавлении хоста — если она угадала
-    неверно, администратор может перевыпустить агента вручную через модуль
-    «Установка endpoint-агента» с явно указанным адресом."""
+    """Определяет ws-адрес сервера для конфига endpoint-агента.
+
+    Приоритет:
+      1. Явная настройка из окружения ``NETRUNNER_AGENT_WS_URL`` (полный URL) —
+         самый надёжный способ и ЕДИНСТВЕННО рабочий в Docker: контейнер не видит
+         IP хост-машины, его ``gethostbyname(gethostname())`` даёт внутренний IP
+         (172.x) или 127.0.0.1, недоступные агенту на другом хосте. Поэтому в
+         docker-compose эту переменную задавать обязательно.
+      2. Автоопределение ``gethostbyname(gethostname())`` — правильно для
+         не-контейнерного запуска (сервер на обычной машине ЛВС): даёт LAN-IP.
+      3. Крайний фолбэк — 127.0.0.1 (агент на той же машине).
+    """
+    import os
+    env_url = os.environ.get("NETRUNNER_AGENT_WS_URL")
+    if env_url:
+        return env_url.rstrip("/")
+
     import socket
     try:
         ip = socket.gethostbyname(socket.gethostname())
