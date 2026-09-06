@@ -27,6 +27,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
 from database.repos.base import utcnow_iso
+from database.models.host_agent import HostAgent
 from server.domens.websocket import _default_agent_ws_url
 from services.secrets import decrypt_secret, encrypt_secret
 
@@ -56,6 +57,10 @@ def _generate_keypair() -> tuple[str, str]:
 class AgentService:
     def __init__(self, db):
         self.db = db
+
+    def get_existing(self, db, host_id: int) -> HostAgent | None:
+        """Возвращает запись агента хоста (для переустановки без ротации ключа)."""
+        return db.host_agents.by_host(host_id)
 
     def provision(self, host_id: int, ssh_username: str = DEFAULT_SSH_USERNAME) -> dict:
         """(Пере-)генерирует секреты агента для хоста и сохраняет их. Не трогает
