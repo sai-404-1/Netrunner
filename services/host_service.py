@@ -90,6 +90,23 @@ class HostService:
         raise ValueError(f"Unknown target_type: {target_type}")
 
     def to_computer(self, host):
+        """Возвращает Computer для исполнения команд на хосте.
+
+        Если endpoint-агент хоста провижен (в ``host_agents`` есть приватный ключ
+        сервисного пользователя) — подключаемся под ``netrunner-svc`` его per-host
+        ключом (материализуется в кэш-файл). Иначе — под первичным пользователем
+        хоста (``host.username``) его обычным ключом. Первичный пользователь
+        остаётся bootstrap/fallback-каналом.
+        """
+        agent = self.db.host_agents.by_host(host.id)
+        if agent and agent.private_key_encrypted:
+            key_path = self._materialize_agent_key(host.id, agent.ssh_username, agent.private_key_encrypted)
+            return Computer(
+                host=f"{agent.ssh_username}@{host.address}",
+                port=str(host.port),
+                key_path=key_path,
+            )
+
         key_path = None
         if getattr(host, "ssh_key_id", None):
             key_row = self.db.ssh_keys.get(host.ssh_key_id)
@@ -100,6 +117,21 @@ class HostService:
             port=str(host.port),
             key_path=key_path,
         )
+
+    def _materialize_agent_key(self, host_id: int, ssh_username: str, private_key_encrypted: str) -> str:
+        """Расшифровывает приватный ключ endpoint-агента и пишет его в кэш-файл.
+
+        Возвращает путь к файлу ключа. Сам приватный ключ на диске не хранится —
+        только расшифрованная копия в кэше (chmod 0600), как остальные SSH-ключи.
+        """
+        private_pem = decrypt_secret(private_key_encrypted)
+        keys_dir = Path("/app/keys") if Path("/app/keys").is_dir() else Path("keys")
+        keys_dir.mkdir(parents=True, exist_ok=True)
+        cache_path = keys_dir / f"agent_{ssh_username}_host{host_id}.key"
+        if not cache_path.exists() or cache_path.read_text(encoding="utf-8") != private_pem:
+            cache_path.write_text(private_pem, encoding="utf-8")
+        cache_path.chmod(0o600)
+        return str(cache_path)
 
     def to_computers(self, hosts: Iterable):
         return [self.to_computer(host) for host in hosts]
