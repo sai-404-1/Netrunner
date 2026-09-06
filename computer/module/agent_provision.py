@@ -1,4 +1,4 @@
-"""Установка report-only endpoint-агента на хост (см. agent/README.md).
+"""Установка/переустановка report-only endpoint-агента на хост (см. agent/README.md).
 
 Bespoke run_for_host (не CommandModule): нужно сначала сгенерировать секреты через
 AgentService (SSH-ключ выделенного сервисного пользователя + bearer-токен для WS —
@@ -7,24 +7,47 @@ AgentService (SSH-ключ выделенного сервисного поль�
 modules/sound_pinger.py и modules/desktop_style_reset.py) и включить systemd-юнит.
 НЕ отключает обычный SSH-доступ (без немедленного отключения остальных, чтобы не
 было лок-аута).
+
+Переустановка (обновление уже стоящего агента): при повторном запуске модуль
+ЗАХОДИТ НА ХОСТ ПОД САМИМ netrunner-svc (его ключ уже провижен и сохранён в
+host_agents), перезаписывает скрипт/юнит/конфиг и перезапускает systemd-юнит.
+При этом:
+- sudoers-правило и authorized_keys НЕ пересоздаются (они уже есть),
+- ключ/токен НЕ ротируются (иначе живой WS-агент потеряет соединение навсегда:
+  он хранит старый токен в config.json на хосте, а сервер после provision()
+  знал бы только новый),
+- WS-адрес берётся из аргумента, либо из env NETRUNNER_AGENT_WS_URL, либо
+  автоопределяется (тот же порядок, что у _auto_install_agent).
+Первичный SSH-пользователь хоста (host.username) используется ТОЛЬКО как bootstrap
+при ПЕРВОЙ установке (когда netrunner-svc ещё нет) — дальше общение идёт через
+netrunner-svc.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import shlex
 from pathlib import Path
 
 from . import Modules
 
-# Импорт AgentService — внутри run_for_host, не на уровне модуля: services/
-# импортирует computer (для HostService), а этот файл сам загружается как часть
-# computer.module.__init__ при самом первом импорте пакета computer — импорт
-# services на верхнем уровне тут ловит circular import.
-
 _AGENT_DIR = Path(__file__).resolve().parent.parent.parent / "agent"
 _AGENT_SCRIPT_PATH = _AGENT_DIR / "netrunner_agent.py"
 _SERVICE_UNIT_PATH = _AGENT_DIR / "netrunner-agent.service"
+
+
+def _resolve_agent_ws_url(explicit: str) -> str:
+    """WS-адрес для конфига агента: аргумент > env > автоопределение."""
+    value = (explicit or "").strip()
+    if value:
+        return value
+    env_url = os.environ.get("NETRUNNER_AGENT_WS_URL", "").strip()
+    if env_url:
+        return env_url
+    from server.domens.websocket import _default_agent_ws_url
+
+    return _default_agent_ws_url()
 
 
 class UserModule:
@@ -34,13 +57,13 @@ class UserModule:
 
     schema = {
         "placeholders": [
-            ["server_ws_url", "WS-адрес сервера NetRunner",
-             "ws://SERVER_IP:3001/api/python/agent/ws", "text"],
+            ["server_ws_url", "WS-адрес сервера NetRunner (пусто = авто)",
+             "", "text"],
         ]
     }
 
     def __init__(self):
-        self.title = "Установка endpoint-агента"
+        self.title = "Установка/переустановка endpoint-агента"
         self.description = (
             "Создаёт выделенного SSH-пользователя (netrunner-svc, без пароля, только "
             "по ключу) и report-only агента: он сам открывает исходящее WebSocket-"
@@ -54,7 +77,8 @@ class UserModule:
             "браузера, не может подставить относительный путь, поэтому URL должен "
             "идти через порт Next.js (3001 в Docker) и префикс /api/python/, который "
             "проксируется на бэкенд, например ws://SERVER_IP:3001/api/python/agent/ws "
-            "— не ws://SERVER_IP:8000/agent/ws напрямую."
+            "— не ws://SERVER_IP:8000/agent/ws напрямую. Повторный запуск = "
+            "переустановка агента: файлы и юнит обновляются, ключ/токен не ротируются."
         )
 
     async def run_for_host(self, context, host, **kwargs):
@@ -66,9 +90,9 @@ class UserModule:
             "username": host.username,
         }
 
-        server_ws_url = str(kwargs.get("server_ws_url") or "").strip()
+        server_ws_url = _resolve_agent_ws_url(str(kwargs.get("server_ws_url") or ""))
         if not server_ws_url:
-            return {**base, "status": "error", "output": "[ERROR] Не указан WS-адрес сервера"}
+            return {**base, "status": "error", "output": "[ERROR] Не удалось определить WS-адрес сервера"}
 
         try:
             agent_script = _AGENT_SCRIPT_PATH.read_text(encoding="utf-8")
@@ -79,17 +103,34 @@ class UserModule:
         from services.agent_service import AgentService
 
         agent_svc = AgentService(context.db)
-        secrets_data = agent_svc.provision(host.id)
-        ssh_username = secrets_data["ssh_username"]
-        public_key = secrets_data["public_key"]
+        existing = agent_svc.get_existing(context.db, host.id)
+        if existing:
+            # Переустановка: netrunner-svc уже есть. Заходим под НИМ его ключом.
+            ssh_username = existing.ssh_username
+            public_key = existing.public_key
+            is_reinstall = True
+            # Ключ не ротируем: живой агент держит старый токен, а authorized_keys
+            # на хосте уже содержит этот же public_key.
+            token = None
+        else:
+            # Первая установка: генерим секреты и подключаемся под первичным юзером.
+            secrets_data = agent_svc.provision(host.id)
+            ssh_username = secrets_data["ssh_username"]
+            public_key = secrets_data["public_key"]
+            token = secrets_data["token"]
+            is_reinstall = False
+
+        # server_ws_url подставляется как есть (уже валидный URL)
         config_json = json.dumps({
             "host_id": host.id,
-            "token": secrets_data["token"],
+            "token": token if token is not None else (existing.token_encrypted if existing else ""),
             "server_ws_url": server_ws_url,
         })
 
-        remote_script = f"""set -e
-if ! id {shlex.quote(ssh_username)} >/dev/null 2>&1; then
+        # Собираем remote-скрипт: useradd только если юзера нет (первая установка).
+        create_user_block = ""
+        if not is_reinstall:
+            create_user_block = f"""if ! id {shlex.quote(ssh_username)} >/dev/null 2>&1; then
   sudo useradd -m -s /bin/bash {shlex.quote(ssh_username)}
   sudo mkdir -p /home/{ssh_username}/.ssh
   sudo touch /home/{ssh_username}/.ssh/authorized_keys
@@ -97,20 +138,32 @@ if ! id {shlex.quote(ssh_username)} >/dev/null 2>&1; then
   sudo chmod 700 /home/{ssh_username}/.ssh
   sudo chmod 600 /home/{ssh_username}/.ssh/authorized_keys
 fi
+"""
 
-# Публичный ключ сервисного пользователя (вход по ключу, без пароля).
-sudo tee /home/{ssh_username}/.ssh/authorized_keys > /dev/null << 'PUBKEY_EOF'
-{public_key}
-PUBKEY_EOF
-sudo chown -R {shlex.quote(ssh_username)}:{shlex.quote(ssh_username)} /home/{ssh_username}/.ssh
-
+        sudoers_block = ""
+        if not is_reinstall:
+            sudoers_block = f"""
 # Полномочия уровня root для сервисного пользователя через sudoers.d.
 sudo tee /etc/sudoers.d/{shlex.quote(ssh_username)} > /dev/null << 'SUDOERS_EOF'
 {shlex.quote(ssh_username)} ALL=(ALL) NOPASSWD: ALL
 SUDOERS_EOF
 sudo chmod 0440 /etc/sudoers.d/{shlex.quote(ssh_username)}
 sudo chown root:root /etc/sudoers.d/{shlex.quote(ssh_username)}
+"""
+        pubkey_block = ""
+        if not is_reinstall:
+            pubkey_block = f"""
+# Публичный ключ сервисного пользователя (вход по ключу, без пароля).
+sudo tee /home/{ssh_username}/.ssh/authorized_keys > /dev/null << 'PUBKEY_EOF'
+{public_key}
+PUBKEY_EOF
+sudo chown -R {shlex.quote(ssh_username)}:{shlex.quote(ssh_username)} /home/{ssh_username}/.ssh
+"""
 
+        remote_script = f"""set -e
+{create_user_block}
+{pubkey_block}
+{sudoers_block}
 sudo mkdir -p /etc/netrunner-agent /opt/netrunner-agent
 sudo tee /etc/netrunner-agent/config.json > /dev/null << 'CONFIG_EOF'
 {config_json}
@@ -127,8 +180,8 @@ sudo tee /etc/systemd/system/netrunner-agent.service > /dev/null << 'UNIT_EOF'
 UNIT_EOF
 
 if ! python3 -c "import websockets" >/dev/null 2>&1; then
-  sudo apt-get install -y python3-websockets >/dev/null 2>&1 \\
-    || sudo PIP_ROOT_USER_ACTION=ignore python3 -m pip install --break-system-packages --quiet websockets \\
+  sudo apt-get install -y python3-websockets >/dev/null 2>&1 \
+    || sudo PIP_ROOT_USER_ACTION=ignore python3 -m pip install --break-system-packages --quiet websockets \
     || echo "[WARN] Не удалось установить пакет websockets - установите вручную"
 fi
 
@@ -150,7 +203,7 @@ echo "Агент установлен и запущен ({ssh_username}, report-
 
         output = await computer.async_executor_ssh(remote_script)
         status = "error" if output.startswith("[ERROR]") else "success"
-        return {**base, "status": status, "output": output}
+        return {**base, "status": status, "output": output, "is_reinstall": is_reinstall}
 
 
 CustomModule = UserModule()
