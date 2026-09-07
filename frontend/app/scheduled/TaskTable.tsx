@@ -29,7 +29,7 @@ export default function TaskTable({ rows, scenarios, hosts, groups, onEdit, onDe
           render: (t) =>
             t.wait_for_online ? (
               <span className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
-                по появлению в сети
+                когда будет в сети
               </span>
             ) : (
               formatDate(t.run_at)

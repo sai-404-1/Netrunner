@@ -66,7 +66,7 @@ export default function EditTaskModal({ task, scenarios, hosts, groups, onClose,
             </label>
             <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
               <input type="radio" name="trigger" checked={trigger === "online"} onChange={() => setTrigger("online")} />
-              Когда хост появится в сети
+              Когда будет в сети
             </label>
           </div>
         </fieldset>
