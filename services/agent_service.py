@@ -142,6 +142,7 @@ async def _auto_install_agent(app: web.Application, host) -> None:
 
     module_ctx = ModuleContext(
         logger=logger, task_run_id=0, to_computer=ctx.host_service.to_computer, db=ctx.db,
+        host_service=ctx.host_service,
     )
     server_ws_url = _default_agent_ws_url()
     try:

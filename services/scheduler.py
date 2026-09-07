@@ -15,6 +15,11 @@ class Scheduler:
         due_tasks = self.db.scheduled.due()
 
         for scheduled in due_tasks:
+            # wait_for_online обрабатывает только tick_async (асинхронный фоновый
+            # цикл): тут нельзя дёргать host_service (async), а синхронный стартовый
+            # тик не должен выполнять задачу, ждущую включения хоста.
+            if getattr(scheduled, "wait_for_online", 0):
+                continue
             try:
                 self.task_runner.run_template(
                     template_id=scheduled.template_id,

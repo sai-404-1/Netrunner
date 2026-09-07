@@ -89,6 +89,26 @@ class HostService:
 
         raise ValueError(f"Unknown target_type: {target_type}")
 
+    def to_computer_bootstrap(self, host):
+        """Computer под ПЕРВИЧНЫМ пользователем хоста (host.username + его ключ).
+
+        В отличие от to_computer(), здесь не учитывается провиженный агент:
+        подключение идёт именно под тем пользователем, который был при добавлении
+        хоста. Используется для проверки доступности (check_host/check_host_async)
+        и первичной установки агента — т.к. первичный пользователь физически есть
+        на хосте, а netrunner-svc может отсутствовать (ещё не установлен).
+        """
+        key_path = None
+        if getattr(host, "ssh_key_id", None):
+            key_row = self.db.ssh_keys.get(host.ssh_key_id)
+            if key_row and getattr(key_row, "private_key_path", None):
+                key_path = key_row.private_key_path
+        return Computer(
+            host=f"{host.username}@{host.address}",
+            port=str(host.port),
+            key_path=key_path,
+        )
+
     def to_computer(self, host):
         """Возвращает Computer для исполнения команд на хосте.
 
@@ -140,7 +160,7 @@ class HostService:
         host = self.get_host(host_id)
         if not host:
             raise ValueError(f"Host {host_id} not found")
-        computer = self.to_computer(host)
+        computer = self.to_computer_bootstrap(host)
         result = computer.executor_ssh("echo netrunner-ok")
         is_active = "[ERROR]" not in result and "Error:" not in result and "netrunner-ok" in result
         updates = {"is_active": 1 if is_active else 0}
@@ -171,7 +191,7 @@ class HostService:
         host = self.get_host(host_id)
         if not host:
             raise ValueError(f"Host {host_id} not found")
-        computer = self.to_computer(host)
+        computer = self.to_computer_bootstrap(host)
         result = await computer.async_executor_ssh("echo netrunner-ok")
         is_active = "[ERROR]" not in result and "Error:" not in result and "netrunner-ok" in result
         updates = {"is_active": 1 if is_active else 0}

@@ -15,6 +15,7 @@ class ModuleContext:
     task_run_id: int
     to_computer: object | None = None
     db: object | None = None
+    host_service: object | None = None
 
 
 class TaskRunner:
@@ -140,6 +141,7 @@ class TaskRunner:
             task_run_id=task_run.id,
             to_computer=self.host_service.to_computer,
             db=self.db,
+            host_service=self.host_service,
         )
 
         if self.history:
