@@ -126,6 +126,10 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
     max_runs INTEGER,
     run_count INTEGER NOT NULL DEFAULT 0,
     wait_for_online INTEGER NOT NULL DEFAULT 0,
+    days_of_week TEXT NOT NULL DEFAULT '',
+    start_min INTEGER,
+    end_min INTEGER,
+    interval_min INTEGER,
     FOREIGN KEY (scenario_id) REFERENCES scenarios(id) ON DELETE CASCADE
 );
 
@@ -263,9 +267,9 @@ def _column_names(conn, table: str) -> list[str]:
 
 
 def _migrate_scheduled_tasks(conn) -> None:
-    """Перевод расписания с шаблонов-модулей на сценарии.
+    """Перевод расписания с шаблонов-модулей на сценарии + поля recurring-расписания.
 
-    Сначала добавляет недостающие поля повторяемости/ожидания онлайн (как раньше),
+    Сначала добавляет недостающие поля повторяемости/ожидания онлайн/расписания,
     затем убирает устаревшую колонку template_id: пересоздаёт scheduled_tasks
     без неё и со ссылкой на scenarios. Старые задачи были привязаны к шаблону
     (одиночному модулю) — сценария-аналога у них нет, поэтому их действие после
@@ -281,6 +285,11 @@ def _migrate_scheduled_tasks(conn) -> None:
         ("run_count", "INTEGER NOT NULL DEFAULT 0"),
         ("wait_for_online", "INTEGER NOT NULL DEFAULT 0"),
         ("scenario_id", "INTEGER DEFAULT NULL"),
+        # recurring-расписание по времени (cron): дни + окно + интервал в минутах
+        ("days_of_week", "TEXT NOT NULL DEFAULT ''"),
+        ("start_min", "INTEGER DEFAULT NULL"),
+        ("end_min", "INTEGER DEFAULT NULL"),
+        ("interval_min", "INTEGER DEFAULT NULL"),
     ]:
         if column not in cols:
             _add_column_if_missing(conn, "scheduled_tasks", column, definition)
@@ -304,18 +313,24 @@ def _migrate_scheduled_tasks(conn) -> None:
             max_runs INTEGER,
             run_count INTEGER NOT NULL DEFAULT 0,
             wait_for_online INTEGER NOT NULL DEFAULT 0,
+            days_of_week TEXT NOT NULL DEFAULT '',
+            start_min INTEGER,
+            end_min INTEGER,
+            interval_min INTEGER,
             FOREIGN KEY (scenario_id) REFERENCES scenarios(id) ON DELETE CASCADE
         )
     """)
     conn.execute("""
         INSERT INTO scheduled_tasks_new (
             id, name, scenario_id, target_type, target_id, run_at, is_enabled,
-            last_run_at, created_at, interval_seconds, max_runs, run_count, wait_for_online
+            last_run_at, created_at, interval_seconds, max_runs, run_count,
+            wait_for_online, days_of_week, start_min, end_min, interval_min
         )
         SELECT
             id, name, scenario_id, target_type, target_id, run_at,
             CASE WHEN scenario_id IS NOT NULL THEN is_enabled ELSE 0 END,
-            last_run_at, created_at, interval_seconds, max_runs, run_count, wait_for_online
+            last_run_at, created_at, interval_seconds, max_runs, run_count,
+            wait_for_online, days_of_week, start_min, end_min, interval_min
         FROM scheduled_tasks
     """)
     conn.execute("DROP TABLE scheduled_tasks")

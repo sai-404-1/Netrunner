@@ -113,6 +113,7 @@ class HistoryService:
                 event_types={
                     'scheduler_run': {'label': 'Автозапуск по расписанию', 'level': 'info'},
                     'scheduler_done': {'label': 'Автозапуск завершён', 'level': 'success'},
+                    'scheduler_skip': {'label': 'Слот пропущен (цель не в сети)', 'level': 'warning'},
                     'scheduler_failed': {'label': 'Автозапуск завершён с ошибкой', 'level': 'error'},
                 },
             )

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 
+from database.repos.schedule_repo import is_schedule
+
 
 class Scheduler:
     """Планировщик запуска **сценариев** по расписанию.
@@ -75,6 +77,27 @@ class Scheduler:
         except Exception:  # noqa: BLE001
             return False
 
+    async def _any_target_online(self, scheduled) -> bool:
+        """Есть ли онлайн-хост среди целей задачи (для recurring-слотов).
+
+        Если host_service недоступен — считаем True (не блокируем запуск).
+        """
+        if not self.host_service:
+            return True
+        try:
+            targets = self.host_service.resolve_targets(
+                scheduled.target_type, scheduled.target_id
+            )
+        except Exception:  # noqa: BLE001
+            return False
+        if not targets:
+            return False
+        checks = await asyncio.gather(
+            *[self._host_online(h) for h in targets],
+            return_exceptions=True,
+        )
+        return any(c is True for c in checks)
+
     async def _run_and_mark(self, scheduled):
         try:
             if not scheduled.scenario_id:
@@ -89,6 +112,39 @@ class Scheduler:
 
             if not await self._wait_online_ok(scheduled):
                 # Цель пока не в сети — пропускаем и оставляем задачу включённой, ждём.
+                return
+
+            # Recurring-расписание (cron по времени): если в момент слота целевые
+            # хосты офлайн — слот пропускается (запускать нечего), в историю пишется
+            # «попытка, цель не в сети», run_at сдвигается на следующий слот. Не
+            # «догоняем» пропущенное: для выполнения по факту включения есть
+            # отдельный режим «когда будет в сети» (wait_for_online).
+            if is_schedule(scheduled) and not await self._any_target_online(scheduled):
+                sc_name = self.db.scenarios.get(scheduled.scenario_id)
+                scenario_name = sc_name.name if sc_name else f"#{scheduled.scenario_id}"
+                self.logger.warning(
+                    "Scheduled #%s (%s): целевые хосты офлайн, слот пропущен",
+                    scheduled.id, scenario_name,
+                )
+                if self.history:
+                    self.history.record(
+                        source="scheduler",
+                        event_type="scheduler_skip",
+                        title="Слот пропущен: цель не в сети",
+                        description=(
+                            f"Сценарий \"{scenario_name}\" не запущен — "
+                            f"цель {scheduled.target_type}:{scheduled.target_id} "
+                            f"не в сети в момент слота"
+                        ),
+                        payload={
+                            "task_name": f"scenario-{scheduled.scenario_id}",
+                            "target": f"{scheduled.target_type}:{scheduled.target_id}",
+                        },
+                        level="warning",
+                    )
+                # Обязательно сдвигаем run_at на следующий слот — иначе задача
+                # останется due навсегда и будет «пропускаться» каждый тик.
+                self.db.scheduled.mark_ran(scheduled.id)
                 return
 
             scenario = self.db.scenarios.get(scheduled.scenario_id)

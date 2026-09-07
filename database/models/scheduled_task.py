@@ -23,3 +23,11 @@ class ScheduledTask(BaseModel):
     max_runs: int | None = None
     run_count: int = 0
     wait_for_online: int = 0
+    # Recurring-расписание (cron по времени): days_of_week — 7-битмаска строкой,
+    # позиция = weekday() (0=Пн..6=Вс), '1'=выбран день. Пусто/все нули = не расписание
+    # (тогда задача разовая: run_at + при желании interval_seconds).
+    # start_min/end_min/interval_min — минуты от полуночи в локальном времени сервера.
+    days_of_week: str = ''
+    start_min: int | None = None
+    end_min: int | None = None
+    interval_min: int | None = None
