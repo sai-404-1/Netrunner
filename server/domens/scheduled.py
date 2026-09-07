@@ -21,12 +21,15 @@ async def api_schedule_create(request: web.Request) -> web.Response:
     run_at = str(payload.get("run_at") or "").strip()
     if not run_at:
         raise web.HTTPBadRequest(reason="run_at is required")
+    scenario_id = _safe_int(payload.get("scenario_id"))
+    if not scenario_id:
+        raise web.HTTPBadRequest(reason="scenario_id is required")
     interval_raw = payload.get("interval_seconds")
     max_runs_raw = payload.get("max_runs")
     wait_for_online = payload.get("wait_for_online")
     scheduled = ctx.db.scheduled.create(
         name=str(payload.get("name") or "").strip(),
-        template_id=_safe_int(payload.get("template_id")),
+        scenario_id=scenario_id,
         target_type=str(payload.get("target_type") or "host").strip(),
         target_id=_safe_int(payload.get("target_id")),
         run_at=run_at,
@@ -47,8 +50,8 @@ async def api_schedule_update(request: web.Request) -> web.Response:
     updates = {k: v for k, v in payload.items() if k != "id" and v is not None}
     if "is_enabled" in payload:
         updates["is_enabled"] = 1 if payload["is_enabled"] else 0
-    if "template_id" in updates:
-        updates["template_id"] = _safe_int(updates["template_id"])
+    if "scenario_id" in updates:
+        updates["scenario_id"] = _safe_int(updates["scenario_id"])
     if "target_id" in updates:
         updates["target_id"] = _safe_int(updates["target_id"])
     scheduled = ctx.db.scheduled.update(task_id, **updates)

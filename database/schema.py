@@ -115,14 +115,18 @@ CREATE TABLE IF NOT EXISTS inventory_snapshots (
 CREATE TABLE IF NOT EXISTS scheduled_tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
-    template_id INTEGER NOT NULL,
+    scenario_id INTEGER,
     target_type TEXT NOT NULL,
     target_id INTEGER NOT NULL,
     run_at TEXT NOT NULL,
     is_enabled INTEGER NOT NULL DEFAULT 1,
     last_run_at TEXT,
     created_at TEXT NOT NULL,
-    FOREIGN KEY (template_id) REFERENCES task_templates(id) ON DELETE CASCADE
+    interval_seconds INTEGER,
+    max_runs INTEGER,
+    run_count INTEGER NOT NULL DEFAULT 0,
+    wait_for_online INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (scenario_id) REFERENCES scenarios(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS reports (
@@ -254,14 +258,71 @@ def _migrate_ssh_keys(conn) -> None:
     _add_column_if_missing(conn, "ssh_keys", "fingerprint", "TEXT")
 
 
+def _column_names(conn, table: str) -> list[str]:
+    return [row[1] for row in conn.execute(f"PRAGMA table_info({table})")]
+
+
 def _migrate_scheduled_tasks(conn) -> None:
-    """Добавляет поля для поддержки повторяющихся задач, ожидания включения хоста
-    и запуска сценариев (вместо устаревших шаблонов-модулей)."""
-    _add_column_if_missing(conn, "scheduled_tasks", "interval_seconds", "INTEGER DEFAULT NULL")
-    _add_column_if_missing(conn, "scheduled_tasks", "max_runs", "INTEGER DEFAULT NULL")
-    _add_column_if_missing(conn, "scheduled_tasks", "run_count", "INTEGER NOT NULL DEFAULT 0")
-    _add_column_if_missing(conn, "scheduled_tasks", "wait_for_online", "INTEGER NOT NULL DEFAULT 0")
-    _add_column_if_missing(conn, "scheduled_tasks", "scenario_id", "INTEGER DEFAULT NULL")
+    """Перевод расписания с шаблонов-модулей на сценарии.
+
+    Сначала добавляет недостающие поля повторяемости/ожидания онлайн (как раньше),
+    затем убирает устаревшую колонку template_id: пересоздаёт scheduled_tasks
+    без неё и со ссылкой на scenarios. Старые задачи были привязаны к шаблону
+    (одиночному модулю) — сценария-аналога у них нет, поэтому их действие после
+    сноса шаблонов неизвестно: такие строки переносятся с scenario_id=NULL и
+    отключаются (is_enabled=0), чтобы не «висеть» в расписании без действия.
+    Задачи, уже привязанные к сценарию (scenario_id задан), переносятся как есть.
+    """
+    cols = _column_names(conn, "scheduled_tasks")
+
+    for column, definition in [
+        ("interval_seconds", "INTEGER DEFAULT NULL"),
+        ("max_runs", "INTEGER DEFAULT NULL"),
+        ("run_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("wait_for_online", "INTEGER NOT NULL DEFAULT 0"),
+        ("scenario_id", "INTEGER DEFAULT NULL"),
+    ]:
+        if column not in cols:
+            _add_column_if_missing(conn, "scheduled_tasks", column, definition)
+
+    if "template_id" not in _column_names(conn, "scheduled_tasks"):
+        # Таблица уже в финальном виде (свежая или уже мигрированная) — нечего чинить.
+        return
+
+    conn.execute("""
+        CREATE TABLE scheduled_tasks_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            scenario_id INTEGER,
+            target_type TEXT NOT NULL,
+            target_id INTEGER NOT NULL,
+            run_at TEXT NOT NULL,
+            is_enabled INTEGER NOT NULL DEFAULT 1,
+            last_run_at TEXT,
+            created_at TEXT NOT NULL,
+            interval_seconds INTEGER,
+            max_runs INTEGER,
+            run_count INTEGER NOT NULL DEFAULT 0,
+            wait_for_online INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (scenario_id) REFERENCES scenarios(id) ON DELETE CASCADE
+        )
+    """)
+    conn.execute("""
+        INSERT INTO scheduled_tasks_new (
+            id, name, scenario_id, target_type, target_id, run_at, is_enabled,
+            last_run_at, created_at, interval_seconds, max_runs, run_count, wait_for_online
+        )
+        SELECT
+            id, name, scenario_id, target_type, target_id, run_at,
+            CASE WHEN scenario_id IS NOT NULL THEN is_enabled ELSE 0 END,
+            last_run_at, created_at, interval_seconds, max_runs, run_count, wait_for_online
+        FROM scheduled_tasks
+    """)
+    conn.execute("DROP TABLE scheduled_tasks")
+    conn.execute("ALTER TABLE scheduled_tasks_new RENAME TO scheduled_tasks")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_run_at ON scheduled_tasks (run_at)"
+    )
 
 
 def _migrate_users(conn) -> None:

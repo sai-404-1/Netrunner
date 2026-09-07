@@ -135,7 +135,6 @@ def create_app_context(
         logger=logger,
         history=history,
     )
-    scheduler = Scheduler(db=db, task_runner=task_runner, logger=logger, history=history, host_service=host_service)
     auth_service = AuthService(db=db)
     auth_service.create_default_user()
     report_service = ReportService(db=db, reports_dir=reports_dir)
@@ -147,6 +146,14 @@ def create_app_context(
         logger=logger,
         execution_settings=execution_settings,
         history=history,
+    )
+    # Планировщик исполняет только сценарии: вместо task_runner держит scenario_runner.
+    scheduler = Scheduler(
+        db=db,
+        scenario_runner=scenario_runner,
+        logger=logger,
+        history=history,
+        host_service=host_service,
     )
 
     if run_scheduler_on_start:
