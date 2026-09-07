@@ -12,7 +12,7 @@ class ScheduledTask(BaseModel):
 
     id: int | None = None
     name: str = ''
-    template_id: int | None = None
+    scenario_id: int | None = None
     target_type: str = 'host'
     target_id: int | None = None
     run_at: str = ''

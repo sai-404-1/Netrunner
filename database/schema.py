@@ -255,11 +255,13 @@ def _migrate_ssh_keys(conn) -> None:
 
 
 def _migrate_scheduled_tasks(conn) -> None:
-    """Добавляет поля для поддержки повторяющихся задач и ожидания включения хоста."""
+    """Добавляет поля для поддержки повторяющихся задач, ожидания включения хоста
+    и запуска сценариев (вместо устаревших шаблонов-модулей)."""
     _add_column_if_missing(conn, "scheduled_tasks", "interval_seconds", "INTEGER DEFAULT NULL")
     _add_column_if_missing(conn, "scheduled_tasks", "max_runs", "INTEGER DEFAULT NULL")
     _add_column_if_missing(conn, "scheduled_tasks", "run_count", "INTEGER NOT NULL DEFAULT 0")
     _add_column_if_missing(conn, "scheduled_tasks", "wait_for_online", "INTEGER NOT NULL DEFAULT 0")
+    _add_column_if_missing(conn, "scheduled_tasks", "scenario_id", "INTEGER DEFAULT NULL")
 
 
 def _migrate_users(conn) -> None:
