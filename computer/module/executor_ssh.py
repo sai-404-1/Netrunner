@@ -27,7 +27,7 @@ def _ssh_common_options():
     check_ip = SSH_CHECK_HOST_IP
     options = [
         "-o", "BatchMode=yes",
-        "-o", "ConnectTimeout=5",
+        "-o", "ConnectTimeout=15",
         "-o", f"StrictHostKeyChecking={strict}",
         "-o", "LogLevel=ERROR",
     ]
