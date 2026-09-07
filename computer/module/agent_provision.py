@@ -8,19 +8,20 @@ modules/sound_pinger.py и modules/desktop_style_reset.py) и включить s
 НЕ отключает обычный SSH-доступ (без немедленного отключения остальных, чтобы не
 было лок-аута).
 
-Переустановка (обновление уже стоящего агента): при повторном запуске модуль
-ЗАХОДИТ НА ХОСТ ПОД САМИМ netrunner-svc (его ключ уже провижен и сохранён в
-host_agents), перезаписывает скрипт/юнит/конфиг и перезапускает systemd-юнит.
-При этом:
-- sudoers-правило и authorized_keys НЕ пересоздаются (они уже есть),
-- ключ/токен НЕ ротируются (иначе живой WS-агент потеряет соединение навсегда:
-  он хранит старый токен в config.json на хосте, а сервер после provision()
-  знал бы только новый),
-- WS-адрес берётся из аргумента, либо из env NETRUNNER_AGENT_WS_URL, либо
-  автоопределяется (тот же порядок, что у _auto_install_agent).
-Первичный SSH-пользователь хоста (host.username) используется ТОЛЬКО как bootstrap
-при ПЕРВОЙ установке (когда netrunner-svc ещё нет) — дальше общение идёт через
-netrunner-svc.
+ВАЖНО про пользователя, из-под которого выполняется установка: модуль ВСЕГДА
+подключается к хосту под ПЕРВИЧНЫМ пользователем (host.username — тот, что был при
+добавлении машины, у него есть passwordless sudo). Через него создаётся/чинится
+sudoers-правило для netrunner-svc (NOPASSWD: ALL) и ставится агент. Затем фокус
+исполнения смещается с первичного пользователя на netrunner-svc: после установки
+все повседневные команды NetRunner идут под netrunner-svc (to_computer выбирает
+его, если агент провижен). Это нужно в т.ч. для машин, провиженных СТАРОЙ версией
+модуля, где netrunner-svc есть, но sudoers-правила для него НЕТ — переустановка
+чинит sudoers через первичного пользователя.
+
+Повторный запуск на уже провиженном хосте НЕ ротирует ключ/токен netrunner-svc
+(иначе живой WS-агент потеряет соединение: он хранит старый токен в config.json
+на хосте, а сервер после provision() знал бы только новый) — обновляются файлы,
+юнит и sudoers. Ключ/токен генерируются только когда агента ещё нет.
 """
 
 from __future__ import annotations
@@ -71,14 +72,13 @@ class UserModule:
             "шлёт только статусы (online при старте/загрузке хоста, heartbeat раз в "
             "минуту), никогда не принимает и не выполняет команды с сервера. НЕ "
             "отключает обычный SSH-доступ хоста (чтобы не было лок-аута). Требует "
-            "passwordless sudo у SSH-пользователя хоста (создание пользователя, "
-            "systemd-юнит — без tty пароль не ввести). ВАЖНО про адрес сервера: порт "
-            "бэкенда (8000) не экспонирован из контейнера — агент, в отличие от "
-            "браузера, не может подставить относительный путь, поэтому URL должен "
-            "идти через порт Next.js (3001 в Docker) и префикс /api/python/, который "
-            "проксируется на бэкенд, например ws://SERVER_IP:3001/api/python/agent/ws "
-            "— не ws://SERVER_IP:8000/agent/ws напрямую. Повторный запуск = "
-            "переустановка агента: файлы и юнит обновляются, ключ/токен не ротируются."
+            "passwordless sudo у ПЕРВИЧНОГО пользователя хоста (host.username). "
+            "ВАЖНО про адрес сервера: порт бэкенда (8000) не экспонирован из "
+            "контейнера — агент не может подставить относительный путь, поэтому URL "
+            "должен идти через порт Next.js (3001 в Docker) и префикс /api/python/, "
+            "например ws://SERVER_IP:3001/api/python/agent/ws. Повторный запуск = "
+            "переустановка: чинит sudoers для netrunner-svc, обновляет файлы и юнит, "
+            "ключ/токен не ротирует."
         )
 
     async def run_for_host(self, context, host, **kwargs):
@@ -105,31 +105,34 @@ class UserModule:
         agent_svc = AgentService(context.db)
         existing = agent_svc.get_existing(context.db, host.id)
         if existing:
-            # Переустановка: netrunner-svc уже есть. Заходим под НИМ его ключом.
+            # Переустановка: netrunner-svc уже есть. Ключ/токен НЕ ротируем.
             ssh_username = existing.ssh_username
             public_key = existing.public_key
-            is_reinstall = True
-            # Ключ не ротируем: живой агент держит старый токен, а authorized_keys
-            # на хосте уже содержит этот же public_key.
-            token = None
+            token = None  # оставляем прежний (encrypted хранится в existing)
+            create_user = False  # юзер уже есть, но sudoers всё равно чиним
         else:
-            # Первая установка: генерим секреты и подключаемся под первичным юзером.
+            # Первая установка: генерим секреты.
             secrets_data = agent_svc.provision(host.id)
             ssh_username = secrets_data["ssh_username"]
             public_key = secrets_data["public_key"]
             token = secrets_data["token"]
-            is_reinstall = False
+            create_user = True
 
-        # server_ws_url подставляется как есть (уже валидный URL)
+        if token is not None:
+            config_token = token
+        elif existing:
+            config_token = existing.token_encrypted
+        else:
+            config_token = ""
         config_json = json.dumps({
             "host_id": host.id,
-            "token": token if token is not None else (existing.token_encrypted if existing else ""),
+            "token": config_token,
             "server_ws_url": server_ws_url,
         })
 
-        # Собираем remote-скрипт: useradd только если юзера нет (первая установка).
+        # Пользователь создаётся только при первой установке (или если пропал).
         create_user_block = ""
-        if not is_reinstall:
+        if create_user:
             create_user_block = f"""if ! id {shlex.quote(ssh_username)} >/dev/null 2>&1; then
   sudo useradd -m -s /bin/bash {shlex.quote(ssh_username)}
   sudo mkdir -p /home/{ssh_username}/.ssh
@@ -140,19 +143,9 @@ class UserModule:
 fi
 """
 
-        sudoers_block = ""
-        if not is_reinstall:
-            sudoers_block = f"""
-# Полномочия уровня root для сервисного пользователя через sudoers.d.
-sudo tee /etc/sudoers.d/{shlex.quote(ssh_username)} > /dev/null << 'SUDOERS_EOF'
-{shlex.quote(ssh_username)} ALL=(ALL) NOPASSWD: ALL
-SUDOERS_EOF
-sudo chmod 0440 /etc/sudoers.d/{shlex.quote(ssh_username)}
-sudo chown root:root /etc/sudoers.d/{shlex.quote(ssh_username)}
-"""
-        pubkey_block = ""
-        if not is_reinstall:
-            pubkey_block = f"""
+        # Публичный ключ пишется всегда: если юзер был пересоздан / ключ сменился —
+        # он должен попасть на хост. Идемпотентно (тот же ключ перезаписывается тем же).
+        pubkey_block = f"""
 # Публичный ключ сервисного пользователя (вход по ключу, без пароля).
 sudo tee /home/{ssh_username}/.ssh/authorized_keys > /dev/null << 'PUBKEY_EOF'
 {public_key}
@@ -160,99 +153,18 @@ PUBKEY_EOF
 sudo chown -R {shlex.quote(ssh_username)}:{shlex.quote(ssh_username)} /home/{ssh_username}/.ssh
 """
 
-        remote_script = f"""set -e
-{create_user_block}
-{pubkey_block}
-{sudoers_block}
-sudo mkdir -p /etc/netrunner-agent /opt/netrunner-agent
-sudo tee /etc/netrunner-agent/config.json > /dev/null << 'CONFIG_EOF'
-{config_json}
-CONFIG_EOF
-sudo chown root:{shlex.quote(ssh_username)} /etc/netrunner-agent/config.json
-sudo chmod 640 /etc/netrunner-agent/config.json
-
-sudo tee /opt/netrunner-agent/netrunner_agent.py > /dev/null << 'AGENT_EOF'
-{agent_script}
-AGENT_EOF
-
-sudo tee /etc/systemd/system/netrunner-agent.service > /dev/null << 'UNIT_EOF'
-{service_unit}
-UNIT_EOF
-
-if ! python3 -c "import websockets" >/dev/null 2>&1; then
-  sudo apt-get install -y python3-websockets >/dev/null 2>&1 \
-    || sudo PIP_ROOT_USER_ACTION=ignore python3 -m pip install --break-system-packages --quiet websockets \
-    || echo "[WARN] Не удалось установить пакет websockets - установите вручную"
-fi
-
-sudo systemctl daemon-reload
-sudo systemctl enable --now netrunner-agent.service
-echo "Агент установлен и запущен ({ssh_username}, report-only)."
+        # sudoers создаётся/чинится ВСЕГДА — это и есть «смещение фокуса» с первичного
+        # пользователя на netrunner-svc (для старых хостов, где sudoers нет).
+        sudoers_block = f"""
+# Полномочия уровня root для сервисного пользователя через sudoers.d.
+sudo tee /etc/sudoers.d/{shlex.quote(ssh_username)} > /dev/null << 'SUDOERS_EOF'
+{shlex.quote(ssh_username)} ALL=(ALL) NOPASSWD: ALL
+SUDOERS_EOF
+sudo chmod 0440 /etc/sudoers.d/{shlex.quote(ssh_username)}
+sudo chown root:root /etc/sudoers.d/{shlex.quote(ssh_username)}
 """
 
-        to_computer = getattr(context, "to_computer", None)
-        from services.host_service import HostService as _HostService
-
-        def _bootstrap_computer(_host):
-            hsvc = getattr(context, "host_service", None)
-            if hsvc is not None and hasattr(hsvc, "to_computer_bootstrap"):
-                return hsvc.to_computer_bootstrap(_host)
-            from computer import Computer as _C
-            return _C(host=f"{_host.username}@{_host.address}", port=str(_host.port))
-
-        # Выбираем компьютер: для переустановки — netrunner-svc (to_computer),
-        # для свежей установки — первичный пользователь (bootstrap).
-        if is_reinstall:
-            computer = None
-            if callable(to_computer):
-                try:
-                    computer = to_computer(host)
-                except Exception:
-                    computer = None
-            if computer is None:
-                computer = _bootstrap_computer(host)
-            # Лёгкий пинг под netrunner-svc: если юзера/ключа нет — фоллбэк
-            probe = await computer.async_executor_ssh("echo netrunner-ok")
-            if probe.startswith("[ERROR]") or "Permission denied" in probe or "Operation timed out" in probe:
-                # netrunner-svc физически недоступен/отсутствует — ставим заново как fresh.
-                existing = None
-                secrets_data = agent_svc.provision(host.id)
-                ssh_username = secrets_data["ssh_username"]
-                public_key = secrets_data["public_key"]
-                token = secrets_data["token"]
-                is_reinstall = False
-                config_json = json.dumps({
-                    "host_id": host.id,
-                    "token": token,
-                    "server_ws_url": server_ws_url,
-                })
-                create_user_block = """if ! id %s >/dev/null 2>&1; then
-  sudo useradd -m -s /bin/bash %s
-  sudo mkdir -p /home/%s/.ssh
-  sudo touch /home/%s/.ssh/authorized_keys
-  sudo chown -R %s:%s /home/%s/.ssh
-  sudo chmod 700 /home/%s/.ssh
-  sudo chmod 600 /home/%s/.ssh/authorized_keys
-fi
-""" % (shlex.quote(ssh_username), shlex.quote(ssh_username), shlex.quote(ssh_username),
-       shlex.quote(ssh_username), shlex.quote(ssh_username), shlex.quote(ssh_username),
-       shlex.quote(ssh_username), shlex.quote(ssh_username), shlex.quote(ssh_username))
-                sudoers_block = """
-# Полномочия уровня root для сервисного пользователя через sudoers.d.
-sudo tee /etc/sudoers.d/%s > /dev/null << 'SUDOERS_EOF'
-%s ALL=(ALL) NOPASSWD: ALL
-SUDOERS_EOF
-sudo chmod 0440 /etc/sudoers.d/%s
-sudo chown root:root /etc/sudoers.d/%s
-""" % (shlex.quote(ssh_username), shlex.quote(ssh_username), shlex.quote(ssh_username), shlex.quote(ssh_username))
-                pubkey_block = """
-# Публичный ключ сервисного пользователя (вход по ключу, без пароля).
-sudo tee /home/%s/.ssh/authorized_keys > /dev/null << 'PUBKEY_EOF'
-%s
-PUBKEY_EOF
-sudo chown -R %s:%s /home/%s/.ssh
-""" % (shlex.quote(ssh_username), public_key, shlex.quote(ssh_username), shlex.quote(ssh_username), shlex.quote(ssh_username))
-                remote_script = f"""set -e
+        remote_script = f"""set -e
 {create_user_block}
 {pubkey_block}
 {sudoers_block}
@@ -281,14 +193,20 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now netrunner-agent.service
 echo "Агент установлен и запущен ({ssh_username}, report-only)."
 """
-                # Для свежей установки заходим под первичным пользователем
-                computer = _bootstrap_computer(host)
+
+        # ВСЕГДА подключаемся под ПЕРВИЧНЫМ пользователем (у него passwordless sudo,
+        # и именно через него мы чиним sudoers для netrunner-svc).
+        hsvc = getattr(context, "host_service", None)
+        computer = None
+        if hsvc is not None and hasattr(hsvc, "to_computer_bootstrap"):
+            computer = hsvc.to_computer_bootstrap(host)
         else:
-            computer = _bootstrap_computer(host)
+            from computer import Computer as _C
+            computer = _C(host=f"{host.username}@{host.address}", port=str(host.port))
 
         output = await computer.async_executor_ssh(remote_script)
         status = "error" if output.startswith("[ERROR]") else "success"
-        return {**base, "status": status, "output": output, "is_reinstall": is_reinstall}
+        return {**base, "status": status, "output": output, "is_reinstall": existing is not None}
 
 
 CustomModule = UserModule()
