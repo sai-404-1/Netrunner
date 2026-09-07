@@ -1,6 +1,6 @@
 "use client";
 
-import type { ScheduledTask, Template, Host, Group } from "@/lib/schedule-types";
+import type { ScheduledTask, Scenario, Host, Group } from "@/lib/schedule-types";
 import { targetsFor } from "@/lib/schedule-utils";
 import { formatDate } from "@/lib/utils";
 import { DataTable } from "@/components/DataTable";
@@ -8,19 +8,33 @@ import { Pencil, Trash2 } from "lucide-react";
 
 interface Props {
   rows: ScheduledTask[];
-  templates: Template[];
+  scenarios: Scenario[];
   hosts: Host[];
   groups: Group[];
   onEdit: (task: ScheduledTask) => void;
   onDelete: (id: number) => void;
 }
 
-export default function TaskTable({ rows, templates, hosts, groups, onEdit, onDelete }: Props) {
+export default function TaskTable({ rows, scenarios, hosts, groups, onEdit, onDelete }: Props) {
   return (
     <DataTable
       columns={[
         { title: "Название", key: "name" },
-        { title: "Шаблон", render: (t) => templates.find((x) => x.id === t.template_id)?.name || t.template_id },
+        {
+          title: "Сценарий",
+          render: (t) => scenarios.find((x) => x.id === t.scenario_id)?.name || `#${t.scenario_id}`,
+        },
+        {
+          title: "Условие",
+          render: (t) =>
+            t.wait_for_online ? (
+              <span className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+                по появлению в сети
+              </span>
+            ) : (
+              formatDate(t.run_at)
+            ),
+        },
         {
           title: "Цель",
           render: (t) => {
@@ -28,7 +42,6 @@ export default function TaskTable({ rows, templates, hosts, groups, onEdit, onDe
             return `${t.target_type === "host" ? "хост" : "группа"}:${target?.name || t.target_id}`;
           },
         },
-        { title: "Запуск", render: (t) => formatDate(t.run_at) },
         {
           title: "",
           render: (t) => (

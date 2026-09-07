@@ -1,7 +1,7 @@
-export interface Template {
+export interface Scenario {
   id: number;
   name: string;
-  module_id: number;
+  step_count?: number;
 }
 
 export interface Host {
@@ -17,9 +17,14 @@ export interface Group {
 export interface ScheduledTask {
   id: number;
   name: string;
-  template_id: number;
+  scenario_id: number | null;
   target_type: "host" | "group";
   target_id: number;
   run_at: string;
   is_enabled: boolean;
+  last_run_at?: string | null;
+  interval_seconds?: number | null;
+  max_runs?: number | null;
+  run_count?: number;
+  wait_for_online?: boolean;
 }

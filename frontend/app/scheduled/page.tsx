@@ -6,7 +6,7 @@ import { formatDate, toLocalISO } from "@/lib/utils";
 import { Modal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
 import { Pencil, Trash2, Settings, Settings2, RefreshCw } from "lucide-react";
-import type { ScheduledTask, Template, Host, Group } from "@/lib/schedule-types";
+import type { ScheduledTask, Scenario, Host, Group } from "@/lib/schedule-types";
 import EditTaskModal from "./EditTaskModal";
 import TaskTable from "./TaskTable";
 import CreateTaskModal from "./CreateTaskModal";
@@ -15,7 +15,7 @@ export default function ScheduledPage() {
   const showToast = useToast();
   const [tasks, setTasks] = useState<ScheduledTask[]>([]);
   const [tasksInactive, setInactiveTasks] = useState<ScheduledTask[]>([]);
-  const [templates, setTemplates] = useState<Template[]>([]);
+  const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [hosts, setHosts] = useState<Host[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [editTask, setEditTask] = useState<ScheduledTask | null>(null);
@@ -23,16 +23,16 @@ export default function ScheduledPage() {
   const [createTask, setCreateTask] = useState<true | false>(false);
 
   async function load() {
-    const [active, inactive, te, h, g] = await Promise.all([
+    const [active, inactive, sc, h, g] = await Promise.all([
       apiGetClient("/api/schedule/active"),
       apiGetClient("/api/schedule/inactive"),
-      apiGetClient("/api/task-templates"),
+      apiGetClient("/api/scenarios"),
       apiGetClient("/api/hosts"),
       apiGetClient("/api/groups"),
     ]);
     setTasks(active || []);
     setInactiveTasks(inactive || []);
-    setTemplates(te || []);
+    setScenarios(sc || []);
     setHosts(h || []);
     setGroups(g || []);
   }
@@ -45,10 +45,11 @@ export default function ScheduledPage() {
     try {
       await apiPostClient("/api/schedule", {
         name: fd.get("name"),
-        template_id: Number(fd.get("template_id")),
+        scenario_id: Number(fd.get("scenario_id")),
         target_type: fd.get("target_type"),
         target_id: Number(fd.get("target_id")),
         run_at: fd.get("run_at") ? toLocalISO(new Date(String(fd.get("run_at")))) : "",
+        wait_for_online: fd.get("wait_for_online") === "1",
       });
       showToast("Запланированная задача создана");
       setCreateTask(false); // закрыть модал вместо e.currentTarget.reset()
@@ -63,11 +64,12 @@ export default function ScheduledPage() {
       await apiPostClient("/api/schedule/update", {
         id: Number(fd.get("id")),
         name: fd.get("name"),
-        template_id: Number(fd.get("template_id")),
+        scenario_id: Number(fd.get("scenario_id")),
         target_type: fd.get("target_type"),
         target_id: Number(fd.get("target_id")),
         run_at: fd.get("run_at") ? toLocalISO(new Date(String(fd.get("run_at")))) : "",
         is_enabled: fd.get("is_enabled") === "on",
+        wait_for_online: fd.get("wait_for_online") === "1",
       });
       showToast("Задача обновлена");
       setEditTask(null);
@@ -144,7 +146,7 @@ export default function ScheduledPage() {
         {listTab == "inactive" && (
           <TaskTable
             rows={tasksInactive}
-            templates={templates}
+            scenarios={scenarios}
             hosts={hosts}
             groups={groups}
             onEdit={setEditTask}
@@ -155,7 +157,7 @@ export default function ScheduledPage() {
         {listTab == "active" && (
           <TaskTable
             rows={tasks}
-            templates={templates}
+            scenarios={scenarios}
             hosts={hosts}
             groups={groups}
             onEdit={setEditTask}
@@ -167,7 +169,7 @@ export default function ScheduledPage() {
       {editTask && (
         <EditTaskModal
           task={editTask}
-          templates={templates}
+          scenarios={scenarios}
           hosts={hosts}
           groups={groups}
           onClose={() => setEditTask(null)}
@@ -177,7 +179,7 @@ export default function ScheduledPage() {
 
       {createTask && (
         <CreateTaskModal
-          templates={templates}
+          scenarios={scenarios}
           hosts={hosts}
           groups={groups}
           onClose={() => setCreateTask(false)}
