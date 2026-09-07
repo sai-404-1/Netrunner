@@ -22,3 +22,4 @@ class ScheduledTask(BaseModel):
     interval_seconds: int | None = None
     max_runs: int | None = None
     run_count: int = 0
+    wait_for_online: int = 0

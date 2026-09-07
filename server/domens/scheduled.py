@@ -23,6 +23,7 @@ async def api_schedule_create(request: web.Request) -> web.Response:
         raise web.HTTPBadRequest(reason="run_at is required")
     interval_raw = payload.get("interval_seconds")
     max_runs_raw = payload.get("max_runs")
+    wait_for_online = payload.get("wait_for_online")
     scheduled = ctx.db.scheduled.create(
         name=str(payload.get("name") or "").strip(),
         template_id=_safe_int(payload.get("template_id")),
@@ -30,6 +31,7 @@ async def api_schedule_create(request: web.Request) -> web.Response:
         target_id=_safe_int(payload.get("target_id")),
         run_at=run_at,
         is_enabled=1 if payload.get("is_enabled", True) else 0,
+        wait_for_online=1 if wait_for_online else 0,
 
         # TODO проверить что из-за None нет последствий и найти причину по которой возможен None
         interval_seconds=int(interval_raw) if interval_raw else None,

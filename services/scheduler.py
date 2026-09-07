@@ -4,11 +4,12 @@ import asyncio
 
 
 class Scheduler:
-    def __init__(self, db, task_runner, logger, history=None):
+    def __init__(self, db, task_runner, logger, history=None, host_service=None):
         self.db = db
         self.task_runner = task_runner
         self.logger = logger
         self.history = history
+        self.host_service = host_service
 
     def tick(self):
         due_tasks = self.db.scheduled.due()
@@ -25,6 +26,39 @@ class Scheduler:
             except Exception as exc:
                 self.logger.error("Scheduler failed for task %s: %s", scheduled.id, exc)
 
+    async def _wait_online_ok(self, scheduled) -> bool:
+        """True, если задача с wait_for_online готова к запуску (цель в сети).
+
+        Для цели-хост — хост отвечает по SSH (check_host_async). Для цели-группа —
+        хост онлайн. Если host_service недоступен — считаем готовой (без этого
+        планировщик не сломается, просто перестанет ждать). Задача остаётся
+        включённой, пока цель не появится в сети.
+        """
+        if not scheduled.wait_for_online:
+            return True
+        if not self.host_service:
+            return True
+        try:
+            targets = self.host_service.resolve_targets(
+                scheduled.target_type, scheduled.target_id
+            )
+        except Exception:  # noqa: BLE001
+            return False
+        if not targets:
+            return False
+        checks = await asyncio.gather(
+            *[self._host_online(h) for h in targets],
+            return_exceptions=True,
+        )
+        return any(c is True for c in checks)
+
+    async def _host_online(self, host) -> bool:
+        try:
+            result = await self.host_service.check_host_async(host.id)
+            return bool(result.get("is_active"))
+        except Exception:  # noqa: BLE001
+            return False
+
     async def tick_async(self):
         """Asynchronous version of tick for the async server server.
 
@@ -35,6 +69,9 @@ class Scheduler:
 
         async def _run_and_mark(scheduled):
             try:
+                if not await self._wait_online_ok(scheduled):
+                    # Хост пока не в сети — пропускаем и оставляем задачу включённой, ждём.
+                    return
                 if self.history:
                     self.history.record(
                         source="scheduler",

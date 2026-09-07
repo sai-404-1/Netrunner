@@ -20,7 +20,11 @@ class ScheduledTaskRepo(BaseRepository):
         rows = self._fetchall(
             """
             SELECT * FROM scheduled_tasks
-            WHERE is_enabled = 1 AND run_at <= ?
+            WHERE is_enabled = 1
+              AND (
+                wait_for_online = 1
+                OR run_at <= ?
+              )
             ORDER BY run_at ASC
             """,
             (before,),
