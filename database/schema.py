@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS inventory_snapshots (
 CREATE TABLE IF NOT EXISTS scheduled_tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
+    description TEXT,
     scenario_id INTEGER,
     target_type TEXT NOT NULL,
     target_id INTEGER NOT NULL,
@@ -280,6 +281,7 @@ def _migrate_scheduled_tasks(conn) -> None:
     cols = _column_names(conn, "scheduled_tasks")
 
     for column, definition in [
+        ("description", "TEXT DEFAULT NULL"),
         ("interval_seconds", "INTEGER DEFAULT NULL"),
         ("max_runs", "INTEGER DEFAULT NULL"),
         ("run_count", "INTEGER NOT NULL DEFAULT 0"),
@@ -302,6 +304,7 @@ def _migrate_scheduled_tasks(conn) -> None:
         CREATE TABLE scheduled_tasks_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
+            description TEXT,
             scenario_id INTEGER,
             target_type TEXT NOT NULL,
             target_id INTEGER NOT NULL,
@@ -322,12 +325,12 @@ def _migrate_scheduled_tasks(conn) -> None:
     """)
     conn.execute("""
         INSERT INTO scheduled_tasks_new (
-            id, name, scenario_id, target_type, target_id, run_at, is_enabled,
-            last_run_at, created_at, interval_seconds, max_runs, run_count,
+            id, name, description, scenario_id, target_type, target_id, run_at,
+            is_enabled, last_run_at, created_at, interval_seconds, max_runs, run_count,
             wait_for_online, days_of_week, start_min, end_min, interval_min
         )
         SELECT
-            id, name, scenario_id, target_type, target_id, run_at,
+            id, name, description, scenario_id, target_type, target_id, run_at,
             CASE WHEN scenario_id IS NOT NULL THEN is_enabled ELSE 0 END,
             last_run_at, created_at, interval_seconds, max_runs, run_count,
             wait_for_online, days_of_week, start_min, end_min, interval_min

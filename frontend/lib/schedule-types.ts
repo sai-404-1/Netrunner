@@ -17,6 +17,7 @@ export interface Group {
 export interface ScheduledTask {
   id: number;
   name: string;
+  description?: string | null;
   scenario_id: number | null;
   target_type: "host" | "group";
   target_id: number;
@@ -27,4 +28,8 @@ export interface ScheduledTask {
   max_runs?: number | null;
   run_count?: number;
   wait_for_online?: boolean;
+  days_of_week?: string;
+  start_min?: number | null;
+  end_min?: number | null;
+  interval_min?: number | null;
 }

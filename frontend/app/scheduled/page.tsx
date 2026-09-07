@@ -2,14 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { apiGetClient, apiPostClient } from "@/lib/api-client";
-import { formatDate, toLocalISO } from "@/lib/utils";
-import { Modal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
-import { Pencil, Trash2, Settings, Settings2, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import type { ScheduledTask, Scenario, Host, Group } from "@/lib/schedule-types";
-import EditTaskModal from "./EditTaskModal";
 import TaskTable from "./TaskTable";
-import CreateTaskModal from "./CreateTaskModal";
+import TaskFormModal from "./TaskFormModal";
 
 export default function ScheduledPage() {
   const showToast = useToast();
@@ -20,7 +17,7 @@ export default function ScheduledPage() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [editTask, setEditTask] = useState<ScheduledTask | null>(null);
   const [listTab, setListTab] = useState<"active" | "inactive">("active");
-  const [createTask, setCreateTask] = useState<true | false>(false);
+  const [createOpen, setCreateOpen] = useState(false);
 
   async function load() {
     const [active, inactive, sc, h, g] = await Promise.all([
@@ -41,38 +38,17 @@ export default function ScheduledPage() {
     load();
   }, []);
 
-  async function onCreate(fd: FormData) {
+  async function handleSubmit(data: Record<string, unknown>, isEdit: boolean) {
     try {
-      await apiPostClient("/api/schedule", {
-        name: fd.get("name"),
-        scenario_id: Number(fd.get("scenario_id")),
-        target_type: fd.get("target_type"),
-        target_id: Number(fd.get("target_id")),
-        run_at: fd.get("run_at") ? toLocalISO(new Date(String(fd.get("run_at")))) : "",
-        wait_for_online: fd.get("wait_for_online") === "1",
-      });
-      showToast("Запланированная задача создана");
-      setCreateTask(false); // закрыть модал вместо e.currentTarget.reset()
-      await load();
-    } catch (err: any) {
-      showToast(err.message, "error");
-    }
-  }
-
-  async function onUpdate(fd: FormData) {
-    try {
-      await apiPostClient("/api/schedule/update", {
-        id: Number(fd.get("id")),
-        name: fd.get("name"),
-        scenario_id: Number(fd.get("scenario_id")),
-        target_type: fd.get("target_type"),
-        target_id: Number(fd.get("target_id")),
-        run_at: fd.get("run_at") ? toLocalISO(new Date(String(fd.get("run_at")))) : "",
-        is_enabled: fd.get("is_enabled") === "on",
-        wait_for_online: fd.get("wait_for_online") === "1",
-      });
-      showToast("Задача обновлена");
+      if (isEdit) {
+        await apiPostClient("/api/schedule/update", { ...data, id: editTask?.id });
+        showToast("Задача обновлена");
+      } else {
+        await apiPostClient("/api/schedule", data);
+        showToast("Запланированная задача создана");
+      }
       setEditTask(null);
+      setCreateOpen(false);
       await load();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -136,54 +112,47 @@ export default function ScheduledPage() {
               Не активные
             </button>
           </div>
-          <div className="flex gap-5">
-            <button className="btn-secondary" onClick={tickScheduler}>
+          <div className="flex gap-2">
+            <button className="btn-secondary" onClick={tickScheduler} title="Проверить расписание">
               <RefreshCw size={16} />
             </button>
-            <button className="btn" onClick={() => setCreateTask(!createTask)} title="Запланировать плановую задачу">Запланировать</button>
+            <button className="btn" onClick={() => setCreateOpen(true)} title="Создать запланированную задачу">
+              Запланировать
+            </button>
           </div>
         </div>
-        {listTab == "inactive" && (
-          <TaskTable
-            rows={tasksInactive}
-            scenarios={scenarios}
-            hosts={hosts}
-            groups={groups}
-            onEdit={setEditTask}
-            onDelete={deleteTask}
-          />
-        )}
 
-        {listTab == "active" && (
-          <TaskTable
-            rows={tasks}
-            scenarios={scenarios}
-            hosts={hosts}
-            groups={groups}
-            onEdit={setEditTask}
-            onDelete={deleteTask}
-          />
-        )}
+        <TaskTable
+          rows={listTab === "active" ? tasks : tasksInactive}
+          scenarios={scenarios}
+          hosts={hosts}
+          groups={groups}
+          onEdit={setEditTask}
+          onDelete={deleteTask}
+          onToggle={toggleEnabled}
+        />
       </div>
 
       {editTask && (
-        <EditTaskModal
+        <TaskFormModal
+          title="Редактировать задачу"
           task={editTask}
           scenarios={scenarios}
           hosts={hosts}
           groups={groups}
           onClose={() => setEditTask(null)}
-          onSubmit={onUpdate}
+          onSubmit={handleSubmit}
         />
       )}
 
-      {createTask && (
-        <CreateTaskModal
+      {createOpen && (
+        <TaskFormModal
+          title="Создать запланированную задачу"
           scenarios={scenarios}
           hosts={hosts}
           groups={groups}
-          onClose={() => setCreateTask(false)}
-          onCreate={onCreate}
+          onClose={() => setCreateOpen(false)}
+          onSubmit={handleSubmit}
         />
       )}
     </div>

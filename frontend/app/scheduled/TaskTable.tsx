@@ -1,8 +1,7 @@
 "use client";
 
 import type { ScheduledTask, Scenario, Host, Group } from "@/lib/schedule-types";
-import { targetsFor } from "@/lib/schedule-utils";
-import { formatDate } from "@/lib/utils";
+import { targetsFor, scheduleLabel } from "@/lib/schedule-utils";
 import { DataTable } from "@/components/DataTable";
 import { Pencil, Trash2 } from "lucide-react";
 
@@ -13,27 +12,26 @@ interface Props {
   groups: Group[];
   onEdit: (task: ScheduledTask) => void;
   onDelete: (id: number) => void;
+  onToggle: (task: ScheduledTask) => void;
 }
 
-export default function TaskTable({ rows, scenarios, hosts, groups, onEdit, onDelete }: Props) {
+export default function TaskTable({ rows, scenarios, hosts, groups, onEdit, onDelete, onToggle }: Props) {
   return (
     <DataTable
       columns={[
-        { title: "Название", key: "name" },
+        {
+          title: "Название",
+          render: (t) => <span title={t.description || undefined}>{t.name}</span>,
+        },
         {
           title: "Сценарий",
           render: (t) => scenarios.find((x) => x.id === t.scenario_id)?.name || `#${t.scenario_id}`,
         },
         {
           title: "Условие",
-          render: (t) =>
-            t.wait_for_online ? (
-              <span className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
-                когда будет в сети
-              </span>
-            ) : (
-              formatDate(t.run_at)
-            ),
+          render: (t) => (
+            <span className="text-sm">{scheduleLabel(t)}</span>
+          ),
         },
         {
           title: "Цель",
@@ -41,6 +39,18 @@ export default function TaskTable({ rows, scenarios, hosts, groups, onEdit, onDe
             const target = targetsFor(t.target_type, hosts, groups).find((x) => x.id === t.target_id);
             return `${t.target_type === "host" ? "хост" : "группа"}:${target?.name || t.target_id}`;
           },
+        },
+        {
+          title: "Активна",
+          render: (t) => (
+            <input
+              type="checkbox"
+              className="w-4 h-4"
+              checked={!!t.is_enabled}
+              onChange={() => onToggle(t)}
+              title={t.is_enabled ? "Отключить" : "Активировать"}
+            />
+          ),
         },
         {
           title: "",

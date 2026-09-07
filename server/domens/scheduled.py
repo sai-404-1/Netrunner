@@ -89,6 +89,7 @@ async def api_schedule_create(request: web.Request) -> web.Response:
     max_runs_raw = payload.get("max_runs")
     scheduled = ctx.db.scheduled.create(
         name=str(payload.get("name") or "").strip(),
+        description=str(payload.get("description") or "").strip() or None,
         scenario_id=scenario_id,
         target_type=str(payload.get("target_type") or "host").strip(),
         target_id=_safe_int(payload.get("target_id")),
