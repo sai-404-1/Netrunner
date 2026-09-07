@@ -191,15 +191,100 @@ echo "Агент установлен и запущен ({ssh_username}, report-
 """
 
         to_computer = getattr(context, "to_computer", None)
-        computer = None
-        if callable(to_computer):
-            try:
-                computer = to_computer(host)
-            except Exception:
-                computer = None
-        if computer is None:
-            from computer import Computer
-            computer = Computer(host=f"{host.username}@{host.address}", port=str(host.port))
+        from services.host_service import HostService as _HostService
+
+        def _bootstrap_computer(_host):
+            hsvc = getattr(context, "host_service", None)
+            if hsvc is not None and hasattr(hsvc, "to_computer_bootstrap"):
+                return hsvc.to_computer_bootstrap(_host)
+            from computer import Computer as _C
+            return _C(host=f"{_host.username}@{_host.address}", port=str(_host.port))
+
+        # Выбираем компьютер: для переустановки — netrunner-svc (to_computer),
+        # для свежей установки — первичный пользователь (bootstrap).
+        if is_reinstall:
+            computer = None
+            if callable(to_computer):
+                try:
+                    computer = to_computer(host)
+                except Exception:
+                    computer = None
+            if computer is None:
+                computer = _bootstrap_computer(host)
+            # Лёгкий пинг под netrunner-svc: если юзера/ключа нет — фоллбэк
+            probe = await computer.async_executor_ssh("echo netrunner-ok")
+            if probe.startswith("[ERROR]") or "Permission denied" in probe or "Operation timed out" in probe:
+                # netrunner-svc физически недоступен/отсутствует — ставим заново как fresh.
+                existing = None
+                secrets_data = agent_svc.provision(host.id)
+                ssh_username = secrets_data["ssh_username"]
+                public_key = secrets_data["public_key"]
+                token = secrets_data["token"]
+                is_reinstall = False
+                config_json = json.dumps({
+                    "host_id": host.id,
+                    "token": token,
+                    "server_ws_url": server_ws_url,
+                })
+                create_user_block = """if ! id %s >/dev/null 2>&1; then
+  sudo useradd -m -s /bin/bash %s
+  sudo mkdir -p /home/%s/.ssh
+  sudo touch /home/%s/.ssh/authorized_keys
+  sudo chown -R %s:%s /home/%s/.ssh
+  sudo chmod 700 /home/%s/.ssh
+  sudo chmod 600 /home/%s/.ssh/authorized_keys
+fi
+""" % (shlex.quote(ssh_username), shlex.quote(ssh_username), shlex.quote(ssh_username),
+       shlex.quote(ssh_username), shlex.quote(ssh_username), shlex.quote(ssh_username),
+       shlex.quote(ssh_username), shlex.quote(ssh_username), shlex.quote(ssh_username))
+                sudoers_block = """
+# Полномочия уровня root для сервисного пользователя через sudoers.d.
+sudo tee /etc/sudoers.d/%s > /dev/null << 'SUDOERS_EOF'
+%s ALL=(ALL) NOPASSWD: ALL
+SUDOERS_EOF
+sudo chmod 0440 /etc/sudoers.d/%s
+sudo chown root:root /etc/sudoers.d/%s
+""" % (shlex.quote(ssh_username), shlex.quote(ssh_username), shlex.quote(ssh_username), shlex.quote(ssh_username))
+                pubkey_block = """
+# Публичный ключ сервисного пользователя (вход по ключу, без пароля).
+sudo tee /home/%s/.ssh/authorized_keys > /dev/null << 'PUBKEY_EOF'
+%s
+PUBKEY_EOF
+sudo chown -R %s:%s /home/%s/.ssh
+""" % (shlex.quote(ssh_username), public_key, shlex.quote(ssh_username), shlex.quote(ssh_username), shlex.quote(ssh_username))
+                remote_script = f"""set -e
+{create_user_block}
+{pubkey_block}
+{sudoers_block}
+sudo mkdir -p /etc/netrunner-agent /opt/netrunner-agent
+sudo tee /etc/netrunner-agent/config.json > /dev/null << 'CONFIG_EOF'
+{config_json}
+CONFIG_EOF
+sudo chown root:{shlex.quote(ssh_username)} /etc/netrunner-agent/config.json
+sudo chmod 640 /etc/netrunner-agent/config.json
+
+sudo tee /opt/netrunner-agent/netrunner_agent.py > /dev/null << 'AGENT_EOF'
+{agent_script}
+AGENT_EOF
+
+sudo tee /etc/systemd/system/netrunner-agent.service > /dev/null << 'UNIT_EOF'
+{service_unit}
+UNIT_EOF
+
+if ! python3 -c "import websockets" >/dev/null 2>&1; then
+  sudo apt-get install -y python3-websockets >/dev/null 2>&1 \\
+    || sudo PIP_ROOT_USER_ACTION=ignore python3 -m pip install --break-system-packages --quiet websockets \\
+    || echo "[WARN] Не удалось установить пакет websockets - установите вручную"
+fi
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now netrunner-agent.service
+echo "Агент установлен и запущен ({ssh_username}, report-only)."
+"""
+                # Для свежей установки заходим под первичным пользователем
+                computer = _bootstrap_computer(host)
+        else:
+            computer = _bootstrap_computer(host)
 
         output = await computer.async_executor_ssh(remote_script)
         status = "error" if output.startswith("[ERROR]") else "success"
