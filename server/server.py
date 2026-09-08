@@ -92,7 +92,7 @@ def run_web_server(
         if ping_interval > 0:
             ping_task = asyncio.create_task(_periodic_ping(_app, ping_interval))
             _app["ping_task"] = ping_task
-        _app["scheduler_task"] = asyncio.create_task(_scheduler_loop(_app, interval=120))
+        _app["scheduler_task"] = asyncio.create_task(_scheduler_loop(_app, interval=60))
         _app["update_task"] = asyncio.create_task(_update_monitor(_app))
         _app["telegram_task"] = asyncio.create_task(_telegram_poller(_app))
 
