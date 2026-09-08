@@ -1,9 +1,32 @@
 from aiohttp import web
-from datetime import datetime
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from server.tools import _ok, _ctx, _read_json, _safe_int
 from database.repos.schedule_repo import validate_schedule, next_slot_utc_iso
+
+
+def _to_utc_iso(value) -> str:
+    """Нормализует строку времени в UTC ISO (для run_at).
+
+    Фронт шлёт run_at в ЛОКАЛЬНОМ времени со смещением (напр. +03:00), а
+    планировщик (due/mark_ran/recurring-слоты) оперирует в UTC (+00:00) и
+    сравнивает ISO-строки. Лексикографическое сравнение дат с РАЗНЫМИ офсетами
+    некорректно (03:08+03:00 «больше» 00:22+00:00, хотя это один момент) — поэтому
+    всё время приводим к UTC здесь, на входе. Пусто/битое -> ''.
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    txt = raw[:-1] + "+00:00" if raw.endswith("Z") else raw
+    try:
+        dt = datetime.fromisoformat(txt)
+    except ValueError:
+        return ""
+    if dt.tzinfo is None:
+        # Наивное время — считаем его локальным временем сервера.
+        dt = dt.astimezone()
+    return dt.astimezone(timezone.utc).replace(microsecond=0).isoformat()
 
 
 def _days(payload) -> str:
@@ -74,7 +97,7 @@ async def api_schedule_create(request: web.Request) -> web.Response:
         wait_for_online = 0
         interval_seconds = None
     else:
-        run_at = str(payload.get("run_at") or "").strip()
+        run_at = _to_utc_iso(payload.get("run_at"))
         if not run_at:
             raise web.HTTPBadRequest(reason="run_at is required (или задайте расписание)")
         wait_for_online = payload.get("wait_for_online")
@@ -116,6 +139,8 @@ async def api_schedule_update(request: web.Request) -> web.Response:
         updates["scenario_id"] = _safe_int(updates["scenario_id"])
     if "target_id" in updates:
         updates["target_id"] = _safe_int(updates["target_id"])
+    if "run_at" in updates and updates["run_at"]:
+        updates["run_at"] = _to_utc_iso(updates["run_at"])
 
     # Если передан recurring-набор — валидируем и пересчитываем run_at (следующий
     # слот), сбрасываем несовместимые wait_for_online и простой интервал.
