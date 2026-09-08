@@ -25,6 +25,10 @@
 - `task_run_repo.py` — `TaskRunRepo`: `create`, `start(...)`, `finish(...)`,
   `list_recent(limit)`, `clear_all()`.
 - `schedule_repo.py` — `ScheduledTaskRepo`: `create`, `due(before_iso)`, `mark_ran(task_id, when)`.
+  Плюс модульные функции расписания: `is_schedule` (расписание ли задача), `validate_schedule`
+  (жёсткая проверка окна/дней/интервала, `MIN_REPEAT_MINUTES=1` — защита от нулевого
+  интервала/бесконечного цикла), `next_slot_local`/`next_slot_utc_iso` (следующий cron-слот).
+  `mark_ran` для расписания сдвигает `run_at` на следующий слот, для разовой отключает.
 - `inventory_repo.py` — `InventoryRepo`: `create`, `latest_for_host`, `history_for_host`,
   `latest_per_host()`.
 - `report_repo.py` — `ReportRepo`: `create`, `latest(limit, report_type)`, `clear_all()`.
@@ -45,3 +49,12 @@
 - `trusted_device_repo.py` — `TrustedDeviceRepo`: доверенные устройства для 2FA
   (`find(user_id, device_id)`, `for_user`, `trust(..., duration_sec/forever)`, `touch`,
   `revoke`). `trusted_until = NULL` → доверять бессрочно.
+- `host_agent_repo.py` — `HostAgentRepo`: провиженные endpoint-агенты хостов
+  (`by_host`, `touch` — обновить `last_seen`, `mark_disconnected`).
+- `host_event_repo.py` — `HostEventRepo`: таймлайн событий хоста от агента (`record`,
+  `for_host`, `recent`).
+- `history_entry_repo.py` — `HistoryEntryRepo`: строки единой истории (`record`, `recent`,
+  `count`).
+- `system_log_repo.py` — `SystemLogRepo`: журнал процессов сервера (`record`, `recent`).
+- `host_default_cred_repo.py` — `HostDefaultCredRepo`: стандартные креды хостов
+  (`create`, `get_default`, `upsert`, `update_username`, `update_password`).

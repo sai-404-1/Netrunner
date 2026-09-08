@@ -23,7 +23,10 @@ Dataclass-модели строк таблиц NetRunner. Каждая моде�
 - `module_record.py` — `ModuleRecord`: запись о модуле (slug, схема, builtin/enabled).
 - `task_template.py` — `TaskTemplate`: шаблон задачи (модуль + аргументы по умолчанию).
 - `task_run.py` — `TaskRun`: запуск задачи (статус, stdout/stderr, `per_host_json`, кто запустил).
-- `scheduled_task.py` — `ScheduledTask`: запланированная задача (время, интервал, лимит запусков).
+- `scheduled_task.py` — `ScheduledTask`: запланированная задача, привязанная к **сценарию**
+  (`scenario_id`), с целью, `run_at` (UTC-слот) и описанием (`description`). Варианты условия:
+  разовая по времени; recurring-**расписание** (`days_of_week` — 7-битмаска, `start_min`/
+  `end_min`/`interval_min` — окно «С…До» и интервал); ожидание сети (`wait_for_online`).
 - `inventory_snapshot.py` — `InventorySnapshot`: снимок инвентаризации хоста (ОС, RAM, диски и т.д.).
 - `report.py` — `Report`: сгенерированный отчёт (тип, формат, путь к файлу).
 - `user.py` — `User`: пользователь (логин, хэш пароля, роль, токен, флаги активности/
@@ -39,6 +42,15 @@ Dataclass-модели строк таблиц NetRunner. Каждая моде�
   размер, кто загрузил). Таблица `uploaded_files`.
 - `scenario.py` — `Scenario`/`ScenarioStep`/`ScenarioRun`/`ScenarioStepRun`: сценарии
   (цепочки модулей) и их запуски (добавлены отдельной фичей).
+- `host_agent.py` — `HostAgent`: провиженный endpoint-агент хоста (report-only, сам звонит
+  по WS): `ssh_username`, зашифрованные `token_encrypted`/`private_key_encrypted`,
+  `public_key`, `status`, `last_seen_at`.
+- `host_event.py` — `HostEvent`: событие хоста от агента (`online`/`heartbeat`/…), таймлайн.
+- `history_entry.py` — `HistoryEntry`: строка единой истории событий NetRunner
+  (`source`, `event_type`, `title`, `payload`, ссылки).
+- `system_log.py` — `SystemLog`: журнал внутренних процессов сервера.
+- `host_default_cred.py` — `HostDefaultCred`: стандартные учётные данные (username/пароль
+  в шифре) для быстрой добавки новых хостов.
 
 > Таблица `app_settings` (key/value-настройки, напр. конфиг самообновления) модели не
 > имеет — с ней работают напрямую через `db.app_settings` (см. `repos/app_settings_repo.py`).

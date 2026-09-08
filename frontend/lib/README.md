@@ -28,3 +28,11 @@
 - `toLocalISO(date)` — дата в локальный ISO.
 - `escapeHtml(value)` — экранирование HTML.
 - `readFileAsBase64(file)` — чтение файла в base64 (загрузка ключей/модулей).
+
+### `schedule-utils.ts` / `schedule-types.ts` — планировщик
+- Типы (`schedule-types.ts`): `Scenario`, `Host`, `Group`, `ScheduledTask` (сценарий, цель,
+  `wait_for_online`, recurring-поля `days_of_week`/`start_min`/`end_min`/`interval_min`).
+- Хелперы (`schedule-utils.ts`): битмаска дней недели (`toBitmask`/`fromBitmask`, `isEveryDay`,
+  `daysLabel`), перевод времени «HH:MM» ↔ минуты (`hmToMinutes`/`minutesToHM`,
+  `durationToMinutes`), `targetsFor` (цели по типу), `scheduleLabel` (человекочитаемое условие
+  задачи для таблицы).
