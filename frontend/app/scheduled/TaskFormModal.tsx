@@ -161,7 +161,7 @@ export default function TaskFormModal({ title, task, scenarios, hosts, groups, o
   return (
     <Modal title={title} onClose={onClose} size="lg">
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid lg:grid-cols-[minmax(0,1fr)_16rem] gap-6">
+        <div className="grid lg:grid-cols-[minmax(0,1fr)_19rem] gap-6">
           {/* Левая колонка */}
           <div className="space-y-4 min-w-0">
             <label className="label block">
@@ -177,6 +177,22 @@ export default function TaskFormModal({ title, task, scenarios, hosts, groups, o
                 placeholder="Описание задачи (необязательно)"
               />
             </label>
+
+            {/* Условие запуска — под описанием задачи, с большим отступом сверху,
+                без разделительной линии. Управляет показом блока дат/времени. */}
+            <div className="mt-4 flex gap-2 justify-between">
+              <span className="text-sm font-semibold text-gray-500">Условие запуска</span>
+              <div className="flex items-center gap-6">
+                <label className="inline-flex items-center gap-2 text-sm cursor-pointer select-none">
+                  <input type="radio" checked={cond === "time"} onChange={() => setCond("time")} />
+                  По времени
+                </label>
+                <label className="inline-flex items-center gap-2 text-sm cursor-pointer select-none">
+                  <input type="radio" checked={cond === "online"} onChange={() => setCond("online")} />
+                  Когда будет в сети
+                </label>
+              </div>
+            </div>
 
             {/* Режим «по времени» + повтор: день запуска и время запуска */}
             {cond === "time" && (
@@ -255,16 +271,19 @@ export default function TaskFormModal({ title, task, scenarios, hosts, groups, o
 
           {/* Правая колонка */}
           <div className="space-y-4">
-            {/* Цель — мульти-выбор: вкладки Хосты/Группы, можно выбрать несколько. */}
+            {/* Цель — вкладки «Хосты / Группы» в стиле вкладок «Активные /
+                Не активные» планировщика: переключаются, как вкладки. */}
             <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <span className="font-semibold">Цель</span>
-                <span className="text-xs text-gray-500">
-                  {targetHostIds.length + targetGroupIds.length} выбрано
-                </span>
+                {(targetHostIds.length + targetGroupIds.length) > 0 && (
+                  <span className="text-xs text-gray-500">
+                    {targetHostIds.length + targetGroupIds.length} выбрано
+                  </span>
+                )}
               </div>
 
-              {/* Вкладки: Хосты / Группы */}
+              {/* Вкладки: Хосты / Группы — как «Активные / Не активные» планировщика */}
               <div className="flex gap-1 border-b border-gray-200 dark:border-gray-700">
                 {(["host", "group"] as const).map((tab) => (
                   <button
@@ -282,108 +301,71 @@ export default function TaskFormModal({ title, task, scenarios, hosts, groups, o
                 ))}
               </div>
 
-              {/* Список выбора — чипы, онлайн-хосты сверху */}
-              <div className="max-h-56 overflow-y-auto space-y-2">
+              {/* Список выбора активной вкладки — онлайн-хосты сверху.
+                  Выделение как у фильтров истории: активная — синяя (btn),
+                  неактивная — серая (btn-secondary). */}
+              <div className="flex flex-wrap gap-2 max-h-56 overflow-y-auto">
                 {targetTab === "host" ? (
                   sortedHosts.length === 0 ? (
                     <p className="text-sm text-gray-500">Хостов нет</p>
                   ) : (
-                    sortedHosts.map((h) => {
-                      const on = targetHostIds.includes(h.id);
-                      return (
-                        <button
-                          key={h.id}
-                          type="button"
-                          onClick={() => toggleHost(h.id)}
-                          className={`btn w-full justify-between px-3 py-2 text-sm font-medium ${
-                            on
-                              ? "border-blue-600 bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
-                              : "btn-secondary"
-                          }`}
-                        >
-                          <span className="flex items-center gap-2">
-                            <span
-                              className={`inline-block w-2 h-2 rounded-full ${h.is_active ? "bg-green-500" : "bg-gray-400"}`}
-                            />
-                            {h.name} #{h.id}
-                          </span>
-                          <span className="text-xs">
-                            {h.is_active ? "онлайн" : "офлайн"}
-                          </span>
-                        </button>
-                      );
-                    })
+                    sortedHosts.map((h) => (
+                      <button
+                        key={h.id}
+                        type="button"
+                        onClick={() => toggleHost(h.id)}
+                        className={targetHostIds.includes(h.id) ? "btn py-1.5 px-3 text-sm" : "btn-secondary py-1.5 px-3 text-sm"}
+                      >
+                        <span aria-hidden className={`inline-block w-2 h-2 rounded-full mr-1.5 ${h.is_active ? "bg-green-500" : "bg-gray-400"}`} />
+                        {h.name}
+                      </button>
+                    ))
                   )
                 ) : groups.length === 0 ? (
                   <p className="text-sm text-gray-500">Групп нет</p>
                 ) : (
-                  groups.map((g) => {
-                    const on = targetGroupIds.includes(g.id);
-                    return (
-                      <button
-                        key={g.id}
-                        type="button"
-                        onClick={() => toggleGroup(g.id)}
-                        className={`btn w-full flex items-center justify-between px-3 py-2 text-sm font-medium ${
-                          on
-                            ? "border-blue-600 bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
-                            : "btn-secondary"
-                        }`}
-                      >
-                        <span>{g.name} #{g.id}</span>
-                        {on && <span className="text-xs">✓</span>}
-                      </button>
-                    );
-                  })
+                  groups.map((g) => (
+                    <button
+                      key={g.id}
+                      type="button"
+                      onClick={() => toggleGroup(g.id)}
+                      className={targetGroupIds.includes(g.id) ? "btn py-1.5 px-3 text-sm" : "btn-secondary py-1.5 px-3 text-sm"}
+                    >
+                      {g.name}
+                    </button>
+                  ))
                 )}
               </div>
             </div>
 
-            {/* Сценарии — мульти-выбор чекбоксами */}
-            <fieldset className="space-y-2">
-              <legend className="text-sm font-semibold text-gray-500">
-                Сценарии ({scenarioIds.length} выбрано)
-              </legend>
+            {/* Сценарии — в том же стиле, что и цель (обёртка + заголовок + счётчик),
+                но вертикальным списком кнопок. */}
+            <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-semibold">Сценарии</span>
+                {scenarioIds.length > 0 && (
+                  <span className="text-xs text-gray-500">
+                    {scenarioIds.length} выбрано
+                  </span>
+                )}
+              </div>
               {scenarios.length === 0 ? (
                 <p className="text-sm text-gray-500">Сценариев нет</p>
               ) : (
-                <div className="space-y-1 max-h-40 overflow-y-auto">
-                  {scenarios.map((s) => {
-                    const on = scenarioIds.includes(s.id);
-                    return (
-                      <label
-                        key={s.id}
-                        className="flex items-center gap-2 text-sm cursor-pointer select-none px-2 py-1.5 rounded hover:bg-slate-50 dark:hover:bg-gray-700/50"
-                      >
-                        <input
-                          type="checkbox"
-                          className="w-4 h-4"
-                          checked={on}
-                          onChange={() => toggleScenario(s.id)}
-                        />
-                        <span className="flex-1">
-                          {s.name} #{s.id}
-                        </span>
-                        {on && <span className="text-blue-600 text-xs">✓</span>}
-                      </label>
-                    );
-                  })}
+                <div className="space-y-2 max-h-56 overflow-y-auto">
+                  {scenarios.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => toggleScenario(s.id)}
+                      className={scenarioIds.includes(s.id) ? "btn w-full py-1.5 px-3 text-sm" : "btn-secondary w-full py-1.5 px-3 text-sm"}
+                    >
+                      {s.name}
+                    </button>
+                  ))}
                 </div>
               )}
-            </fieldset>
-
-            <fieldset className="space-y-2 pt-2 border-t border-gray-200 dark:border-gray-700">
-              <legend className="text-sm font-semibold text-gray-500">Условие запуска</legend>
-              <label className="inline-flex items-center gap-2 text-sm cursor-pointer select-none">
-                <input type="radio" checked={cond === "time"} onChange={() => setCond("time")} />
-                По времени
-              </label>
-              <br />
-              <label className="inline-flex items-center gap-2 text-sm cursor-pointer select-none">
-                <input type="radio" checked={cond === "online"} onChange={() => setCond("online")} />
-                Когда будет в сети
-              </label>
-            </fieldset>
+            </div>
           </div>
         </div>
 
