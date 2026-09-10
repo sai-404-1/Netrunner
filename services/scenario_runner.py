@@ -412,13 +412,22 @@ class ScenarioRunner:
             ", ".join(f"host {hid}={st}" for hid, st in plan.host_statuses.items()) or "нет хостов",
         )
         if self.history:
+            if overall == "completed":
+                event_type, hlevel = "scenario_run_done", "success"
+            elif overall == "partial":
+                # Сценарий выполнился частично: часть машин ок, часть нет.
+                # Это НЕ ошибка сценария — пишем отдельным warning-событием,
+                # чтобы история не показывала его как упавший.
+                event_type, hlevel = "scenario_run_partial", "warning"
+            else:
+                event_type, hlevel = "scenario_failed", "error"
             self.history.record(
                 source="scenario",
-                event_type="scenario_run_done" if overall == "completed" else "scenario_failed",
+                event_type=event_type,
                 title=f'Сценарий "{plan.scenario.name}" завершён: {overall}',
                 description=f"Завершение сценария, статус {overall}",
                 payload={"scenario_name": plan.scenario.name, "overall_status": overall},
                 ref_type="scenario",
                 ref_id=plan.scenario.id,
-                level="success" if overall == "completed" else "error",
+                level=hlevel,
             )

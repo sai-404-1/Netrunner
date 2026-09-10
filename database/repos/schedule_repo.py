@@ -48,6 +48,15 @@ def task_target_ids(task) -> tuple[list[int], list[int]]:
     return [], []
 
 
+def task_done_host_ids(task) -> list[int]:
+    """Id хостов, на которых задача сценария уже отработала (прогресс wait_for_online).
+
+    Группа раскрывается в конкретные хосты, задача «дожидается» оставшихся офлайн:
+    отработавшие записываются сюда, чтобы не запускать сценарий повторно.
+    """
+    return parse_ids(getattr(task, "done_host_ids_json", None))
+
+
 def is_schedule(task) -> bool:
     """True, если задача — recurring-расписание (cron): задан хоть один день."""
     return any(ch == '1' for ch in (task.days_of_week or ''))
@@ -130,7 +139,29 @@ class ScheduledTaskRepo(BaseRepository):
         data.setdefault('is_enabled', 1)
         data.setdefault('run_count', 0)
         data.setdefault('days_of_week', '')
+        data.setdefault('done_host_ids_json', None)
         return super().create(**data)
+
+    def mark_hosts_done(self, task_id: int, host_ids: list[int]):
+        """Отмечает хосты как отработавшие в рамках текущей задачи (idempotent).
+
+        Используется планировщиком для wait_for_online: сценарий выполнен на
+        онлайн-хостах, они добавляются в прогресс, чтобы при следующих тиках не
+        запускаться повторно. Задача при этом остаётся включённой и ждёт
+        оставшиеся офлайн-машины.
+        """
+        task = self.get(task_id)
+        if task is None:
+            return None
+        if not host_ids:
+            return task
+        done = set(task_done_host_ids(task))
+        done.update(int(h) for h in host_ids)
+        return self.update(task_id, done_host_ids_json=json.dumps(sorted(done)))
+
+    def clear_done_hosts(self, task_id: int):
+        """Сбрасывает прогресс wait_for_online (задача завершилась/перезапущена)."""
+        return self.update(task_id, done_host_ids_json=None)
 
     def due(self, before_iso: str | None = None):
         before = before_iso or utcnow_iso()
@@ -170,6 +201,7 @@ class ScheduledTaskRepo(BaseRepository):
                     last_run_at=now_str,
                     run_count=new_run_count,
                     is_enabled=0,
+                    done_host_ids_json=None,
                 )
             return self.update(
                 task_id,
@@ -177,6 +209,7 @@ class ScheduledTaskRepo(BaseRepository):
                 run_at=next_run,
                 run_count=new_run_count,
                 is_enabled=1,
+                done_host_ids_json=None,
             )
 
         if task.interval_seconds:
@@ -193,6 +226,7 @@ class ScheduledTaskRepo(BaseRepository):
                     last_run_at=now_str,
                     run_count=new_run_count,
                     is_enabled=0,
+                    done_host_ids_json=None,
                 )
             else:
                 return self.update(
@@ -201,6 +235,7 @@ class ScheduledTaskRepo(BaseRepository):
                     run_at=next_run_at,
                     run_count=new_run_count,
                     is_enabled=1,
+                    done_host_ids_json=None,
                 )
         else:
             # One-shot task: disable after first run
@@ -209,4 +244,5 @@ class ScheduledTaskRepo(BaseRepository):
                 last_run_at=now_str,
                 run_count=new_run_count,
                 is_enabled=0,
+                done_host_ids_json=None,
             )

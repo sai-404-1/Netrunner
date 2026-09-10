@@ -50,6 +50,7 @@ class HistoryService:
                 event_types={
                     'scenario_run': {'label': 'Запуск сценария', 'level': 'info'},
                     'scenario_run_done': {'label': 'Завершение сценария', 'level': 'success'},
+                    'scenario_run_partial': {'label': 'Сценарий завершён частично', 'level': 'warning'},
                     'scenario_step_failed': {'label': 'Шаг сценария: ошибка', 'level': 'error'},
                     'scenario_failed': {'label': 'Сценарий завершён с ошибкой', 'level': 'error'},
                 },

@@ -39,3 +39,10 @@ class ScheduledTask(BaseModel):
     target_host_ids_json: str | None = None   # JSON-массив id выбранных хостов
     target_group_ids_json: str | None = None  # JSON-массив id выбранных групп
     scenario_ids_json: str | None = None      # JSON-массив id выбранных сценариев
+
+    # Прогресс wait_for_online по хостам (2026-09-10): JSON-массив id хостов, на
+    # которых сценарий уже отработал в рамках этой задачи. Группа раскрывается в
+    # конкретные хосты; задача «просыпается» по первому онлайн-хосту, выполняет
+    # только на онлайн, а офлайн-хосты продолжают ждать. Когда покрыты все —
+    # задача закрывается (mark_ran), а список очищается.
+    done_host_ids_json: str | None = None

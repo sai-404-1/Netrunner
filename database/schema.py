@@ -122,6 +122,7 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
     target_host_ids_json TEXT,
     target_group_ids_json TEXT,
     scenario_ids_json TEXT,
+    done_host_ids_json TEXT,
     FOREIGN KEY (scenario_id) REFERENCES scenarios(id) ON DELETE CASCADE
 );
 
@@ -286,6 +287,9 @@ def _migrate_scheduled_tasks(conn) -> None:
         ("target_host_ids_json", "TEXT DEFAULT NULL"),
         ("target_group_ids_json", "TEXT DEFAULT NULL"),
         ("scenario_ids_json", "TEXT DEFAULT NULL"),
+        # прогресс wait_for_online по хостам: id хостов, на которых сценарий уже
+        # отработал (задача «дожидается» оставшихся офлайн-машин группы)
+        ("done_host_ids_json", "TEXT DEFAULT NULL"),
     ]:
         if column not in cols:
             _add_column_if_missing(conn, "scheduled_tasks", column, definition)
@@ -317,6 +321,7 @@ def _migrate_scheduled_tasks(conn) -> None:
             target_host_ids_json TEXT,
             target_group_ids_json TEXT,
             scenario_ids_json TEXT,
+            done_host_ids_json TEXT,
             FOREIGN KEY (scenario_id) REFERENCES scenarios(id) ON DELETE CASCADE
         )
     """)
@@ -325,14 +330,16 @@ def _migrate_scheduled_tasks(conn) -> None:
             id, name, description, scenario_id, target_type, target_id, run_at,
             is_enabled, last_run_at, created_at, interval_seconds, max_runs, run_count,
             wait_for_online, days_of_week, start_min, end_min, interval_min,
-            target_host_ids_json, target_group_ids_json, scenario_ids_json
+            target_host_ids_json, target_group_ids_json, scenario_ids_json,
+            done_host_ids_json
         )
         SELECT
             id, name, description, scenario_id, target_type, target_id, run_at,
             CASE WHEN scenario_id IS NOT NULL THEN is_enabled ELSE 0 END,
             last_run_at, created_at, interval_seconds, max_runs, run_count,
             wait_for_online, days_of_week, start_min, end_min, interval_min,
-            target_host_ids_json, target_group_ids_json, scenario_ids_json
+            target_host_ids_json, target_group_ids_json, scenario_ids_json,
+            NULL
         FROM scheduled_tasks
     """)
     conn.execute("DROP TABLE scheduled_tasks")

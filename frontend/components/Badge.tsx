@@ -7,6 +7,7 @@ export function StatusBadge({ status }: { status: string }) {
     // Сценарий прошёл не одинаково на разных хостах: часть машин дошла до конца,
     // часть сошла с дистанции — это не общий провал запуска.
     partial: "Частично",
+    warning: "Внимание",
     skipped: "Пропущено",
     running: "Выполняется",
     pending: "В очереди",
@@ -19,7 +20,7 @@ export function StatusBadge({ status }: { status: string }) {
       ? "badge-error"
       : status === "running"
       ? "badge-running"
-      : status === "cancelled" || status === "partial" || status === "skipped"
+      : status === "cancelled" || status === "partial" || status === "skipped" || status === "warning"
       ? "badge-warning"
       : "";
   return <span className={`badge ${cls}`}>{labels[status] || status || "—"}</span>;

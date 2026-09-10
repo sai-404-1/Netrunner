@@ -194,6 +194,11 @@ async def api_schedule_update(request: web.Request) -> web.Response:
             updates["interval_seconds"] = None
             updates.update(sched)
 
+    # Правка задачи делает прежний прогресс wait_for_online неактуальным (могли
+    # поменяться цели/условие) — сбрасываем список отработавших хостов, чтобы
+    # задача заново прошлась по цели. Также при повторном включении задачи.
+    updates["done_host_ids_json"] = None
+
     scheduled = ctx.db.scheduled.update(task_id, **updates)
     return _ok(scheduled)
 
