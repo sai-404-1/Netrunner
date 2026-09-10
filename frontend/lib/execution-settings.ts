@@ -7,7 +7,12 @@ import { apiGetClient, apiPostClient } from "@/lib/api-client";
 
 export type ExecutionMode = "parallel" | "batch";
 
+/** От чьего имени выполняются SSH-команды на целевых машинах. */
+export type SshUserMode = "service" | "primary";
+
 export interface ExecutionConfig {
+  /** Пользователь исполнения: service (netrunner-svc) либо primary (первичный хоста). */
+  ssh_user_mode: SshUserMode;
   mode: ExecutionMode;
   /** Машин в пакете — сколько компьютеров работает одновременно в режиме batch. */
   batch_size: number;

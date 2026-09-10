@@ -24,7 +24,9 @@
 - `task_template_repo.py` — `TaskTemplateRepo`: `create`.
 - `task_run_repo.py` — `TaskRunRepo`: `create`, `start(...)`, `finish(...)`,
   `list_recent(limit)`, `clear_all()`.
-- `schedule_repo.py` — `ScheduledTaskRepo`: `create`, `due(before_iso)`, `mark_ran(task_id, when)`.
+- `schedule_repo.py` — `ScheduledTaskRepo`: `create`, `due(before_iso)`, `mark_ran(task_id, when)`,
+  `mark_hosts_done(task_id, host_ids)` / `clear_done_hosts(task_id)` — прогресс `wait_for_online`
+  по хостам (`done_host_ids_json`); `mark_ran` его сбрасывает.
   Плюс модульные функции расписания: `is_schedule` (расписание ли задача), `validate_schedule`
   (жёсткая проверка окна/дней/интервала, `MIN_REPEAT_MINUTES=1` — защита от нулевого
   интервала/бесконечного цикла), `next_slot_local`/`next_slot_utc_iso` (следующий cron-слот).

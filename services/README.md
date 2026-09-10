@@ -21,8 +21,16 @@
     `remove_host`, `import_legacy_hosts_json`.
   - Пароли хостов: `set_host_password(host_id, password)` (шифрует),
     `get_host_password(host_id)` (расшифровывает) — для повторной привязки SSH-ключа.
-  - Группы: `create_group`, `add_host_to_group`, `group_hosts`, `resolve_targets`.
+  - Группы: `create_group`, `add_host_to_group`, `group_hosts`, `resolve_targets`,
+    `resolve_scheduled_targets(host_ids, group_ids)` — раскрытие мульти-выбора цели
+    планировщика в список хостов (группы → их хосты, дедуп).
   - SSH: `to_computer(host)`/`to_computers(hosts)` — строит фасад `Computer`.
+    Пользователь исполнения берётся из глобальной настройки
+    `execution_settings.ssh_user_mode`: `service` → `netrunner-svc` (ключ агента),
+    `primary` → первичный пользователь хоста (`host.username`). Настройка
+    перечитывается на каждом вызове, на хостах ничего не меняется.
+    `to_computer_bootstrap(host)` — всегда первичный пользователь (проверка
+    доступности, первичная установка агента).
   - Проверка: `check_host`/`async check_host_async`, `check_all_hosts`/`async check_all_hosts_async`.
 
 ### `secrets.py` — шифрование секретов хостов
@@ -59,6 +67,12 @@
   - Для recurring-слота при офлайн-цели слот **пропускается** (запись в историю
     `scheduler_skip` «цель не в сети»), `run_at` сдвигается на следующий слот — без
     «догонялок» (для выполнения по факту включения есть отдельный режим wait_for_online).
+  - **`wait_for_online` — пер-хост (`_run_wait_for_online`):** группа не выступает
+    единой целью, а раскрывается в конкретные хосты. «Просыпается» по первому
+    онлайн-хосту, но сценарий выполняет **только на тех, что сейчас в сети**; хосты,
+    до которых не достучались, продолжают ждать (прогресс — `scheduled_tasks.
+    done_host_ids_json`). Когда покрыты все хосты цели — задача закрывается
+    (`mark_ran`). Правка задачи сбрасывает прогресс.
 
 ### `scenario_runner.py` — исполнение сценариев (цепочек модулей)
 - `class ScenarioRunner` — асинхронный прогон многошаговых сценариев **пер-хост**: у каждого
@@ -118,12 +132,19 @@
   реестром (`slug`, имя, колонки, типы событий): `scenario`, `task`, `agent`,
   `agent_message`, `scheduler`. Единая точка записи — `record(source, event_type, title, ...)`
   → строка в `history_entries` (общая лента в UI). Чтение: `list(limit, sources, offset)`,
-  `count(sources)`.
+  `count(sources)`. События сценария: `scenario_run`, `scenario_run_done` (success),
+  `scenario_run_partial` (**warning** — часть машин прошла, часть нет; НЕ ошибка),
+  `scenario_step_failed`, `scenario_failed`.
 
-### `execution_settings.py` — темп выполнения сценариев
-- `class ExecutionSettings(db)` — настройка «как гнать хосты»: режим пакетами
-  (`MODE_BATCH`, `batch_size`, `batch_delay`) либо с ограничением параллелизма
-  (`max_parallel`). Читается/меняется в админке и перечитывается перед каждым запуском.
+### `execution_settings.py` — настройки исполнения (темп + пользователь)
+- `class ExecutionSettings(db)` — глобальные настройки исполнения на сервере:
+  - темп «как гнать хосты»: режим пакетами (`MODE_BATCH`, `batch_size`, `batch_delay`)
+    либо с ограничением параллелизма (`max_parallel`);
+  - **пользователь исполнения** `ssh_user_mode`: `service` (`netrunner-svc`, дефолт)
+    либо `primary` (первичный пользователь хоста) — влияет на `HostService.to_computer`.
+  - `FIELDS` — единственный источник правды (ключ в `app_settings`, дефолт, границы,
+    подпись для формы); `get_config`/`set_config`/`schema`. Перечитывается перед каждым
+    запуском; меняется со страницы «Администрирование».
 
 ### `agent_service.py` — обслуживание endpoint-агента
 - `class AgentService` — жизненный цикл endpoint-агента на управляемой машине:

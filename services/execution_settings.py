@@ -16,9 +16,33 @@ from __future__ import annotations
 MODE_PARALLEL = "parallel"
 MODE_BATCH = "batch"
 
+# Пользователь, от чьего имени исполняются SSH-команды на целевых машинах:
+#   service — сервисный netrunner-svc (его per-host ключ, root через sudo) — дефолт;
+#   primary — первичный пользователь хоста (host.username + его ключ), тот же, под
+#             которым хост добавлялся. Переключение глобальное и живёт на сервере —
+#             на самих хостах ничего не меняется (решение Сая 2026-09-10).
+SSH_USER_SERVICE = "service"
+SSH_USER_PRIMARY = "primary"
+
 # Единственный источник правды по настройке: ключ в app_settings, значение по
 # умолчанию, границы и подпись для интерфейса.
 FIELDS: dict[str, dict] = {
+    "ssh_user_mode": {
+        "key": "execution_ssh_user_mode",
+        "type": "choice",
+        "default": SSH_USER_SERVICE,
+        "choices": [
+            {"value": SSH_USER_SERVICE, "label": "Сервисный (netrunner-svc)"},
+            {"value": SSH_USER_PRIMARY, "label": "Первичный пользователь хоста"},
+        ],
+        "label": "Пользователь исполнения команд",
+        "hint": (
+            "От чьего имени NetRunner выполняет команды на целевых машинах. "
+            "Сервисный — netrunner-svc (root через sudo, ключ агента). "
+            "Первичный — пользователь, под которым хост добавлен. "
+            "Переключение глобальное, на хостах ничего не меняется."
+        ),
+    },
     "mode": {
         "key": "execution_mode",
         "type": "choice",

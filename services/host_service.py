@@ -15,6 +15,7 @@ from cryptography.hazmat.primitives.serialization import BestAvailableEncryption
 
 from computer import Computer
 from database.repos.base import utcnow_iso
+from services.execution_settings import ExecutionSettings, SSH_USER_PRIMARY, SSH_USER_SERVICE
 from services.secrets import decrypt_secret, encrypt_secret
 
 
@@ -137,12 +138,23 @@ class HostService:
     def to_computer(self, host):
         """Возвращает Computer для исполнения команд на хосте.
 
-        Если endpoint-агент хоста провижен (в ``host_agents`` есть приватный ключ
-        сервисного пользователя) — подключаемся под ``netrunner-svc`` его per-host
-        ключом (материализуется в кэш-файл). Иначе — под первичным пользователем
-        хоста (``host.username``) его обычным ключом. Первичный пользователь
-        остаётся bootstrap/fallback-каналом.
+        Пользователь исполнения задаётся глобальной настройкой на сервере
+        (`execution_settings.ssh_user_mode`, страница «Администрирование»):
+
+        - **service** (по умолчанию) — сервисный ``netrunner-svc``: если endpoint-агент
+          хоста провижен, подключаемся его per-host ключом (материализуется в кэш-файл),
+          команды идут с root через sudo;
+        - **primary** — первичный пользователь хоста (``host.username``) его обычным
+          ключом, тот же, под которым хост добавлялся.
+
+        Переключение живёт на сервере и на самих хостах ничего не меняет. Настройка
+        перечитывается на каждом вызове — правка в админке применяется к следующей
+        команде без перезапуска сервера.
         """
+        if self._execution_ssh_user_mode() == SSH_USER_PRIMARY:
+            # Первичный пользователь — тот же канал, что bootstrap/проверка доступности.
+            return self.to_computer_bootstrap(host)
+
         agent = self.db.host_agents.by_host(host.id)
         if agent and agent.private_key_encrypted:
             key_path = self._materialize_agent_key(host.id, agent.ssh_username, agent.private_key_encrypted)
@@ -162,6 +174,13 @@ class HostService:
             port=str(host.port),
             key_path=key_path,
         )
+
+    def _execution_ssh_user_mode(self) -> str:
+        """Пользователь исполнения из app_settings (см. execution_settings.FIELDS).
+
+        Битое/отсутствующее значение приводится к дефолту внутри ExecutionSettings.
+        """
+        return ExecutionSettings(self.db).get_config().get("ssh_user_mode") or SSH_USER_SERVICE
 
     def _materialize_agent_key(self, host_id: int, ssh_username: str, private_key_encrypted: str) -> str:
         """Расшифровывает приватный ключ endpoint-агента и пишет его в кэш-файл.
