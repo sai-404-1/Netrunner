@@ -27,7 +27,6 @@ const nav = [
   { href: "/hosts", label: "Хосты", icon: Server },
   { href: "/keys", label: "Ключи", icon: Key },
   { href: "/modules", label: "Модули", icon: Boxes },
-  { href: "/run", label: "Запуск задачи", icon: Play },
   { href: "/history", label: "История", icon: History },
   { href: "/scheduled", label: "Планировщик", icon: CalendarClock },
   { href: "/scenarios", label: "Сценарии", icon: ListOrdered },
@@ -41,9 +40,10 @@ const adminNav = [
 // вынесены в отдельную группу над остальными (как Администрирование отделено
 // от общего списка). Порядок внутри группы дальше уточняется реальной
 // частотой кликов (см. NAV_USAGE_KEY), это только стартовые веса.
-const FREQUENT_HREFS = ["/run", "/modules", "/hosts"];
+// «Запуск задачи» (/run) из сайдбара убран: блок запуска перенесён на «Хосты».
+const FREQUENT_HREFS = ["/modules", "/hosts"];
 const NAV_USAGE_KEY = "netrunner_nav_usage";
-const NAV_USAGE_SEED: Record<string, number> = { "/run": 3, "/modules": 2, "/hosts": 1 };
+const NAV_USAGE_SEED: Record<string, number> = { "/modules": 2, "/hosts": 1 };
 
 function loadNavUsage(): Record<string, number> {
   try {

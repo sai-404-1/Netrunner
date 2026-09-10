@@ -8,12 +8,18 @@ import {useToast} from "@/components/Toast";
 import {useAuth} from "@/components/AuthProvider";
 import type {Group, Host, SshKey} from "@/lib/host-types";
 import {HostList} from "./HostList";
+import {RunPanel} from "./RunPanel";
 import {AddHostModal} from "./modals/AddHostModal";
 import {EditHostModal} from "./modals/EditHostModal";
 import {ReprovisionModal} from "./modals/ReprovisionModal";
 import {BulkReprovisionModal} from "./modals/BulkReprovisionModal";
 import {GroupCreateModal} from "./modals/GroupCreateModal";
 import {GroupEditModal} from "./modals/GroupEditModal";
+
+// Ключ localStorage: выбранный кабинет-фильтр, строка поиска и активная вкладка
+// страницы переживают уход на профиль хоста (и перезагрузку) — Сай: «хранить
+// фильтрацию компьютеров во время того, как пользователь взаимодействует с компами».
+const HOSTS_VIEW_KEY = "netrunner_hosts_view";
 
 export default function HostsPage() {
   const {user} = useAuth();
@@ -25,6 +31,12 @@ export default function HostsPage() {
   const [keys, setKeys] = useState<SshKey[]>([]);
   const [search, setSearch] = useState("");
   const [groupFilter, setGroupFilter] = useState("");
+  const [listTab, setListTab] = useState<"hosts" | "groups">("hosts");
+  const [viewHydrated, setViewHydrated] = useState(false);
+  // Запуск задачи прямо со страницы «Хосты»: цель выбирается в списке,
+  // её тип следует за активной вкладкой (Хосты → хост, Кабинеты → кабинет).
+  const [runTargetId, setRunTargetId] = useState("");
+  const [pickMode, setPickMode] = useState(false);
   const [checkingAll, setCheckingAll] = useState(false);
   const [editHost, setEditHost] = useState<Host | null>(null);
   const [reprovisionHost, setReprovisionHost] = useState<Host | null>(null);
@@ -53,6 +65,28 @@ export default function HostsPage() {
   useEffect(() => {
     load();
   }, []);
+
+  // Восстанавливаем фильтр/вкладку после возврата с профиля хоста или перезагрузки.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(HOSTS_VIEW_KEY);
+      if (raw) {
+        const v = JSON.parse(raw);
+        if (typeof v.search === "string") setSearch(v.search);
+        if (typeof v.groupFilter === "string") setGroupFilter(v.groupFilter);
+        if (v.listTab === "hosts" || v.listTab === "groups") setListTab(v.listTab);
+      }
+    } catch {}
+    setViewHydrated(true);
+  }, []);
+
+  // Сохраняем состояние фильтра при каждом изменении (после восстановления).
+  useEffect(() => {
+    if (!viewHydrated) return;
+    try {
+      localStorage.setItem(HOSTS_VIEW_KEY, JSON.stringify({search, groupFilter, listTab}));
+    } catch {}
+  }, [viewHydrated, search, groupFilter, listTab]);
 
   const filteredHosts = useMemo(() => {
     let rows = hosts;
@@ -341,6 +375,31 @@ export default function HostsPage() {
     setGroupFilter("");
   }
 
+  // Вкладка задаёт тип цели запуска: «Хосты» → хост, «Кабинеты» → кабинет.
+  // Переключение вкладки сбрасывает ранее выбранную цель (тип-то изменился).
+  const runTargetType: "host" | "group" = listTab === "hosts" ? "host" : "group";
+
+  function changeListTab(tab: "hosts" | "groups") {
+    setListTab(tab);
+    setRunTargetId("");
+    setPickMode(false);
+  }
+
+  function pickTarget(id: string) {
+    setRunTargetId(id);
+    setPickMode(false);
+  }
+
+  const runTargetName = useMemo(() => {
+    if (!runTargetId) return null;
+    if (runTargetType === "host") {
+      const h = hosts.find((x) => String(x.id) === runTargetId);
+      return h ? `${h.name} (${h.address})` : null;
+    }
+    const g = groups.find((x) => String(x.id) === runTargetId);
+    return g ? g.name : null;
+  }, [runTargetId, runTargetType, hosts, groups]);
+
   return (
     <div className="space-y-6">
       <HostList
@@ -354,6 +413,21 @@ export default function HostsPage() {
         checkingAll={checkingAll}
         selectionMode={selectionMode}
         selectedIds={selectedIds}
+        listTab={listTab}
+        onListTab={changeListTab}
+        pickMode={pickMode}
+        pickedId={runTargetId || null}
+        onPickTarget={pickTarget}
+        runPanel={
+          <RunPanel
+            targetType={runTargetType}
+            targetId={runTargetId}
+            targetName={runTargetName}
+            pickMode={pickMode}
+            onTogglePick={() => setPickMode((v) => !v)}
+            onClearTarget={() => setRunTargetId("")}
+          />
+        }
         onSearch={setSearch}
         onGroupFilter={setGroupFilter}
         onSelectGroup={selectGroup}

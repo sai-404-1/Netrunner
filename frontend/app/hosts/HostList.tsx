@@ -26,6 +26,17 @@ interface Props {
   checkingAll: boolean;
   selectionMode: boolean;
   selectedIds: Set<number>;
+  /** Активная вкладка списка: «Кабинеты» (groups) или «Хосты» (hosts).
+   *  Держится в родителе, чтобы выбор переживал уход на профиль хоста и возврат. */
+  listTab: "hosts" | "groups";
+  onListTab: (tab: "hosts" | "groups") => void;
+  /** Режим выбора цели для запуска: список подсвечен, клик по карточке выбирает цель. */
+  pickMode: boolean;
+  /** id выбранной цели (строкой) — карточка подсвечивается фоном, как выбранный сценарий. */
+  pickedId: string | null;
+  onPickTarget: (id: string) => void;
+  /** Блок запуска задачи — рендерится сразу под строкой вкладок/поиска/добавления. */
+  runPanel?: React.ReactNode;
   onSearch: (s: string) => void;
   onGroupFilter: (s: string) => void;
   onSelectGroup: (id: string) => void;
@@ -53,6 +64,12 @@ export function HostList({
                            checkingAll,
                            selectionMode,
                            selectedIds,
+                           listTab,
+                           onListTab,
+                           pickMode,
+                           pickedId,
+                           onPickTarget,
+                           runPanel,
                            onSearch,
                            onGroupFilter,
                            onSelectGroup,
@@ -67,7 +84,6 @@ export function HostList({
                            onBoardsChange,
                          }: Props) {
   const [viewMode, setViewMode] = useState<"list" | "board">("list");
-  const [listTab, setListTab] = useState<"hosts" | "groups">("hosts");
 
   return (
     <>
@@ -106,34 +122,37 @@ export function HostList({
               слева вкладки, по центру поиск, справа кнопка добавления */}
           <div className="flex items-center gap-4 border-gray-200 dark:border-gray-700">
             <div className="flex items-center gap-1 shrink-0 -mb-2">
+              {/* Порядок вкладок: сначала «Кабинеты», затем «Хосты» (по просьбе Сая).
+                  Клик по вкладке выбирает и тип цели для запуска (см. блок запуска). */}
               <button
-                onClick={() => setListTab("hosts")}
+                onClick={() => onListTab("groups")}
+                className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${
+                  listTab === "groups" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                Кабинеты
+              </button>
+              <button
+                onClick={() => onListTab("hosts")}
                 className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${
                   listTab === "hosts" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
                 }`}
               >
                 Хосты
               </button>
-              <button
-                onClick={() => setListTab("groups")}
-                className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${
-                  listTab === "groups" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
-                }`}
-              >
-                Группы
-              </button>
             </div>
 
             <div className="flex-1 flex justify-center gap-3">
-              {/* Чип выбранной группы — как у выбора сценария: с крестиком для снятия */}
+              {/* Чип выбранного кабинета-фильтра — в стиле выбранного сценария
+                  (менее округлый, чем прежняя «пилюля» rounded-full). */}
               {selectedGroupName && (
                 <span
-                  className="inline-flex items-center gap-1.5 pl-3 pr-1.5 py-1.5 rounded-full bg-blue-100 dark:bg-blue-950/50 text-sm font-medium text-blue-700 dark:text-blue-300 cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors"
+                  className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-sm cursor-pointer hover:bg-red-50 hover:border-red-300 dark:hover:bg-red-950/40 dark:hover:border-red-700 transition-colors"
                   onClick={onClearGroupFilter}
-                  title="Убрать фильтр по группе"
+                  title="Убрать фильтр по кабинету"
                 >
                   {selectedGroupName}
-                  <button type="button" className="p-0.5 rounded-full hover:bg-blue-200 dark:hover:bg-blue-800" aria-label="Убрать фильтр">
+                  <button type="button" className="text-gray-400 hover:text-red-500 shrink-0" aria-label="Убрать фильтр">
                     <X size={14}/>
                   </button>
                 </span>
@@ -160,13 +179,19 @@ export function HostList({
             </button>
           </div>
 
+          {/* Блок запуска задачи — перенесён со страницы «Запуск задачи» (пункт
+              убран из сайдбара) и стоит сразу под строкой вкладок/поиска/добавления. */}
+          {runPanel}
+
           <div className="panel">
             {listTab === "hosts" && (
               <>
                 {/* Сетка хостов: 1 колонка на телефоне, 2-3 на широких экранах.
             В режиме выбора клик по карточке переключает выделение — рамка
             утолщается (анимированно) и меняет цвет у выбранных карточек. */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 rounded-2xl ${
+                  pickMode ? "ring-2 ring-blue-300 dark:ring-blue-700 p-2" : ""
+                }`}>
                   {filteredHosts.length === 0 && (
                     <div className="col-span-full m-auto text-gray-500 dark:text-gray-400 py-8">
                       <>
@@ -177,11 +202,18 @@ export function HostList({
                   )}
                   {filteredHosts.map((h) => {
                     const selected = selectedIds.has(h.id);
+                    const picked = pickMode && pickedId === String(h.id);
                     return (
                       <button
                         key={h.id}
                         className={`flex items-center gap-3 rounded-2xl bg-white dark:bg-gray-800 p-4 text-left transition-all duration-200 ${
-                          selectionMode
+                          pickMode
+                            ? `cursor-pointer border-4 ${
+                              picked
+                                ? "border-blue-600 bg-blue-50 dark:bg-blue-950/40"
+                                : "border-gray-300 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-700 hover:bg-blue-50 dark:hover:bg-gray-750"
+                            }`
+                            : selectionMode
                             ? `cursor-pointer border-4 ${
                               selected
                                 ? "border-blue-600 hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950"
@@ -190,14 +222,16 @@ export function HostList({
                             : "border-2 border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700"
                         }`}
                         onClick={(e) => {
-                          if (selectionMode) {
+                          if (pickMode) {
+                            onPickTarget(String(h.id));
+                          } else if (selectionMode) {
                             onToggleSelect(h.id)
                           } else {
                             e.stopPropagation();
                             onInfoHost(h);
                           }
                         }}
-                        title="Информация"
+                        title={pickMode ? "Выбрать целью" : "Информация"}
                       >
                 <span
                   className={`w-2.5 h-2.5 rounded-full shrink-0 ${h.is_active ? "bg-green-500" : "bg-gray-400"}`}
@@ -216,14 +250,23 @@ export function HostList({
             )}
 
             {listTab === "groups" && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 rounded-2xl ${
+                pickMode ? "ring-2 ring-blue-300 dark:ring-blue-700 p-2" : ""
+              }`}>
                 {groups.map((g) => {
                   const selected = selectedIds.has(g.id);
+                  const picked = pickMode && pickedId === String(g.id);
                   return (
                     <button
                       key={g.id}
                       className={`flex items-center gap-3 rounded-2xl bg-white dark:bg-gray-800 p-4 text-left transition-all duration-200 ${
-                        selectionMode
+                        pickMode
+                          ? `cursor-pointer border-4 ${
+                            picked
+                              ? "border-blue-600 bg-blue-50 dark:bg-blue-950/40"
+                              : "border-gray-300 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-700 hover:bg-blue-50 dark:hover:bg-gray-750"
+                          }`
+                          : selectionMode
                           ? `cursor-pointer border-4 ${
                             selected
                               ? "border-blue-600 hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950"
@@ -232,12 +275,17 @@ export function HostList({
                           : "border-2 border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700"
                       }`}
                       onClick={() => {
-                        // Выбор группы: применяем фильтр по ней и переключаемся
-                        // на таб «Хосты» (фильтрацию делает родитель через groupFilter).
+                        if (pickMode) {
+                          // Режим выбора цели: клик по кабинету выбирает его целью запуска.
+                          onPickTarget(String(g.id));
+                          return;
+                        }
+                        // Обычный режим: применяем фильтр по кабинету и переходим
+                        // на вкладку «Хосты» (фильтрацию делает родитель через groupFilter).
                         onSelectGroup(String(g.id));
-                        setListTab("hosts");
+                        onListTab("hosts");
                       }}
-                      title="Информация"
+                      title={pickMode ? "Выбрать целью" : "Информация"}
                     >
                       {/*<span*/}
                       {/*  className={`w-2.5 h-2.5 rounded-full shrink-0 ${h.is_active ? "bg-green-500" : "bg-gray-400"}`}*/}

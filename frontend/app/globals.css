@@ -100,6 +100,41 @@ pre {
   }
 }
 
+/* Уведомления (тосты): появление выплывает справа налево, исчезновение — тем же
+   движением обратно (симметрично). Длительность/easing совпадают с pageEnter. */
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateX(110%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+@keyframes toastOut {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(110%);
+  }
+}
+.toast-in {
+  animation: toastIn 0.24s ease-out;
+}
+.toast-out {
+  animation: toastOut 0.22s ease-in forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast-in,
+  .toast-out {
+    animation: none;
+  }
+}
+
 @layer components {
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-[10px] px-4 py-2.5 font-semibold text-white bg-brand hover:bg-brand-dark transition-colors;
