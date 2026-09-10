@@ -1,7 +1,8 @@
 "use client";
 
 import type { ScheduledTask, Scenario, Host, Group } from "@/lib/schedule-types";
-import { targetsFor, scheduleLabel } from "@/lib/schedule-utils";
+import { taskScenarioIds, taskTargetIds } from "@/lib/schedule-types";
+import { scheduleLabel } from "@/lib/schedule-utils";
 import { DataTable } from "@/components/DataTable";
 import { Pencil, Trash2 } from "lucide-react";
 
@@ -25,7 +26,16 @@ export default function TaskTable({ rows, scenarios, hosts, groups, onEdit, onDe
         },
         {
           title: "Сценарий",
-          render: (t) => scenarios.find((x) => x.id === t.scenario_id)?.name || `#${t.scenario_id}`,
+          render: (t) => {
+            const ids = taskScenarioIds(t);
+            if (ids.length === 0) return "—";
+            const names = ids.map((id) => scenarios.find((x) => x.id === id)?.name || `#${id}`);
+            return (
+              <span className="text-sm">
+                {names.length > 2 ? `${ids.length} сценария(ев)` : names.join(", ")}
+              </span>
+            );
+          },
         },
         {
           title: "Условие",
@@ -36,8 +46,31 @@ export default function TaskTable({ rows, scenarios, hosts, groups, onEdit, onDe
         {
           title: "Цель",
           render: (t) => {
-            const target = targetsFor(t.target_type, hosts, groups).find((x) => x.id === t.target_id);
-            return `${t.target_type === "host" ? "хост" : "группа"}:${target?.name || t.target_id}`;
+            const [hostIds, groupIds] = taskTargetIds(t);
+            const parts: string[] = [];
+            if (hostIds.length) {
+              parts.push(
+                "хост: " +
+                  hostIds
+                    .map((id) => hosts.find((h) => h.id === id)?.name || `#${id}`)
+                    .join(", "),
+              );
+            }
+            if (groupIds.length) {
+              parts.push(
+                "группа: " +
+                  groupIds
+                    .map((id) => groups.find((g) => g.id === id)?.name || `#${id}`)
+                    .join(", "),
+              );
+            }
+            if (parts.length === 0) parts.push("—");
+            const full = parts.join(" · ");
+            return (
+              <span className="text-sm" title={full}>
+                {full.length > 40 ? full.slice(0, 40) + "…" : full}
+              </span>
+            );
           },
         },
         {

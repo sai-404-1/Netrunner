@@ -87,51 +87,50 @@ export default function ScheduledPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div>
         <h2 className="text-3xl font-bold">Планировщик</h2>
         <p className="text-gray-500">Создание и запуск запланированных задач</p>
       </div>
 
-      <div className="panel">
-        {/* Вкладки: Активные / Не активные */}
-        <div className="flex items-center gap-1 mb-4 justify-between">
-          <div className="flex items-center gap-1 border-b border-gray-200 dark:border-gray-700">
-            <button
-              onClick={() => setListTab("active")}
-              className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${listTab === "active" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
-                }`}
-            >
-              Активные
-            </button>
-            <button
-              onClick={() => setListTab("inactive")}
-              className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${listTab === "inactive" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
-                }`}
-            >
-              Не активные
-            </button>
-          </div>
-          <div className="flex gap-2">
-            <button className="btn-secondary" onClick={tickScheduler} title="Проверить расписание">
-              <RefreshCw size={16} />
-            </button>
-            <button className="btn" onClick={() => setCreateOpen(true)} title="Создать запланированную задачу">
-              Запланировать
-            </button>
-          </div>
+      {/* Табы + кнопки в едином стабильном ряду (стиль страницы истории) —
+          кнопки не уезжают, их позиция фиксирована независимо от состояния. */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-2 justify-between">
+        <div className="flex items-center gap-1 border-b border-gray-200 dark:border-gray-700">
+          <button
+            onClick={() => setListTab("active")}
+            className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${listTab === "active" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
+              }`}
+          >
+            Активные
+          </button>
+          <button
+            onClick={() => setListTab("inactive")}
+            className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${listTab === "inactive" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
+              }`}
+          >
+            Не активные
+          </button>
         </div>
-
-        <TaskTable
-          rows={listTab === "active" ? tasks : tasksInactive}
-          scenarios={scenarios}
-          hosts={hosts}
-          groups={groups}
-          onEdit={setEditTask}
-          onDelete={deleteTask}
-          onToggle={toggleEnabled}
-        />
+        <div className="flex gap-2">
+          <button className="btn-secondary py-1.5 px-3 text-sm" onClick={tickScheduler} title="Проверить расписание">
+            <RefreshCw size={14} />
+          </button>
+          <button className="btn py-1.5 px-3 text-sm" onClick={() => setCreateOpen(true)} title="Создать запланированную задачу">
+            Запланировать
+          </button>
+        </div>
       </div>
+
+      <TaskTable
+        rows={listTab === "active" ? tasks : tasksInactive}
+        scenarios={scenarios}
+        hosts={hosts}
+        groups={groups}
+        onEdit={setEditTask}
+        onDelete={deleteTask}
+        onToggle={toggleEnabled}
+      />
 
       {editTask && (
         <TaskFormModal

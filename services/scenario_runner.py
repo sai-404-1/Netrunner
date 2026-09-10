@@ -67,6 +67,7 @@ class ScenarioRunner:
         target_id: int,
         trigger_type: str = "manual",
         scenario_run_id: int | None = None,
+        targets: list | None = None,
     ):
         """Запускает один сценарий — частный случай очереди из одного элемента."""
         runs = await self.run_scenarios_async(
@@ -75,6 +76,7 @@ class ScenarioRunner:
             target_id=target_id,
             trigger_type=trigger_type,
             scenario_run_ids=[scenario_run_id] if scenario_run_id is not None else None,
+            targets=targets,
         )
         return runs[0]
 
@@ -85,16 +87,23 @@ class ScenarioRunner:
         target_id: int,
         trigger_type: str = "manual",
         scenario_run_ids: list[int] | None = None,
+        targets: list | None = None,
     ):
         """Прогоняет очередь сценариев на цели.
 
         Очередь сценариев — своя у каждого хоста: быстрый компьютер уходит на
         следующий сценарий, не дожидаясь, пока медленный сосед добьёт текущий.
+
+        `targets` (опц.): готовый список хостов. Если передан — используется как
+        есть (резолв не выполняется); это нужно планировщику для мульти-цели
+        (несколько хостов + несколько групп). `target_type`/`target_id` тогда
+        пишутся в scenario_runs как информативные.
         """
         if not scenario_ids:
             raise RuntimeError("Не указан ни один сценарий")
 
-        targets = self.host_service.resolve_targets(target_type, target_id)
+        if targets is None:
+            targets = self.host_service.resolve_targets(target_type, target_id)
         if not targets:
             raise RuntimeError("Нет хостов для выполнения")
 

@@ -32,3 +32,10 @@ class ScheduledTask(BaseModel):
     start_min: int | None = None
     end_min: int | None = None
     interval_min: int | None = None
+
+    # Мульти-выбор цели и сценариев (2026-09-10). JSON-списки id, приоритетны над
+    # одиночными target_type/target_id/scenario_id. Одиночные поля оставлены для
+    # обратной совместимости с существующими задачами.
+    target_host_ids_json: str | None = None   # JSON-массив id выбранных хостов
+    target_group_ids_json: str | None = None  # JSON-массив id выбранных групп
+    scenario_ids_json: str | None = None      # JSON-массив id выбранных сценариев

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 
 from .base import BaseRepository, utcnow_iso
@@ -10,6 +11,41 @@ from ..models.scheduled_task import ScheduledTask
 # убьёт систему форками. Сай: «каждую долю секунды форк планировщика — это убьёт
 # систему, жёстко ограничить». Значения приходят с фронта «Каждые Ч:ММ».
 MIN_REPEAT_MINUTES = 1
+
+
+def parse_ids(json_str: str | None) -> list[int]:
+    """Парсит JSON-список id (колонки *_ids_json). Пусто/битое -> []."""
+    if not json_str:
+        return []
+    try:
+        data = json.loads(json_str)
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(data, list):
+        return []
+    return [int(x) for x in data if x is not None]
+
+
+def task_scenario_ids(task) -> list[int]:
+    """Id сценариев задачи: из scenario_ids_json (мульти) или одиночный scenario_id."""
+    multi = parse_ids(getattr(task, "scenario_ids_json", None))
+    if multi:
+        return multi
+    sid = getattr(task, "scenario_id", None)
+    return [sid] if sid else []
+
+
+def task_target_ids(task) -> tuple[list[int], list[int]]:
+    """(host_ids, group_ids) цели задачи. Мульти из JSON или одиночные legacy-поля."""
+    host_ids = parse_ids(getattr(task, "target_host_ids_json", None))
+    group_ids = parse_ids(getattr(task, "target_group_ids_json", None))
+    if host_ids or group_ids:
+        return host_ids, group_ids
+    if task.target_type == "group" and task.target_id:
+        return [], [task.target_id]
+    if task.target_id:
+        return [task.target_id], []
+    return [], []
 
 
 def is_schedule(task) -> bool:

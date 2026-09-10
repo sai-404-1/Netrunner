@@ -89,6 +89,31 @@ class HostService:
 
         raise ValueError(f"Unknown target_type: {target_type}")
 
+    def resolve_scheduled_targets(
+        self, host_ids: list[int] | None = None, group_ids: list[int] | None = None
+    ) -> list:
+        """Набор хостов для задачи планировщика из мульти-выбора цели.
+
+        Принимает списки id хостов и id групп (произвольной длины). Собирает
+        хосты из обеих категорий, дедуплицируя по id. Список групп разворачивается
+        в их хосты (group_hosts). Порядок: сначала явные хосты, потом хосты групп.
+        """
+        host_ids = list(host_ids or [])
+        group_ids = list(group_ids or [])
+        seen: set[int] = set()
+        result: list = []
+        for hid in host_ids:
+            host = self.get_host(hid)
+            if host and host.id not in seen:
+                seen.add(host.id)
+                result.append(host)
+        for gid in group_ids:
+            for host in self.group_hosts(gid):
+                if host.id not in seen:
+                    seen.add(host.id)
+                    result.append(host)
+        return result
+
     def to_computer_bootstrap(self, host):
         """Computer под ПЕРВИЧНЫМ пользователем хоста (host.username + его ключ).
 

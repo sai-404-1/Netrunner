@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import asyncio
 
-from database.repos.schedule_repo import is_schedule
+from database.repos.schedule_repo import (
+    is_schedule,
+    task_scenario_ids,
+    task_target_ids,
+)
 
 
 class Scheduler:
@@ -44,6 +48,46 @@ class Scheduler:
                 "Scheduler.tick() вызван внутри event loop — используйте tick_async()"
             )
 
+    def _resolve_multi_targets(self, scheduled) -> list:
+        """Хосты цели задачи с учётом мульти-выбора (JSON) или legacy-полей.
+
+        Return: список хостов (Host). Для мульти (target_host_ids_json /
+        target_group_ids_json) — resolve_scheduled_targets; иначе одиночный
+        resolve_targets по target_type/target_id.
+        """
+        host_ids, group_ids = task_target_ids(scheduled)
+        if not self.host_service:
+            return []
+        if host_ids or group_ids:
+            return self.host_service.resolve_scheduled_targets(host_ids, group_ids)
+        # legacy: одиночная цель
+        return self.host_service.resolve_targets(
+            scheduled.target_type, scheduled.target_id
+        )
+
+    def _scenario_names(self, scenario_ids: list[int]) -> str:
+        """Человекочитаемое имя сценария(ев) для логов/истории."""
+        if len(scenario_ids) == 1:
+            sc = self.db.scenarios.get(scenario_ids[0])
+            return sc.name if sc else f"#{scenario_ids[0]}"
+        names = []
+        for sid in scenario_ids:
+            sc = self.db.scenarios.get(sid)
+            names.append(sc.name if sc else f"#{sid}")
+        return ", ".join(names) if names else str(scenario_ids)
+
+    def _target_label(self, scheduled) -> str:
+        """Подпись цели задачи (для логов/истории), с учётом мульти-выбора."""
+        host_ids, group_ids = task_target_ids(scheduled)
+        if host_ids or group_ids:
+            parts = []
+            if host_ids:
+                parts.append(f"hosts={host_ids}")
+            if group_ids:
+                parts.append(f"groups={group_ids}")
+            return " + ".join(parts)
+        return f"{scheduled.target_type}:{scheduled.target_id}"
+
     async def _wait_online_ok(self, scheduled) -> bool:
         """True, если задача с wait_for_online готова к запуску (цель в сети).
 
@@ -57,9 +101,7 @@ class Scheduler:
         if not self.host_service:
             return True
         try:
-            targets = self.host_service.resolve_targets(
-                scheduled.target_type, scheduled.target_id
-            )
+            targets = self._resolve_multi_targets(scheduled)
         except Exception:  # noqa: BLE001
             return False
         if not targets:
@@ -85,9 +127,7 @@ class Scheduler:
         if not self.host_service:
             return True
         try:
-            targets = self.host_service.resolve_targets(
-                scheduled.target_type, scheduled.target_id
-            )
+            targets = self._resolve_multi_targets(scheduled)
         except Exception:  # noqa: BLE001
             return False
         if not targets:
@@ -100,12 +140,13 @@ class Scheduler:
 
     async def _run_and_mark(self, scheduled):
         try:
-            if not scheduled.scenario_id:
+            scenario_ids = task_scenario_ids(scheduled)
+            if not scenario_ids:
                 # Задача пережила снос шаблонов и не привязана к сценарию —
                 # запускать нечего. Оставляем в покое (не выполняем и не отключаем
                 # молча), просто логируем.
                 self.logger.warning(
-                    "Scheduled task #%s не привязана к сценарию (scenario_id пуст), пропуск",
+                    "Scheduled task #%s не привязана к сценарию (не указан сценарий), пропуск",
                     scheduled.id,
                 )
                 return
@@ -120,8 +161,7 @@ class Scheduler:
             # «догоняем» пропущенное: для выполнения по факту включения есть
             # отдельный режим «когда будет в сети» (wait_for_online).
             if is_schedule(scheduled) and not await self._any_target_online(scheduled):
-                sc_name = self.db.scenarios.get(scheduled.scenario_id)
-                scenario_name = sc_name.name if sc_name else f"#{scheduled.scenario_id}"
+                scenario_name = self._scenario_names(scenario_ids)
                 self.logger.warning(
                     "Scheduled #%s (%s): целевые хосты офлайн, слот пропущен",
                     scheduled.id, scenario_name,
@@ -133,12 +173,13 @@ class Scheduler:
                         title="Слот пропущен: цель не в сети",
                         description=(
                             f"Сценарий \"{scenario_name}\" не запущен — "
-                            f"цель {scheduled.target_type}:{scheduled.target_id} "
+                            f"цель {self._target_label(scheduled)} "
                             f"не в сети в момент слота"
                         ),
                         payload={
-                            "task_name": f"scenario-{scheduled.scenario_id}",
-                            "target": f"{scheduled.target_type}:{scheduled.target_id}",
+                            "task_name": f"scenario-{scenario_ids}",
+                            "target": self._target_label(scheduled),
+                            "scenario_ids": scenario_ids,
                         },
                         level="warning",
                     )
@@ -147,8 +188,9 @@ class Scheduler:
                 self.db.scheduled.mark_ran(scheduled.id)
                 return
 
-            scenario = self.db.scenarios.get(scheduled.scenario_id)
-            scenario_name = scenario.name if scenario else f"#{scheduled.scenario_id}"
+            scenario_name = self._scenario_names(scenario_ids)
+            targets = self._resolve_multi_targets(scheduled)
+            target_label = self._target_label(scheduled)
 
             if self.history:
                 self.history.record(
@@ -157,20 +199,22 @@ class Scheduler:
                     title="Автозапуск сценария по расписанию",
                     description=(
                         f"Сценарий \"{scenario_name}\", "
-                        f"цель {scheduled.target_type}:{scheduled.target_id}"
+                        f"цель {target_label}"
                     ),
                     payload={
-                        "task_name": f"scenario-{scheduled.scenario_id}",
-                        "target": f"{scheduled.target_type}:{scheduled.target_id}",
+                        "task_name": f"scenario-{scenario_ids}",
+                        "target": target_label,
+                        "scenario_ids": scenario_ids,
                     },
                     level="info",
                 )
 
-            await self.scenario_runner.run_scenario_async(
-                scenario_id=scheduled.scenario_id,
+            await self.scenario_runner.run_scenarios_async(
+                scenario_ids=scenario_ids,
                 target_type=scheduled.target_type,
-                target_id=scheduled.target_id,
+                target_id=scheduled.target_id or 0,
                 trigger_type="scheduled",
+                targets=targets,
             )
             self.db.scheduled.mark_ran(scheduled.id)
         except Exception as exc:  # noqa: BLE001

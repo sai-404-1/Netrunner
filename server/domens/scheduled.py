@@ -1,4 +1,5 @@
 from aiohttp import web
+import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -38,6 +39,32 @@ def _int_opt(payload, key):
     """Число из payload или None (0 — валидное значение!)."""
     v = payload.get(key)
     return int(v) if v is not None else None
+
+
+def _id_list(payload, key) -> list[int]:
+    """Массив id из payload (target_host_ids, scenario_ids, ...) или []."""
+    raw = payload.get(key)
+    if raw is None:
+        return []
+    if isinstance(raw, (list, tuple)):
+        return [int(x) for x in raw if x is not None]
+    # Строка вида "1,2,3" — на случай форм, шлющих строкой.
+    return [int(x) for x in str(raw).split(",") if x.strip()]
+
+
+def _multi_params(payload) -> dict:
+    """Разбирает мульти-выбор из payload (JSON-колонки). Возвращает {} если не задан."""
+    host_ids = _id_list(payload, "target_host_ids")
+    group_ids = _id_list(payload, "target_group_ids")
+    scenario_ids = _id_list(payload, "scenario_ids")
+    result = {}
+    if host_ids:
+        result["target_host_ids_json"] = json.dumps(host_ids)
+    if group_ids:
+        result["target_group_ids_json"] = json.dumps(group_ids)
+    if scenario_ids:
+        result["scenario_ids_json"] = json.dumps(scenario_ids)
+    return result
 
 
 def _schedule_params(payload) -> dict:
@@ -84,9 +111,13 @@ async def api_inactive_scheduled(request: web.Request) -> web.Response:
 async def api_schedule_create(request: web.Request) -> web.Response:
     ctx = _ctx(request)
     payload = await _read_json(request)
-    scenario_id = _safe_int(payload.get("scenario_id"))
-    if not scenario_id:
-        raise web.HTTPBadRequest(reason="scenario_id is required")
+    scenario_ids = _id_list(payload, "scenario_ids")
+    legacy_scenario_id = _safe_int(payload.get("scenario_id"))
+    # Сбор: явный список сценариев (мульти) либо одиночный scenario_id (legacy).
+    if legacy_scenario_id and not scenario_ids:
+        scenario_ids = [legacy_scenario_id]
+    if not scenario_ids:
+        raise web.HTTPBadRequest(reason="Не указан сценарий (scenario_ids)")
 
     sched = _schedule_params(payload)
     if sched:
@@ -109,13 +140,14 @@ async def api_schedule_create(request: web.Request) -> web.Response:
             "interval_min": None,
         }
 
+    multi = _multi_params(payload)
     max_runs_raw = payload.get("max_runs")
     scheduled = ctx.db.scheduled.create(
         name=str(payload.get("name") or "").strip(),
         description=str(payload.get("description") or "").strip() or None,
-        scenario_id=scenario_id,
+        scenario_id=scenario_ids[0],
         target_type=str(payload.get("target_type") or "host").strip(),
-        target_id=_safe_int(payload.get("target_id")),
+        target_id=_safe_int(payload.get("target_id")) or 0,
         run_at=run_at,
         is_enabled=1 if payload.get("is_enabled", True) else 0,
         wait_for_online=1 if wait_for_online else 0,
@@ -124,6 +156,7 @@ async def api_schedule_create(request: web.Request) -> web.Response:
         interval_seconds=int(interval_seconds) if interval_seconds else None,
         max_runs=int(max_runs_raw) if max_runs_raw else None,
         **sched,
+        **multi,
     )
     return _ok(scheduled)
 
@@ -137,10 +170,19 @@ async def api_schedule_update(request: web.Request) -> web.Response:
         updates["is_enabled"] = 1 if payload["is_enabled"] else 0
     if "scenario_id" in updates:
         updates["scenario_id"] = _safe_int(updates["scenario_id"])
+        if updates["scenario_id"] is None:
+            updates.pop("scenario_id")
     if "target_id" in updates:
         updates["target_id"] = _safe_int(updates["target_id"])
     if "run_at" in updates and updates["run_at"]:
         updates["run_at"] = _to_utc_iso(updates["run_at"])
+
+    # Мульти-выбор сценариев: явный список scenario_ids перезаписывает.
+    scenario_ids = _id_list(payload, "scenario_ids")
+    multi = _multi_params(payload)
+    if multi:
+        updates["scenario_id"] = scenario_ids[0] if scenario_ids else None
+        updates.update(multi)
 
     # Если передан recurring-набор — валидируем и пересчитываем run_at (следующий
     # слот), сбрасываем несовместимые wait_for_online и простой интервал.
