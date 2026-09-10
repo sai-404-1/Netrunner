@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from dataclasses import dataclass
 from typing import Iterable, Sequence
 import shutil
@@ -319,11 +319,11 @@ class ShowScheduledTasksAction(MenuAction):
 
         rows = []
         for task in tasks:
-            template = self.db.task_templates.get(task.template_id) if task.template_id else None
+            scenario = self.db.scenarios.get(task.scenario_id) if task.scenario_id else None
             rows.append([
                 task.id,
                 task.name,
-                template.name if template else task.template_id,
+                scenario.name if scenario else task.scenario_id,
                 f"{task.target_type}:{task.target_id}",
                 format_dt(task.run_at),
                 yes_no(task.is_enabled),
@@ -331,7 +331,7 @@ class ShowScheduledTasksAction(MenuAction):
             ])
 
         print_table(
-            ["ID", "Название", "Шаблон", "Цель", "Запуск", "Активна", "Последний запуск"],
+            ["ID", "Название", "Сценарий", "Цель", "Запуск", "Активна", "Последний запуск"],
             rows,
             max_widths=[4, 28, 22, 10, 19, 8, None],
         )
@@ -492,165 +492,6 @@ class ShowInventorySnapshotsAction(MenuAction):
             rows,
             max_widths=[4, 6, 18, 18, None, 10, 10, 19],
         )
-
-
-class ShowTaskTemplatesAction(MenuAction):
-    def __init__(self, db):
-        super().__init__(title="Шаблоны задач")
-        self.db = db
-
-    def exec(self):
-        templates = self.db.task_templates.all()
-        section("ШАБЛОНЫ ЗАДАЧ")
-
-        if not templates:
-            print("Шаблонов пока нет.")
-            return
-
-        rows = []
-        for template in templates:
-            module_row = self.db.modules.get(template.module_id)
-            module_slug = module_row.slug if module_row else "unknown"
-            rows.append([
-                template.id,
-                template.name,
-                module_slug,
-                template.description or "—",
-            ])
-
-        print_table(
-            ["ID", "Название", "Модуль", "Описание"],
-            rows,
-            max_widths=[5, 30, 26, None],
-        )
-
-
-class CreateScheduledTaskAction(MenuAction):
-    def __init__(self, db):
-        super().__init__(title="Создать запланированную задачу")
-        self.db = db
-
-    def exec(self):
-        templates = self.db.task_templates.all()
-        section("СОЗДАНИЕ ЗАПЛАНИРОВАННОЙ ЗАДАЧИ")
-
-        if not templates:
-            print("Шаблонов задач пока нет.")
-            return
-
-        rows = []
-        for template in templates:
-            module_row = self.db.modules.get(template.module_id)
-            module_slug = module_row.slug if module_row else "unknown"
-            rows.append([template.id, template.name, module_slug])
-
-        print_table(["ID", "Шаблон", "Модуль"], rows, max_widths=[5, 34, None])
-
-        raw_template_id = input("\nВведите ID шаблона: ").strip()
-        if not raw_template_id.isdigit():
-            print("Некорректный ID шаблона.")
-            return
-        template_id = int(raw_template_id)
-
-        print("\nЦель выполнения:")
-        print("1 — один хост")
-        print("2 — группа хостов")
-        mode = input("\nВыберите режим: ").strip()
-
-        if mode == "1":
-            hosts = self.db.hosts.all()
-            if not hosts:
-                print("Хостов пока нет.")
-                return
-
-            rows = [[host.id, host.name, f"{host.username}@{host.address}:{host.port}"] for host in hosts]
-            print_table(["ID", "Имя", "Адрес"], rows, max_widths=[5, 28, None])
-
-            raw_target_id = input("\nВведите ID хоста: ").strip()
-            if not raw_target_id.isdigit():
-                print("Некорректный ID хоста.")
-                return
-
-            target_type = "host"
-            target_id = int(raw_target_id)
-
-        elif mode == "2":
-            groups = self.db.groups.all()
-            if not groups:
-                print("Групп пока нет.")
-                return
-
-            rows = [[group.id, group.name, group.kind] for group in groups]
-            print_table(["ID", "Название", "Тип"], rows, max_widths=[5, 34, None])
-
-            raw_target_id = input("\nВведите ID группы: ").strip()
-            if not raw_target_id.isdigit():
-                print("Некорректный ID группы.")
-                return
-
-            target_type = "group"
-            target_id = int(raw_target_id)
-        else:
-            print("Некорректный режим.")
-            return
-
-        print(
-            "\nВремя запуска:\n"
-            " - число означает запуск через N секунд;\n"
-            " - дата вводится в формате YYYY-MM-DD HH:MM."
-        )
-        raw_time = input("Введите время запуска: ").strip()
-
-        run_at = self._parse_run_at(raw_time)
-        if not run_at:
-            print("Не удалось разобрать время запуска.")
-            return
-
-        template = self.db.task_templates.get(template_id)
-        if not template:
-            print("Шаблон не найден.")
-            return
-
-        name = f"{template.name} @ {run_at}"
-
-        scheduled = self.db.scheduled.create(
-            name=name,
-            template_id=template_id,
-            target_type=target_type,
-            target_id=target_id,
-            run_at=run_at,
-            is_enabled=1,
-        )
-
-        section("ЗАПЛАНИРОВАННАЯ ЗАДАЧА СОЗДАНА")
-        info("ID", scheduled.id)
-        info("Название", scheduled.name)
-        info("Цель", f"{scheduled.target_type}:{scheduled.target_id}")
-        info("Время запуска", format_dt(scheduled.run_at))
-
-    def _parse_run_at(self, raw: str) -> str | None:
-        raw = raw.strip()
-        if not raw:
-            return None
-
-        if raw.isdigit():
-            dt = datetime.now(timezone.utc) + timedelta(seconds=int(raw))
-            return dt.replace(microsecond=0).isoformat()
-
-        # ISO 8601 with explicit timezone offset (e.g. from the server UI: "2026-06-15T12:00:00+03:00")
-        try:
-            dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-            return dt.astimezone(timezone.utc).replace(microsecond=0).isoformat()
-        except (ValueError, AttributeError):
-            pass
-
-        # Plain "YYYY-MM-DD HH:MM" entered in the TUI — treat as local time
-        try:
-            dt_local = datetime.strptime(raw, "%Y-%m-%d %H:%M")
-            dt_utc = dt_local.astimezone(timezone.utc)
-            return dt_utc.replace(microsecond=0).isoformat()
-        except Exception:
-            return None
 
 
 class RunSchedulerTickAction(MenuAction):

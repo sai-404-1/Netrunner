@@ -11,7 +11,6 @@ class TaskRun(BaseModel):
     __table__: ClassVar[str] = 'task_runs'
 
     id: int | None = None
-    template_id: int | None = None
     module_id: int | None = None
     target_type: str = 'host'
     target_id: int | None = None

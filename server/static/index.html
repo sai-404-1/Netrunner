@@ -326,7 +326,6 @@
             <form id="schedule-edit-form" class="form">
               <input type="hidden" name="id" id="schedule-edit-id">
               <label>Название<input name="name" id="schedule-edit-name" required></label>
-              <label>Шаблон<select name="template_id" id="schedule-edit-template"></select></label>
               <label>Тип цели<select name="target_type" id="schedule-edit-target-type"><option value="host">Хост</option><option value="group">Группа</option></select></label>
               <label>Цель<select name="target_id" id="schedule-edit-target"></select></label>
               <label>Время запуска<input name="run_at" type="datetime-local" id="schedule-edit-run-at" required></label>
@@ -428,7 +427,6 @@
             <div class="panel-header"><h3>Создать запланированную задачу</h3></div>
             <form id="schedule-form" class="form inline">
               <label>Название<input name="name" placeholder="Плановая инвентаризация" required></label>
-              <label>Шаблон<select name="template_id" id="schedule-template"></select></label>
               <label>Тип цели<select name="target_type" id="schedule-target-type"><option value="host">Хост</option><option value="group">Группа</option></select></label>
               <label>Цель<select name="target_id" id="schedule-target"></select></label>
               <label>Время запуска<input name="run_at" type="datetime-local" id="schedule-run-at" required></label>

@@ -59,18 +59,6 @@ def init_demo_data(db_path: str = "data/netrunner.db", docker: bool = False):
         )
     print("[init] 3 builtin modules registered")
 
-    # 4. Task templates
-    for name, slug in [("Проверка доступности", "availability_check"),
-                       ("Сбор инвентаризации", "inventory_collect")]:
-        mod = db.modules.by_slug(slug)
-        if mod:
-            db.task_templates.create(
-                name=name,
-                module_id=mod.id,
-                default_args_json=json.dumps({}, ensure_ascii=False),
-            )
-    print("[init] 2 task templates created")
-
     db.commit()
     db.close()
     print("[init] Готово! База инициализирована.")

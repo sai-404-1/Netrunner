@@ -14,7 +14,9 @@
   `_ok`/`_error`/`_json_response`, `_read_json`, `_ctx`, `_safe_int`.
 - Фоновые задачи и WebSocket: `_run_background`, `_broadcast_task_update`,
   `websocket_handler`, `_periodic_ping` (демон проверки хостов),
-  `_update_monitor` (демон git-монитора самообновления — кэширует статус в `app["update_status"]`).
+  `_scheduler_loop` (фоновый цикл планировщика: раз в **60 секунд** `ctx.scheduler.tick_async()`
+  — запланированные задачи выполняются сами), `_update_monitor` (демон git-монитора
+  самообновления — кэширует статус в `app["update_status"]`).
 - `healthz_handler` — публичный `/healthz` (200) для health-check супервизора.
 - **Загруженные файлы (только админ):** `api_uploads_list/create/download/delete` —
   хранилище файлов для модуля рассылки (`_require_admin`, `_uploads_dir`, `_upload_to_dict`).
@@ -40,8 +42,11 @@
 - **Группы:** `api_groups`, `api_groups_create/update/delete/add_host`.
 - **Модули:** `api_modules`, `api_modules_create/update/delete`.
 - **Задачи:** `api_run` (старт в фоне, возврат `run_id`), `api_run_cancel`,
-  `api_task_runs`, `api_task_run_status`, `api_task_templates`, `api_task_runs_clear`.
-- **Планировщик:** `api_scheduled`, `api_schedule_create/update/delete`, `api_scheduler_tick`.
+  `api_task_runs`, `api_task_run_status`, `api_task_runs_clear`.
+- **Планировщик:** `api_scheduled`, `api_schedule_create/update/delete`, `api_scheduler_tick`
+  (ручной тик). Логика в `domens/scheduled.py`; каждая задача привязана к **сценарию**
+  (`scenario_id`), исполняет её `Scheduler` → `ScenarioRunner`. Create/update принимают
+  recurring-расписание (дни недели, окно «С…До», интервал) с жёсткой валидацией.
 - **Инвентаризация/сводка/отчёты:** `api_summary`, `api_inventory`, `api_reports`,
   `api_reports_clear`, `api_reports_export`, `reports_handler`.
 - **SSH-ключи:** `api_ssh_keys`, `api_ssh_keys_create`, `api_keys_generate`.

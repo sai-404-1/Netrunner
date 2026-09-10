@@ -7,7 +7,6 @@ from .report_repo import ReportRepo
 from .schedule_repo import ScheduledTaskRepo
 from .ssh_key_repo import SSHKeyRepo
 from .task_run_repo import TaskRunRepo
-from .task_template_repo import TaskTemplateRepo
 from .user_repo import UserRepo
 from .host_default_cred_repo import HostDefaultCredRepo
 
@@ -22,7 +21,6 @@ __all__ = [
     'ScheduledTaskRepo',
     'SSHKeyRepo',
     'TaskRunRepo',
-    'TaskTemplateRepo',
     'UserRepo',
     'HostDefaultCredRepo',
 ]

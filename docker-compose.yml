@@ -14,6 +14,11 @@ services:
       - netrunner_uploads:/app/uploads
     environment:
       - PYTHONUNBUFFERED=1
+      # Обязательно для endpoint-агентов: контейнер не видит IP хост-машины,
+      # без этого агентам на других хостах подсунется внутренний 172.x/127.0.0.1
+      # и они не смогут достучаться до сервера. Замените на реальный адрес,
+      # по которому с хостов-агентов доступен этот сервер.
+      - NETRUNNER_AGENT_WS_URL=ws://192.168.1.100:3001/api/python/agent/ws
     restart: unless-stopped
 
 volumes:

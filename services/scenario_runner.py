@@ -9,6 +9,10 @@ from typing import Any
 from services.execution_settings import MODE_BATCH, ExecutionSettings
 from services.task_runner import ModuleContext
 
+# Пауза между попытками coldawn, секунды: мгновенные повторы подряд бессмысленны
+# (SSH-канал/сеть могут быть заняты), но и держать долго не нужно.
+COLDAWN_RETRY_DELAY = 3
+
 
 @dataclass(slots=True)
 class _StepPlan:
@@ -67,6 +71,7 @@ class ScenarioRunner:
         target_id: int,
         trigger_type: str = "manual",
         scenario_run_id: int | None = None,
+        targets: list | None = None,
     ):
         """Запускает один сценарий — частный случай очереди из одного элемента."""
         runs = await self.run_scenarios_async(
@@ -75,6 +80,7 @@ class ScenarioRunner:
             target_id=target_id,
             trigger_type=trigger_type,
             scenario_run_ids=[scenario_run_id] if scenario_run_id is not None else None,
+            targets=targets,
         )
         return runs[0]
 
@@ -85,16 +91,23 @@ class ScenarioRunner:
         target_id: int,
         trigger_type: str = "manual",
         scenario_run_ids: list[int] | None = None,
+        targets: list | None = None,
     ):
         """Прогоняет очередь сценариев на цели.
 
         Очередь сценариев — своя у каждого хоста: быстрый компьютер уходит на
         следующий сценарий, не дожидаясь, пока медленный сосед добьёт текущий.
+
+        `targets` (опц.): готовый список хостов. Если передан — используется как
+        есть (резолв не выполняется); это нужно планировщику для мульти-цели
+        (несколько хостов + несколько групп). `target_type`/`target_id` тогда
+        пишутся в scenario_runs как информативные.
         """
         if not scenario_ids:
             raise RuntimeError("Не указан ни один сценарий")
 
-        targets = self.host_service.resolve_targets(target_type, target_id)
+        if targets is None:
+            targets = self.host_service.resolve_targets(target_type, target_id)
         if not targets:
             raise RuntimeError("Нет хостов для выполнения")
 
@@ -158,7 +171,7 @@ class ScenarioRunner:
 
         async def _host_queue(host):
             for plan in plans:
-                status = await self._run_scenario_on_host(plan, host)
+                status = await self._run_scenario_on_host_with_coldawn(plan, host)
                 self._report_host_finished(plan, host, status)
 
         results = await self._dispatch_hosts(targets, _host_queue, config)
@@ -251,13 +264,78 @@ class ScenarioRunner:
 
     # --- выполнение пер-хост ---------------------------------------------
 
-    async def _run_scenario_on_host(self, plan: _ScenarioPlan, host) -> str:
-        """Прогоняет шаги сценария на одном хосте. Возвращает статус хоста:
-        completed / partial / failed."""
+    def _coldawn_retries(self) -> int:
+        """Сколько раз повторять запуск, если сценарий не смог начаться (coldawn).
+
+        Читается из настроек исполнения на каждом запуске (правка в админке
+        применяется сразу). Битое значение трактуется как «не повторять».
+        """
+        try:
+            return max(0, int(self.execution_settings.get_config().get("coldawn_retries") or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    async def _run_scenario_on_host_with_coldawn(self, plan: _ScenarioPlan, host) -> str:
+        """Прогон сценария на хосте с повторами coldawn.
+
+        Если сценарий не смог даже начаться (первый шаг не выполнился — обычно
+        отказ SSH/сети на старте), запуск повторяется до ``coldawn_retries`` раз с
+        паузой. Исчерпали попытки — фиксируем факт coldawn в истории и пропускаем
+        машину: очередь переходит к следующей цели (у каждого хоста она своя).
+
+        Логируется только факт исчерпания (``scenario_coldawn``), не каждый повтор.
+        """
+        limit = self._coldawn_retries()
+        attempt = 0
+        while True:
+            started, status = await self._run_scenario_on_host(plan, host)
+            if started or attempt >= limit:
+                if not started and limit:
+                    self._record_coldawn(plan, host, attempt)
+                return status
+            attempt += 1
+            self.logger.warning(
+                "  %s: сценарий '%s' не начался, повтор %d/%d через %d с",
+                host.name, plan.scenario.name, attempt, limit, COLDAWN_RETRY_DELAY,
+            )
+            await asyncio.sleep(COLDAWN_RETRY_DELAY)
+
+    def _record_coldawn(self, plan: _ScenarioPlan, host, attempts: int) -> None:
+        """Фиксирует в общей истории факт coldawn: запуск не удался, машина пропущена."""
+        if not self.history:
+            return
+        self.history.record(
+            source="scenario",
+            event_type="scenario_coldawn",
+            title=f'Сценарий "{plan.scenario.name}" не запустился на хосте {host.name}',
+            description=(
+                f"Coldawn: {attempts} повтор(ов) запуска без успеха — "
+                f"машина пропущена, очередь переходит к следующей"
+            ),
+            payload={
+                "scenario_name": plan.scenario.name,
+                "host_name": host.name,
+                "attempts": attempts,
+            },
+            ref_type="scenario",
+            ref_id=plan.scenario.id,
+            level="warning",
+        )
+
+    async def _run_scenario_on_host(self, plan: _ScenarioPlan, host) -> tuple[bool, str]:
+        """Прогоняет шаги сценария на одном хосте.
+
+        Возвращает ``(started, status)``: ``started`` — удалось ли начать сценарий
+        (успешно выполнен первый шаг); ``status`` — completed / partial / failed.
+        """
         had_failure = False
+        started: bool | None = None
 
         for index, step_plan in enumerate(plan.steps):
             ok = await self._run_step_on_host(plan.run_id, step_plan, host)
+            if started is None:
+                # Первый шаг решает, «начался» ли сценарий (для coldawn-повторов).
+                started = ok
             if ok:
                 continue
 
@@ -272,14 +350,14 @@ class ScenarioRunner:
                     plan.run_id, plan.steps[index + 1:], host,
                     reason=f"Пропущен: шаг '{step_plan.name}' упал (on_failure=stop)",
                 )
-                return "failed"
+                return bool(started), "failed"
 
             self.logger.info(
                 "  %s: шаг %d '%s' упал, on_failure=%s — идём дальше",
                 host.name, step_plan.step.step_order, step_plan.name, step_plan.on_failure,
             )
 
-        return "partial" if had_failure else "completed"
+        return bool(started), ("partial" if had_failure else "completed")
 
     def _record_step_failed(self, plan: _ScenarioPlan, step_plan: _StepPlan, host) -> None:
         """Записывает в общую историю падение шага сценария на хосте."""
@@ -403,13 +481,22 @@ class ScenarioRunner:
             ", ".join(f"host {hid}={st}" for hid, st in plan.host_statuses.items()) or "нет хостов",
         )
         if self.history:
+            if overall == "completed":
+                event_type, hlevel = "scenario_run_done", "success"
+            elif overall == "partial":
+                # Сценарий выполнился частично: часть машин ок, часть нет.
+                # Это НЕ ошибка сценария — пишем отдельным warning-событием,
+                # чтобы история не показывала его как упавший.
+                event_type, hlevel = "scenario_run_partial", "warning"
+            else:
+                event_type, hlevel = "scenario_failed", "error"
             self.history.record(
                 source="scenario",
-                event_type="scenario_run_done" if overall == "completed" else "scenario_failed",
+                event_type=event_type,
                 title=f'Сценарий "{plan.scenario.name}" завершён: {overall}',
                 description=f"Завершение сценария, статус {overall}",
                 payload={"scenario_name": plan.scenario.name, "overall_status": overall},
                 ref_type="scenario",
                 ref_id=plan.scenario.id,
-                level="success" if overall == "completed" else "error",
+                level=hlevel,
             )

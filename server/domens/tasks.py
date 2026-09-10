@@ -9,10 +9,6 @@ from services.logger import Logger
 
 logger = Logger()
 
-async def api_task_templates(request: web.Request) -> web.Response:
-    return _ok(_ctx(request).db.task_templates.all())
-
-
 async def api_task_runs(request: web.Request) -> web.Response:
     limit = _safe_int(request.query.get("limit", 50), 50)
     return _ok(_ctx(request).db.task_runs.list_recent(limit))

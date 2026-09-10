@@ -48,12 +48,18 @@ count = db.import_legacy_hosts_json('hosts.json', ssh_key_id=key.id)
 - `create_schema(conn)` — создаёт таблицы/индексы и прогоняет все миграции.
 - `_add_column_if_missing(conn, table, column, definition)` — добавить колонку, если её нет.
 - `_migrate_ssh_keys/_migrate_scheduled_tasks/_migrate_users/_migrate_modules/_migrate_hosts(conn)`
-  — точечные миграции таблиц (например, `_migrate_hosts` добавляет `password_encrypted`
-  — зашифрованный пароль хоста для повторной привязки SSH-ключа).
-- `_create_new_tables(conn)` — досоздаёт новые таблицы (`user_group_access`, `boards`, `board_hosts`).
-- В `SCHEMA_SQL` также есть таблицы `uploaded_files` (загруженные файлы для рассылки),
-  `app_settings` (key/value-настройки, в т.ч. конфиг самообновления) и `trusted_devices`
-  (доверенные устройства для 2FA через Telegram).
+  — точечные миграции таблиц. `_migrate_scheduled_tasks` помимо добавления полей умеет
+  **пересоздавать** таблицу (rebuild без потери данных): убрал устаревший `template_id`
+  (расписание теперь привязано к `scenario_id`) и добавил поля recurring-расписания
+  (`days_of_week`, `start_min`, `end_min`, `interval_min`, `description`).
+- `_create_new_tables(conn)` — досоздаёт новые таблицы (`user_group_access`, `boards`,
+  `board_hosts`).
+- В `SCHEMA_SQL` также есть таблицы: `scenarios`/`scenario_steps`/`scenario_runs`/
+  `scenario_step_runs` (многошаговые сценарии и их запуски), `host_agents`/`host_events`
+  (endpoint-агент: провиженные агенты и их таймлайн событий online/heartbeat),
+  `history_entries` (единая история), `system_logs` (журнал процессов сервера),
+  `host_default_credentials` (стандартные креды), `uploaded_files`, `app_settings`
+  (key/value, в т.ч. конфиг самообновления), `trusted_devices` (2FA через Telegram).
 
 ### `orm.py` — фасад `Database`
 - `class Database` — открывает соединение, прогоняет `create_schema`, предоставляет
