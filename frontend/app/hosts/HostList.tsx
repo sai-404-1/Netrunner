@@ -202,15 +202,17 @@ export function HostList({
                   )}
                   {filteredHosts.map((h) => {
                     const selected = selectedIds.has(h.id);
-                    const picked = pickMode && pickedId === String(h.id);
+                    // Выбранная цель подсвечивается ВСЕГДА (не только в режиме выбора):
+                    // Сай: «выбрал хост — выделение сбрасывается, это странно».
+                    const picked = pickedId === String(h.id);
                     return (
                       <button
                         key={h.id}
                         className={`flex items-center gap-3 rounded-2xl bg-white dark:bg-gray-800 p-4 text-left transition-all duration-200 ${
                           pickMode
-                            ? `cursor-pointer border-4 ${
+                            ? `cursor-pointer border-2 ${
                               picked
-                                ? "border-blue-600 bg-blue-50 dark:bg-blue-950/40"
+                                ? "border-blue-600 ring-2 ring-blue-400 bg-blue-50 dark:bg-blue-950/40"
                                 : "border-gray-300 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-700 hover:bg-blue-50 dark:hover:bg-gray-750"
                             }`
                             : selectionMode
@@ -219,7 +221,11 @@ export function HostList({
                                 ? "border-blue-600 hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950"
                                 : "border-gray-300 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-700 hover:bg-blue-50 dark:hover:bg-gray-750"
                             }`
-                            : "border-2 border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700"
+                            : `border-2 ${
+                              picked
+                                ? "border-blue-600 bg-blue-50 dark:bg-blue-950/40"
+                                : "border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700"
+                            }`
                         }`}
                         onClick={(e) => {
                           if (pickMode) {
@@ -255,15 +261,16 @@ export function HostList({
               }`}>
                 {groups.map((g) => {
                   const selected = selectedIds.has(g.id);
-                  const picked = pickMode && pickedId === String(g.id);
+                  // Выбранная цель-кабинет подсвечивается всегда (см. хосты выше).
+                  const picked = pickedId === String(g.id);
                   return (
                     <button
                       key={g.id}
                       className={`flex items-center gap-3 rounded-2xl bg-white dark:bg-gray-800 p-4 text-left transition-all duration-200 ${
                         pickMode
-                          ? `cursor-pointer border-4 ${
+                          ? `cursor-pointer border-2 ${
                             picked
-                              ? "border-blue-600 bg-blue-50 dark:bg-blue-950/40"
+                              ? "border-blue-600 ring-2 ring-blue-400 bg-blue-50 dark:bg-blue-950/40"
                               : "border-gray-300 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-700 hover:bg-blue-50 dark:hover:bg-gray-750"
                           }`
                           : selectionMode
@@ -272,7 +279,11 @@ export function HostList({
                               ? "border-blue-600 hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950"
                               : "border-gray-300 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-700 hover:bg-blue-50 dark:hover:bg-gray-750"
                           }`
-                          : "border-2 border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700"
+                          : `border-2 ${
+                            picked
+                              ? "border-blue-600 bg-blue-50 dark:bg-blue-950/40"
+                              : "border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700"
+                          }`
                       }`}
                       onClick={() => {
                         if (pickMode) {

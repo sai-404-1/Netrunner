@@ -174,25 +174,34 @@ export function RunPanel({
           </div>
         </div>
 
+        {/* Кнопка «Выбрать» — слева от поля цели (сначала выбираем, потом видим
+            результат). В режиме выбора становится «Отмена». */}
+        <div className="label">
+          &nbsp;
+          <button
+            type="button"
+            className={`btn w-full ${pickMode ? "bg-red-600 hover:bg-red-700" : ""}`}
+            onClick={onTogglePick}
+          >
+            {pickMode ? "Отмена" : "Выбрать"}
+          </button>
+        </div>
+
         <div className="label">
           Цель
-          <div className="flex items-center gap-2">
-            <span className="input flex-1 flex items-center gap-2 truncate">
-              {targetName || <span className="text-gray-400">не выбрана</span>}
-              {targetName && (
-                <button type="button" className="text-gray-400 hover:text-red-500" onClick={onClearTarget} title="Сбросить цель">
-                  <X size={14} />
-                </button>
-              )}
-            </span>
-            <button type="button" className={pickMode ? "btn-danger shrink-0" : "btn shrink-0"} onClick={onTogglePick}>
-              {pickMode ? "Отмена" : "Выбрать"}
-            </button>
+          <div className="input flex items-center gap-2 truncate">
+            {targetName || <span className="text-gray-400">не выбрана</span>}
+            {targetName && (
+              <button type="button" className="text-gray-400 hover:text-red-500" onClick={onClearTarget} title="Сбросить цель">
+                <X size={14} />
+              </button>
+            )}
           </div>
         </div>
 
-        <div className="flex gap-3">
-          <button className="btn" type="button" onClick={startRun} disabled={polling}>
+        <div className="label">
+          &nbsp;
+          <button className="btn w-full" type="button" onClick={startRun} disabled={polling}>
             {polling ? <Loader2 size={16} className="animate-spin" /> : null}
             Запустить
           </button>
