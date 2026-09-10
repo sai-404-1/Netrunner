@@ -18,7 +18,7 @@ TARGETS = [
     "virtualbox-7.1_7.1.6-167084~Ubuntu~noble_amd64.deb",
     "GIMP-3.2.4-x86_64.AppImage",
     "sasm_3.10.1_amd64.deb",
-    "pycharm-2026.2.1.tar.gz",  # скачан Саем
+    "pycharm-2026.2.1.tar.gz",
 ]
 
 def login():

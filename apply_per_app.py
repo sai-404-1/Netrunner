@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Обновляет сценарии: file_ids = app + ТОЛЬКО зависимости своего приложения.
-Сопоставление: имена из app_tree.json ↔ deps_file_ids.json (по имени пакета до первого _)."""
+Сопоставление: имена из app_tree.json и deps_file_ids.json (по имени пакета до первого _)."""
 import json, os, sqlite3
 
 DB = os.path.join(os.path.dirname(__file__), "data", "netrunner.db")

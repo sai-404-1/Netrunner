@@ -19,7 +19,7 @@ Dataclass-модели строк таблиц NetRunner. Каждая моде�
 - `ssh_key.py` — `SSHKey`: SSH-ключ (пути/контент приватной и публичной части, fingerprint,
   флаг `is_default`).
 - `group.py` — `Group`: группа хостов.
-- `group_host.py` — `GroupHost`: связь many-to-many группа↔хост.
+- `group_host.py` — `GroupHost`: связь many-to-many группа-хост.
 - `module_record.py` — `ModuleRecord`: запись о модуле (slug, схема, builtin/enabled).
 - `task_template.py` — `TaskTemplate`: шаблон задачи (модуль + аргументы по умолчанию).
 - `task_run.py` — `TaskRun`: запуск задачи (статус, stdout/stderr, `per_host_json`, кто запустил).

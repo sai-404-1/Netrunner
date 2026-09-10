@@ -33,6 +33,6 @@
 - Типы (`schedule-types.ts`): `Scenario`, `Host`, `Group`, `ScheduledTask` (сценарий, цель,
   `wait_for_online`, recurring-поля `days_of_week`/`start_min`/`end_min`/`interval_min`).
 - Хелперы (`schedule-utils.ts`): битмаска дней недели (`toBitmask`/`fromBitmask`, `isEveryDay`,
-  `daysLabel`), перевод времени «HH:MM» ↔ минуты (`hmToMinutes`/`minutesToHM`,
+  `daysLabel`), перевод времени «HH:MM» в минуты (`hmToMinutes`/`minutesToHM`,
   `durationToMinutes`), `targetsFor` (цели по типу), `scheduleLabel` (человекочитаемое условие
   задачи для таблицы).
