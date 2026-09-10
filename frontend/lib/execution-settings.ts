@@ -20,6 +20,8 @@ export interface ExecutionConfig {
   batch_delay: number;
   /** Потолок параллелизма, когда пакетный режим выключен. */
   max_parallel: number;
+  /** Повторы запуска сценария, если он не смог начаться (coldawn). 0 — не повторять. */
+  coldawn_retries: number;
 }
 
 export interface ExecutionFieldChoice {

@@ -53,6 +53,7 @@ class HistoryService:
                     'scenario_run_partial': {'label': 'Сценарий завершён частично', 'level': 'warning'},
                     'scenario_step_failed': {'label': 'Шаг сценария: ошибка', 'level': 'error'},
                     'scenario_failed': {'label': 'Сценарий завершён с ошибкой', 'level': 'error'},
+                    'scenario_coldawn': {'label': 'Coldawn: запуск сценария не удался', 'level': 'warning'},
                 },
             )
         )

@@ -85,6 +85,11 @@
   - Темп выполнения (`execution_settings`): пакетами (`MODE_BATCH`) или с ограничением
     параллелизма; шаги-модули резолвятся заранее (`_StepPlan`) — недоступный модуль —
     ошибка шага, а не падение всего запуска.
+  - **Coldawn** (`_run_scenario_on_host_with_coldawn`): если сценарий не смог даже
+    начаться на хосте (первый шаг не выполнился — отказ SSH/сети на старте), запуск
+    повторяется до `execution_settings.coldawn_retries` раз с паузой `COLDAWN_RETRY_DELAY`.
+    Исчерпали — в историю пишется факт `scenario_coldawn` (warning), машина пропускается,
+    очередь идёт к следующей. Логируется только факт исчерпания, не каждый повтор.
 
 ### `module_registry.py` — реестр модулей
 - `class RegisteredModule` — обёртка над runtime-экземпляром модуля.
@@ -134,14 +139,17 @@
   → строка в `history_entries` (общая лента в UI). Чтение: `list(limit, sources, offset)`,
   `count(sources)`. События сценария: `scenario_run`, `scenario_run_done` (success),
   `scenario_run_partial` (**warning** — часть машин прошла, часть нет; НЕ ошибка),
-  `scenario_step_failed`, `scenario_failed`.
+  `scenario_step_failed`, `scenario_failed`, `scenario_coldawn` (warning — запуск
+  не удалось начать после повторов, машина пропущена).
 
 ### `execution_settings.py` — настройки исполнения (темп + пользователь)
 - `class ExecutionSettings(db)` — глобальные настройки исполнения на сервере:
   - темп «как гнать хосты»: режим пакетами (`MODE_BATCH`, `batch_size`, `batch_delay`)
     либо с ограничением параллелизма (`max_parallel`);
   - **пользователь исполнения** `ssh_user_mode`: `service` (`netrunner-svc`, дефолт)
-    либо `primary` (первичный пользователь хоста) — влияет на `HostService.to_computer`.
+    либо `primary` (первичный пользователь хоста) — влияет на `HostService.to_computer`;
+  - **повторы запуска** `coldawn_retries`: сколько раз повторить запуск, если сценарий
+    не смог начаться (по умолчанию 3, 0 — выключено) — читает `ScenarioRunner`.
   - `FIELDS` — единственный источник правды (ключ в `app_settings`, дефолт, границы,
     подпись для формы); `get_config`/`set_config`/`schema`. Перечитывается перед каждым
     запуском; меняется со страницы «Администрирование».

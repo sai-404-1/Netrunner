@@ -105,6 +105,8 @@ export default function AdminPage() {
   // (services/execution_settings.py). Значение и подпись приходят с сервера.
   const [sshUserMode, setSshUserMode] = useState<SshUserMode>("service");
   const [sshUserField, setSshUserField] = useState<ExecutionField | null>(null);
+  const [coldawnRetries, setColdawnRetries] = useState<number>(3);
+  const [coldawnField, setColdawnField] = useState<ExecutionField | null>(null);
   const [execSaving, setExecSaving] = useState(false);
 
   useEffect(() => {
@@ -144,6 +146,8 @@ export default function AdminPage() {
       const data = await fetchExecutionSettings();
       setSshUserMode((data?.config?.ssh_user_mode as SshUserMode) || "service");
       setSshUserField(data?.schema?.ssh_user_mode || null);
+      setColdawnRetries(Number(data?.config?.coldawn_retries ?? 3));
+      setColdawnField(data?.schema?.coldawn_retries || null);
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -164,6 +168,19 @@ export default function AdminPage() {
       showToast("Пользователь исполнения обновлён");
     } catch (err: any) {
       setSshUserMode(prev);
+      showToast(err.message, "error");
+    } finally {
+      setExecSaving(false);
+    }
+  }
+
+  async function saveColdawnRetries() {
+    setExecSaving(true);
+    try {
+      const res = await saveExecutionSettings({ coldawn_retries: coldawnRetries });
+      setColdawnRetries(Number(res?.config?.coldawn_retries ?? coldawnRetries));
+      showToast("Число повторов сохранено");
+    } catch (err: any) {
       showToast(err.message, "error");
     } finally {
       setExecSaving(false);
@@ -605,10 +622,16 @@ export default function AdminPage() {
           Меняет, от чьего имени NetRunner выполняет SSH-команды на целевых
           машинах; на самих хостах при этом ничего не меняется. */}
       <div className="panel">
-        <h3 className="font-semibold mb-1">
-          {sshUserField?.label || "Пользователь исполнения команд"}
-        </h3>
+        <h3 className="font-semibold mb-1">Исполнение команд</h3>
         <p className="text-sm text-gray-500 mb-4">
+          Как NetRunner выполняет команды на целевых машинах. Настройки глобальные
+          и живут на сервере — на самих хостах ничего не меняется.
+        </p>
+
+        <h4 className="text-sm font-medium mb-1">
+          {sshUserField?.label || "Пользователь исполнения команд"}
+        </h4>
+        <p className="text-sm text-gray-500 mb-3">
           {sshUserField?.hint ||
             "От чьего имени выполняются команды на целевых машинах."}
         </p>
@@ -638,6 +661,35 @@ export default function AdminPage() {
               {choice.label}
             </label>
           ))}
+        </div>
+
+        {/* Coldawn: сколько раз повторять запуск сценария, если он не смог
+            начаться (ошибка соединения/старта) на конкретной машине. */}
+        <div className="mt-5 pt-4 border-t border-gray-200">
+          <h4 className="text-sm font-medium mb-1">
+            {coldawnField?.label || "Повторы запуска (coldawn)"}
+          </h4>
+          <p className="text-sm text-gray-500 mb-3">
+            {coldawnField?.hint ||
+              "Сколько раз повторить запуск, если сценарий не смог начаться."}
+          </p>
+          <div className="flex items-end gap-3">
+            <label className="label w-44">
+              Повторов
+              <input
+                type="number"
+                className="input"
+                min={coldawnField?.min ?? 0}
+                max={coldawnField?.max ?? 20}
+                value={coldawnRetries}
+                disabled={execSaving}
+                onChange={(e) => setColdawnRetries(Number(e.target.value))}
+              />
+            </label>
+            <button className="btn" onClick={saveColdawnRetries} disabled={execSaving}>
+              Сохранить
+            </button>
+          </div>
         </div>
       </div>
         </div>
