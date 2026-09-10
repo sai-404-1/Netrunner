@@ -5,7 +5,7 @@ from server.domens.host_profile import api_host_profile, api_host_metrics
 from server.domens.summary import api_summary
 from server.domens.groups import api_groups
 from server.domens.modules import api_modules
-from server.domens.tasks import api_task_templates, api_task_runs, api_task_run_status
+from server.domens.tasks import api_task_runs, api_task_run_status
 from server.domens.inventory import api_inventory
 from server.domens.scheduled import api_scheduled
 from server.domens.reports import api_reports
@@ -23,7 +23,6 @@ def add_routes(app: web.Application):
     app.router.add_get("/api/hosts/{id}/metrics", api_host_metrics)
     app.router.add_get("/api/groups", api_groups)
     app.router.add_get("/api/modules", api_modules)
-    app.router.add_get("/api/task-templates", api_task_templates)
     app.router.add_get("/api/task-runs", api_task_runs)
     app.router.add_get("/api/run/{id}/status", api_task_run_status)
     app.router.add_get("/api/inventory", api_inventory)

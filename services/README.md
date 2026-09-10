@@ -10,12 +10,9 @@
   auth и отчёты (`close()` закрывает ресурсы).
 - `create_app_context(db_path, reports_dir, run_scheduler_on_start)` — собирает единый
   `AppContext` для CLI или web-GUI: открывает/мигрирует БД, регистрирует встроенные и
-  пользовательские модули, грузит модули с диска, сидит шаблоны задач (legacy-поверхность
-  для TUI; планировщик шаблоны **не использует**), создаёт пользователя `admin/admin`,
+  пользовательские модули, грузит модули с диска, создаёт пользователя `admin/admin`,
   прогоняет один тик планировщика.
 - `bootstrap_database(db, host_service)` — первичная подготовка БД и импорт legacy `hosts.json`.
-- `bootstrap_task_templates(db)` — создание базовых шаблонов задач (для CLI-меню; из
-  планировщика шаблоны убраны — он исполняет только сценарии).
 - `_load_user_modules_from_disk(module_registry)` — загрузка модулей из `/app/modules` (или `modules/`).
 
 ### `host_service.py` — работа с хостами

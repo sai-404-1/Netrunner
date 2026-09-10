@@ -49,7 +49,6 @@ const TABLE_LABELS: Record<string, string> = {
   modules: "Модули",
   users: "Пользователи",
   hosts: "Хосты",
-  task_templates: "Шаблоны задач",
   boards: "Доски",
   inventory_snapshots: "Инвентаризация",
   task_runs: "История запусков",

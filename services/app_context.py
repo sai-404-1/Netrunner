@@ -77,34 +77,6 @@ def bootstrap_database(db, host_service: HostService) -> None:
         logger.info("Imported %s hosts from hosts.json", imported)
 
 
-def bootstrap_task_templates(db) -> None:
-    """Создание базовых шаблонов задач, если они ещё не созданы."""
-
-    templates = [
-        ("Проверка доступности", "availability_check", {}, "Проверка доступности выбранных хостов"),
-        ("Сбор инвентаризации", "inventory_collect", {}, "Сбор системной информации по выбранным хостам"),
-        ("Массовый SSH", "mass_ssh", {}, "Выполнение произвольной команды по SSH"),
-        ("APT package manager", "apt_package_manager", {"action": "update"}, "Обновление/установка/удаление пакетов APT"),
-        ("Переустановка endpoint-агента", "agent_provision", {}, "Переустановка endpoint-агента на хостах (без ротации ключа/токена, общение через netrunner-svc)"),
-    ]
-
-    for name, module_slug, default_args, description in templates:
-        module_row = db.modules.by_slug(module_slug)
-        if not module_row:
-            continue
-
-        existing = db.task_templates.get_one_by(name=name)
-        if existing:
-            continue
-
-        db.task_templates.create(
-            name=name,
-            module_id=module_row.id,
-            default_args_json=json.dumps(default_args, ensure_ascii=False),
-            description=description,
-        )
-
-
 def create_app_context(
     db_path: str = "data/netrunner.db",
     reports_dir: str = "reports",
@@ -124,7 +96,6 @@ def create_app_context(
     module_registry.register_menu_items(builtin_items, is_builtin=True)
     module_registry.register_menu_items(user_items, is_builtin=False)
     _load_user_modules_from_disk(module_registry)
-    bootstrap_task_templates(db)
 
     history = HistoryService(db)
 

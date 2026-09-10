@@ -63,19 +63,8 @@ CREATE TABLE IF NOT EXISTS modules (
     created_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS task_templates (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    module_id INTEGER NOT NULL,
-    default_args_json TEXT,
-    description TEXT,
-    created_at TEXT NOT NULL,
-    FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE
-);
-
 CREATE TABLE IF NOT EXISTS task_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    template_id INTEGER,
     module_id INTEGER NOT NULL,
     target_type TEXT NOT NULL,
     target_id INTEGER NOT NULL,
@@ -89,7 +78,6 @@ CREATE TABLE IF NOT EXISTS task_runs (
     finished_at TEXT,
     trigger_type TEXT NOT NULL DEFAULT 'manual',
     created_by TEXT,
-    FOREIGN KEY (template_id) REFERENCES task_templates(id) ON DELETE SET NULL,
     FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE
 );
 
@@ -151,7 +139,6 @@ CREATE TABLE IF NOT EXISTS reports (
 CREATE INDEX IF NOT EXISTS idx_hosts_ssh_key_id ON hosts (ssh_key_id);
 CREATE INDEX IF NOT EXISTS idx_group_hosts_host_id ON group_hosts (host_id);
 CREATE INDEX IF NOT EXISTS idx_modules_slug ON modules (slug);
-CREATE INDEX IF NOT EXISTS idx_task_templates_module_id ON task_templates (module_id);
 CREATE INDEX IF NOT EXISTS idx_task_runs_module_id ON task_runs (module_id);
 CREATE INDEX IF NOT EXISTS idx_task_runs_target ON task_runs (target_type, target_id);
 CREATE INDEX IF NOT EXISTS idx_task_runs_status ON task_runs (status);
@@ -343,6 +330,67 @@ def _migrate_scheduled_tasks(conn) -> None:
     )
 
 
+def _migrate_task_runs(conn) -> None:
+    """Полный снос task_templates: убирает колонку template_id из task_runs.
+
+    Раньше задача (запуск модуля) была привязана к шаблону (task_templates)
+    через task_runs.template_id. Таблица task_templates удалена, шаблоны-модули
+    заменены на сценарии (scenario_id в scheduled_tasks). Поэтому пересоздаёт
+    task_runs без колонки template_id и связанного FK-каскада (ON DELETE
+    SET NULL). Данные о прошлых запусках модулей (module_id, вывод, статусы)
+    не теряются — теряется только ссылка на удалённый шаблон, которая больше
+    нигде не используется (кроме legacy-статики, которая выпиливается).
+    """
+    if "template_id" not in _column_names(conn, "task_runs"):
+        # Таблица уже без template_id (свежая или уже мигрированная) — нечего чинить.
+        return
+
+    conn.execute("""
+        CREATE TABLE task_runs_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            module_id INTEGER NOT NULL,
+            target_type TEXT NOT NULL,
+            target_id INTEGER NOT NULL,
+            args_json TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            stdout_text TEXT,
+            stderr_text TEXT,
+            exit_code INTEGER,
+            per_host_json TEXT,
+            started_at TEXT,
+            finished_at TEXT,
+            trigger_type TEXT NOT NULL DEFAULT 'manual',
+            created_by TEXT,
+            FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE
+        )
+    """)
+    conn.execute("""
+        INSERT INTO task_runs_new (
+            id, module_id, target_type, target_id, args_json, status,
+            stdout_text, stderr_text, exit_code, per_host_json,
+            started_at, finished_at, trigger_type, created_by
+        )
+        SELECT
+            id, module_id, target_type, target_id, args_json, status,
+            stdout_text, stderr_text, exit_code, per_host_json,
+            started_at, finished_at, trigger_type, created_by
+        FROM task_runs
+    """)
+    conn.execute("DROP TABLE task_runs")
+    conn.execute("ALTER TABLE task_runs_new RENAME TO task_runs")
+    for index in ("idx_task_runs_module_id", "idx_task_runs_target", "idx_task_runs_status"):
+        conn.execute(
+            f"CREATE INDEX IF NOT EXISTS {index} ON task_runs "
+            "(" + {"idx_task_runs_module_id": "module_id",
+                   "idx_task_runs_target": "target_type, target_id",
+                   "idx_task_runs_status": "status"}[index] + ")"
+        )
+    # Окончательно сносим таблицу шаблонов-модулей и её индекс (для существующих БД,
+    # где она уже была создана). Новые БД её вообще не создают (убран CREATE TABLE).
+    conn.execute("DROP TABLE IF EXISTS task_templates")
+    conn.execute("DROP INDEX IF EXISTS idx_task_templates_module_id")
+
+
 def _migrate_users(conn) -> None:
     _add_column_if_missing(conn, "users", "role", "TEXT NOT NULL DEFAULT 'user'")
     _add_column_if_missing(conn, "users", "telegram_chat_id", "TEXT")
@@ -529,6 +577,7 @@ def create_schema(conn) -> None:
     conn.executescript(SCHEMA_SQL)
     _migrate_ssh_keys(conn)
     _migrate_scheduled_tasks(conn)
+    _migrate_task_runs(conn)
     _migrate_users(conn)
     _migrate_modules(conn)
     _migrate_hosts(conn)

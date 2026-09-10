@@ -42,7 +42,7 @@
 - **Группы:** `api_groups`, `api_groups_create/update/delete/add_host`.
 - **Модули:** `api_modules`, `api_modules_create/update/delete`.
 - **Задачи:** `api_run` (старт в фоне, возврат `run_id`), `api_run_cancel`,
-  `api_task_runs`, `api_task_run_status`, `api_task_templates`, `api_task_runs_clear`.
+  `api_task_runs`, `api_task_run_status`, `api_task_runs_clear`.
 - **Планировщик:** `api_scheduled`, `api_schedule_create/update/delete`, `api_scheduler_tick`
   (ручной тик). Логика в `domens/scheduled.py`; каждая задача привязана к **сценарию**
   (`scenario_id`), исполняет её `Scheduler` → `ScenarioRunner`. Create/update принимают
