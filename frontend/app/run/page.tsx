@@ -206,7 +206,7 @@ function RunForm() {
               Тип цели
               <select className="input" value={targetType} onChange={(e) => setTargetType(e.target.value as any)}>
                 <option value="host">Хост</option>
-                <option value="group">Группа</option>
+                <option value="group">Кабинет</option>
               </select>
             </label>
             <label className="label">

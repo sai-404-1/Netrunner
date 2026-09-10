@@ -10,7 +10,7 @@ interface Props {
 /** Создание группы. Stateless: отдаёт FormData наверх. */
 export function GroupCreateModal({onClose, onSubmit}: Props) {
   return (
-    <Modal title="Создать группу" onClose={onClose}>
+    <Modal title="Создать кабинет" onClose={onClose}>
       <form
         onSubmit={(e) => {
           e.preventDefault();

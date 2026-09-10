@@ -28,10 +28,10 @@ export function AddHostModal({groups, onClose, onSubmit, onCreateGroup}: Props) 
 
   useEffect(() => {
     const trimmedIP = ipValue.trim();
-    if (selectedGroup !== "" && selectedGroup != "Без группы") {
+    if (selectedGroup !== "" && selectedGroup != "Без кабинета") {
       setHostName(selectedGroup)
     }
-    if (validateIP(trimmedIP) && selectedGroup != "Без группы") {
+    if (validateIP(trimmedIP) && selectedGroup != "Без кабинета") {
       console.log("ip is valid");
       setHostName(`${selectedGroup}_${ipValue.split(".")[3]}`);
     }
@@ -65,10 +65,10 @@ export function AddHostModal({groups, onClose, onSubmit, onCreateGroup}: Props) 
         </label>
 
         <label className="label">
-          Группа
+          Кабинет
           <select className="input" name="group_id"
                   onChange={(e) => setSelectedGroup(e.target.selectedOptions[0]?.text || "")}>
-            <option value="">Без группы</option>
+            <option value="">Без кабинета</option>
             {groups.map((g) => (
               <option key={g.id} value={g.id}>{g.name}</option>
             ))}
@@ -143,7 +143,7 @@ export function AddHostModal({groups, onClose, onSubmit, onCreateGroup}: Props) 
         </label>
         <div className="flex gap-3 md:col-span-2 lg:col-span-4 justify-between">
           <button type="button" className="btn-secondary" onClick={onCreateGroup}>Создать
-            группу
+            кабинет
           </button>
           <button className="btn" type="submit">Добавить</button>
         </div>

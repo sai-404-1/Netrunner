@@ -58,7 +58,7 @@ export default function TaskTable({ rows, scenarios, hosts, groups, onEdit, onDe
             }
             if (groupIds.length) {
               parts.push(
-                "группа: " +
+                "кабинет: " +
                   groupIds
                     .map((id) => groups.find((g) => g.id === id)?.name || `#${id}`)
                     .join(", "),

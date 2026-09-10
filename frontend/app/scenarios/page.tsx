@@ -235,7 +235,7 @@ export default function ScenariosPage() {
                 Тип цели
                 <select className="input" value={runTargetType} onChange={(e) => { setRunTargetType(e.target.value); setRunTargetId(""); }}>
                   <option value="host">Хост</option>
-                  <option value="group">Группа</option>
+                  <option value="group">Кабинет</option>
                 </select>
               </label>
               <label className="label">

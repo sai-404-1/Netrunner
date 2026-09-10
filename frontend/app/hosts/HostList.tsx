@@ -122,7 +122,7 @@ export function HostList({
               слева вкладки, по центру поиск, справа кнопка добавления */}
           <div className="flex items-center gap-4 border-gray-200 dark:border-gray-700">
             <div className="flex items-center gap-1 shrink-0 -mb-2">
-              {/* Порядок вкладок: сначала «Кабинеты», затем «Хосты» (по просьбе Сая).
+              {/* Порядок вкладок: сначала «Кабинеты», затем «Хосты».
                   Клик по вкладке выбирает и тип цели для запуска (см. блок запуска). */}
               <button
                 onClick={() => onListTab("groups")}
@@ -203,7 +203,7 @@ export function HostList({
                   {filteredHosts.map((h) => {
                     const selected = selectedIds.has(h.id);
                     // Выбранная цель подсвечивается ВСЕГДА (не только в режиме выбора):
-                    // Сай: «выбрал хост — выделение сбрасывается, это странно».
+                    // после выбора выделение не должно пропадать.
                     const picked = pickedId === String(h.id);
                     return (
                       <button

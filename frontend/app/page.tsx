@@ -74,7 +74,7 @@ export default function DashboardPage() {
         <SummaryCard title="Онлайн" value={online} icon={<Activity size={20} />} color="text-green-600" />
         <SummaryCard title="Всего хостов" value={total} icon={<Server size={20} />} color="text-blue-600" />
         <SummaryCard title="Модули" value={summary?.modules ?? 0} icon={<Layers size={20} />} color="text-purple-600" />
-        <SummaryCard title="Группы" value={summary?.groups ?? 0} icon={<Users size={20} />} color="text-amber-600" />
+        <SummaryCard title="Кабинеты" value={summary?.groups ?? 0} icon={<Users size={20} />} color="text-amber-600" />
       </div>
 
       {/* Second row */}
@@ -88,7 +88,7 @@ export default function DashboardPage() {
       {summary?.group_stats && summary.group_stats.length > 0 && (
         <div className="panel">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold">Статус по группам</h3>
+            <h3 className="font-semibold">Статус по кабинетам</h3>
             <Link href="/hosts" className="btn-secondary py-1.5 px-3 text-sm">
               <ArrowRight size={14} /> Все хосты
             </Link>

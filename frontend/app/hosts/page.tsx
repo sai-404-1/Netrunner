@@ -17,8 +17,7 @@ import {GroupCreateModal} from "./modals/GroupCreateModal";
 import {GroupEditModal} from "./modals/GroupEditModal";
 
 // Ключ localStorage: выбранный кабинет-фильтр, строка поиска и активная вкладка
-// страницы переживают уход на профиль хоста (и перезагрузку) — Сай: «хранить
-// фильтрацию компьютеров во время того, как пользователь взаимодействует с компами».
+// страницы переживают уход на профиль хоста (и перезагрузку).
 const HOSTS_VIEW_KEY = "netrunner_hosts_view";
 
 export default function HostsPage() {
@@ -111,7 +110,7 @@ export default function HostsPage() {
   // Название выбранной группы для чипа-фильтра (null — фильтр не активен).
   const selectedGroupName = useMemo(() => {
     if (!groupFilter) return null;
-    if (groupFilter === "none") return "Без группы";
+    if (groupFilter === "none") return "Без кабинета";
     const g = groups.find((gr) => String(gr.id) === groupFilter);
     return g ? g.name : null;
   }, [groupFilter, groups]);
@@ -330,7 +329,7 @@ export default function HostsPage() {
   async function createGroup(fd: FormData) {
     try {
       await apiPostClient("/api/groups", {name: fd.get("name"), description: fd.get("description") || null});
-      showToast("Группа создана");
+      showToast("Кабинет создан");
       setCreateGroupOpen(false);
       await load();
     } catch (err: any) {
@@ -345,7 +344,7 @@ export default function HostsPage() {
         name: fd.get("name"),
         description: fd.get("description") || null
       });
-      showToast("Группа обновлена");
+      showToast("Кабинет обновлён");
       setEditGroup(null);
       await load();
     } catch (err: any) {
@@ -355,10 +354,10 @@ export default function HostsPage() {
 
   async function deleteGroup(id: number) {
     const group = groups.find((g) => g.id === id);
-    if (!confirm(`Удалить группу "${group?.name || id}"? Хосты в группе останутся без группы.`)) return;
+    if (!confirm(`Удалить кабинет "${group?.name || id}"? Хосты в кабинете останутся без кабинета.`)) return;
     try {
       await apiPostClient("/api/groups/delete", {id});
-      showToast("Группа удалена");
+      showToast("Кабинет удалён");
       await load();
     } catch (err: any) {
       showToast(err.message, "error");

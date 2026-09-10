@@ -32,9 +32,9 @@ export function EditHostModal({host, groups, keys, onClose, onSubmit}: Props) {
                                                 required/></label>
         <label className="label">Порт<input className="input" name="port" type="number" defaultValue={host.port}
                                             required/></label>
-        <label className="label">Группа<select className="input" name="group_id"
+        <label className="label">Кабинет<select className="input" name="group_id"
                                                defaultValue={host.group_id || ""}>
-          <option value="">Без группы</option>
+          <option value="">Без кабинета</option>
           {groups.map((g) => (<option key={g.id} value={g.id}>{g.name}</option>))}
         </select></label>
         <label className="label">SSH-ключ<select className="input" name="ssh_key_id"

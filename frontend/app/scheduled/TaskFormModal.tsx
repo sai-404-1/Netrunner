@@ -118,7 +118,7 @@ export default function TaskFormModal({ title, task, scenarios, hosts, groups, o
     if (!name.trim()) return setError("Введите название задачи");
     if (scenarioIds.length === 0) return setError("Выберите хотя бы один сценарий");
     if (targetHostIds.length === 0 && targetGroupIds.length === 0)
-      return setError("Выберите цель: хотя бы один хост или группу");
+      return setError("Выберите цель: хотя бы один хост или кабинет");
 
     if (cond === "online") {
       // Разовая: выполнить, когда цель появится в сети.
@@ -296,7 +296,7 @@ export default function TaskFormModal({ title, task, scenarios, hosts, groups, o
                         : "border-transparent text-gray-500 hover:text-gray-700"
                     }`}
                   >
-                    {tab === "host" ? "Хосты" : "Группы"}
+                    {tab === "host" ? "Хосты" : "Кабинеты"}
                   </button>
                 ))}
               </div>
@@ -322,7 +322,7 @@ export default function TaskFormModal({ title, task, scenarios, hosts, groups, o
                     ))
                   )
                 ) : groups.length === 0 ? (
-                  <p className="text-sm text-gray-500">Групп нет</p>
+                  <p className="text-sm text-gray-500">Кабинетов нет</p>
                 ) : (
                   groups.map((g) => (
                     <button

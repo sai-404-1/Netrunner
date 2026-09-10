@@ -51,7 +51,7 @@ type RestoreMode = "classic" | "replace" | "append";
 
 const TABLE_LABELS: Record<string, string> = {
   ssh_keys: "SSH-ключи",
-  groups: "Группы хостов",
+  groups: "Кабинеты",
   modules: "Модули",
   users: "Пользователи",
   hosts: "Хосты",
@@ -60,9 +60,9 @@ const TABLE_LABELS: Record<string, string> = {
   task_runs: "История запусков",
   scheduled_tasks: "Расписания",
   reports: "Отчёты",
-  group_hosts: "Связи хост↔группа",
+  group_hosts: "Связи хост-кабинет",
   board_hosts: "Хосты на досках",
-  user_group_access: "Доступ к группам",
+  user_group_access: "Доступ к кабинетам",
   user_module_access: "Доступ к модулям",
 };
 
@@ -481,7 +481,7 @@ export default function AdminPage() {
                   )}
                   <button
                     className="btn-secondary p-2"
-                    title="Доступ к группам хостов"
+                    title="Доступ к кабинетам"
                     onClick={() => openGroups(u)}
                   >
                     <Network size={16} />
@@ -780,15 +780,15 @@ export default function AdminPage() {
 
       {groupsUser && (
         <Modal
-          title={`Доступ к группам хостов — ${groupsUser.username}`}
+          title={`Доступ к кабинетам — ${groupsUser.username}`}
           onClose={() => setGroupsUser(null)}
         >
           <p className="text-xs text-gray-500 mb-3">
-            Если ни одна группа не отмечена — пользователь видит все хосты.
+            Если ни один кабинет не отмечен — пользователь видит все хосты.
           </p>
           <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
             {groups.length === 0 && (
-              <p className="text-gray-500 text-sm">Нет групп хостов</p>
+              <p className="text-gray-500 text-sm">Нет кабинетов</p>
             )}
             {groups.map((g) => (
               <label
