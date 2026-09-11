@@ -143,14 +143,21 @@ class UserModule:
 fi
 """
 
-        # Публичный ключ пишется всегда: если юзер был пересоздан / ключ сменился —
-        # он должен попасть на хост. Идемпотентно (тот же ключ перезаписывается тем же).
+        # Публичный ключ пишется ВСЕГДА: если юзер был пересоздан / ключ сменился —
+        # он должен попасть на хост. Директория .ssh создаётся здесь, а не только в
+        # create_user_block: при переустановке (create_user=False) home/.ssh могли
+        # отсутствовать на диске (хост был недоступен во время первой провизии —
+        # запись в host_agents появилась, а файлы не легли). Без mkdir -p tee падает
+        # с «Нет такого файла или каталога» и весь remote_script валится по set -e.
         pubkey_block = f"""
 # Публичный ключ сервисного пользователя (вход по ключу, без пароля).
+sudo mkdir -p /home/{ssh_username}/.ssh
 sudo tee /home/{ssh_username}/.ssh/authorized_keys > /dev/null << 'PUBKEY_EOF'
 {public_key}
 PUBKEY_EOF
 sudo chown -R {shlex.quote(ssh_username)}:{shlex.quote(ssh_username)} /home/{ssh_username}/.ssh
+sudo chmod 700 /home/{ssh_username}/.ssh
+sudo chmod 600 /home/{ssh_username}/.ssh/authorized_keys
 """
 
         # sudoers создаётся/чинится ВСЕГДА — это и есть «смещение фокуса» с первичного
