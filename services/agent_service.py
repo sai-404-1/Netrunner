@@ -27,6 +27,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
 from database.repos.base import utcnow_iso
+from database.models.host_agent import HostAgent
 from server.domens.websocket import _default_agent_ws_url
 from services.secrets import decrypt_secret, encrypt_secret
 
@@ -56,6 +57,10 @@ def _generate_keypair() -> tuple[str, str]:
 class AgentService:
     def __init__(self, db):
         self.db = db
+
+    def get_existing(self, db, host_id: int) -> HostAgent | None:
+        """Возвращает запись агента хоста (для переустановки без ротации ключа)."""
+        return db.host_agents.by_host(host_id)
 
     def provision(self, host_id: int, ssh_username: str = DEFAULT_SSH_USERNAME) -> dict:
         """(Пере-)генерирует секреты агента для хоста и сохраняет их. Не трогает
@@ -108,12 +113,17 @@ class AgentService:
         if agent:
             self.db.host_agents.touch(agent.id, status="connected")
             self.db.host_events.record(host_id, "agent_connected")
+            # Агент установил WS-соединение = хост в сети. Обновляем статус хоста
+            # сразу, без SSH-пинга (агент сам докладывает о себе).
+            self.db.hosts.update(host_id, is_active=1, last_seen_at=utcnow_iso())
 
     def record_disconnect(self, host_id: int) -> None:
         agent = self.db.host_agents.by_host(host_id)
         if agent:
             self.db.host_agents.mark_disconnected(agent.id)
             self.db.host_events.record(host_id, "agent_disconnected")
+            # НЕ трогаем hosts.is_active здесь: WS мог упасть при живом хосте.
+            # Offline-статус решает фоновый свип по протухшему last_seen_at.
 
     def record_event(self, host_id: int, event_type: str, payload_json: str | None = None) -> None:
         """Универсальный приёмник статусов агента — любой ``event_type`` (heartbeat,
@@ -124,6 +134,38 @@ class AgentService:
         if agent:
             self.db.host_agents.touch(agent.id, status="connected")
             self.db.host_events.record(host_id, event_type, payload_json=payload_json)
+            # online/heartbeat = хост жив. Обновляем статус хоста без SSH-пинга.
+            if event_type in ("online", "heartbeat"):
+                self.db.hosts.update(host_id, is_active=1, last_seen_at=utcnow_iso())
+
+    # Порог актуальности heartbeat агента: 180с = 3 пропущенных heartbeat
+    # (агент шлёт heartbeat каждые 60с). После этого хост считается офлайн.
+    AGENT_HEARTBEAT_STALE_SEC = 180
+
+    def agent_host_ids(self) -> set[int]:
+        """ID хостов, у которых ЕСТЬ запись endpoint-агента. Такие хосты
+        SSH-пинговать не нужно: их статус поддерживают online/heartbeat агента."""
+        return {a.host_id for a in self.db.host_agents.all()}
+
+    def mark_stale_agents_offline(self) -> int:
+        """Offline-свип: хосты с агентом, от которого нет heartbeat дольше
+        AGENT_HEARTBEAT_STALE_SEC, помечаются is_active=0. Возвращает число
+        переключённых хостов. Только SQL, без SSH — стоимость около нуля."""
+        from datetime import datetime, timedelta, timezone
+
+        threshold = (datetime.now(timezone.utc) - timedelta(seconds=self.AGENT_HEARTBEAT_STALE_SEC)).isoformat()
+        switched = 0
+        for agent in self.db.host_agents.all():
+            seen = agent.last_seen_at
+            # Без last_seen (агент ставился, но ни разу не подключался) — не трогаем:
+            # статус хоста определяет SSH-пинг, как для agentless-хоста.
+            if not seen or seen >= threshold:
+                continue
+            host = self.db.hosts.get(agent.host_id)
+            if host is not None and host.is_active:
+                self.db.hosts.update(agent.host_id, is_active=0)
+                switched += 1
+        return switched
 
 
 async def _auto_install_agent(app: web.Application, host) -> None:
@@ -137,6 +179,7 @@ async def _auto_install_agent(app: web.Application, host) -> None:
 
     module_ctx = ModuleContext(
         logger=logger, task_run_id=0, to_computer=ctx.host_service.to_computer, db=ctx.db,
+        host_service=ctx.host_service,
     )
     server_ws_url = _default_agent_ws_url()
     try:
@@ -146,6 +189,16 @@ async def _auto_install_agent(app: web.Application, host) -> None:
         ctx.db.system_logs.record(
             "agent_install", "error", f"Хост «{host.name}»: {exc}", host_id=host.id,
         )
+        if hasattr(ctx, "history"):
+            ctx.history.record(
+                source="agent",
+                event_type="agent_install",
+                title=f"Ошибка установки агента на хост «{host.name}»",
+                description=str(exc),
+                payload={"host_name": host.name, "action": "install"},
+                host_id=host.id,
+                level="error",
+            )
         return
 
     level = "error" if result.get("status") == "error" else "success"
@@ -153,3 +206,13 @@ async def _auto_install_agent(app: web.Application, host) -> None:
     ctx.db.system_logs.record(
         "agent_install", level, f"Хост «{host.name}» ({server_ws_url}): {output}", host_id=host.id,
     )
+    if hasattr(ctx, "history"):
+        ctx.history.record(
+            source="agent",
+            event_type="agent_install",
+            title=f"Агент установлен на хост «{host.name}»" if level == "success" else f"Ошибка установки агента на хост «{host.name}»",
+            description=output,
+            payload={"host_name": host.name, "action": "install"},
+            host_id=host.id,
+            level=level,
+        )

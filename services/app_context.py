@@ -17,7 +17,9 @@ import computer.users_module as user_modules_pkg
 from database import open_database
 from services import HostService, ModuleRegistry, TaskRunner, Scheduler
 from services.auth_service import AuthService
+from services.execution_settings import ExecutionSettings
 from services.report_service import ReportService
+from services.history import HistoryService
 from services.scenario_runner import ScenarioRunner
 
 
@@ -41,6 +43,8 @@ class AppContext:
     auth_service: AuthService
     report_service: ReportService
     scenario_runner: ScenarioRunner
+    history: HistoryService
+    execution_settings: ExecutionSettings
     db_path: str
     reports_dir: str
 
@@ -73,33 +77,6 @@ def bootstrap_database(db, host_service: HostService) -> None:
         logger.info("Imported %s hosts from hosts.json", imported)
 
 
-def bootstrap_task_templates(db) -> None:
-    """Создание базовых шаблонов задач, если они ещё не созданы."""
-
-    templates = [
-        ("Проверка доступности", "availability_check", {}, "Проверка доступности выбранных хостов"),
-        ("Сбор инвентаризации", "inventory_collect", {}, "Сбор системной информации по выбранным хостам"),
-        ("Массовый SSH", "mass_ssh", {}, "Выполнение произвольной команды по SSH"),
-        ("APT package manager", "apt_package_manager", {"action": "update"}, "Обновление/установка/удаление пакетов APT"),
-    ]
-
-    for name, module_slug, default_args, description in templates:
-        module_row = db.modules.by_slug(module_slug)
-        if not module_row:
-            continue
-
-        existing = db.task_templates.get_one_by(name=name)
-        if existing:
-            continue
-
-        db.task_templates.create(
-            name=name,
-            module_id=module_row.id,
-            default_args_json=json.dumps(default_args, ensure_ascii=False),
-            description=description,
-        )
-
-
 def create_app_context(
     db_path: str = "data/netrunner.db",
     reports_dir: str = "reports",
@@ -119,19 +96,36 @@ def create_app_context(
     module_registry.register_menu_items(builtin_items, is_builtin=True)
     module_registry.register_menu_items(user_items, is_builtin=False)
     _load_user_modules_from_disk(module_registry)
-    bootstrap_task_templates(db)
+
+    history = HistoryService(db)
 
     task_runner = TaskRunner(
         db=db,
         host_service=host_service,
         module_registry=module_registry,
         logger=logger,
+        history=history,
     )
-    scheduler = Scheduler(db=db, task_runner=task_runner, logger=logger)
     auth_service = AuthService(db=db)
     auth_service.create_default_user()
     report_service = ReportService(db=db, reports_dir=reports_dir)
-    scenario_runner = ScenarioRunner(db=db, host_service=host_service, module_registry=module_registry, logger=logger)
+    execution_settings = ExecutionSettings(db)
+    scenario_runner = ScenarioRunner(
+        db=db,
+        host_service=host_service,
+        module_registry=module_registry,
+        logger=logger,
+        execution_settings=execution_settings,
+        history=history,
+    )
+    # Планировщик исполняет только сценарии: вместо task_runner держит scenario_runner.
+    scheduler = Scheduler(
+        db=db,
+        scenario_runner=scenario_runner,
+        logger=logger,
+        history=history,
+        host_service=host_service,
+    )
 
     if run_scheduler_on_start:
         scheduler.tick()
@@ -145,6 +139,8 @@ def create_app_context(
         auth_service=auth_service,
         report_service=report_service,
         scenario_runner=scenario_runner,
+        history=history,
+        execution_settings=execution_settings,
         db_path=db_path,
         reports_dir=reports_dir,
     )

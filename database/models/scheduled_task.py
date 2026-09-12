@@ -12,7 +12,8 @@ class ScheduledTask(BaseModel):
 
     id: int | None = None
     name: str = ''
-    template_id: int | None = None
+    description: str | None = None
+    scenario_id: int | None = None
     target_type: str = 'host'
     target_id: int | None = None
     run_at: str = ''
@@ -22,3 +23,26 @@ class ScheduledTask(BaseModel):
     interval_seconds: int | None = None
     max_runs: int | None = None
     run_count: int = 0
+    wait_for_online: int = 0
+    # Recurring-расписание (cron по времени): days_of_week — 7-битмаска строкой,
+    # позиция = weekday() (0=Пн..6=Вс), '1'=выбран день. Пусто/все нули = не расписание
+    # (тогда задача разовая: run_at + при желании interval_seconds).
+    # start_min/end_min/interval_min — минуты от полуночи в локальном времени сервера.
+    days_of_week: str = ''
+    start_min: int | None = None
+    end_min: int | None = None
+    interval_min: int | None = None
+
+    # Мульти-выбор цели и сценариев (2026-09-10). JSON-списки id, приоритетны над
+    # одиночными target_type/target_id/scenario_id. Одиночные поля оставлены для
+    # обратной совместимости с существующими задачами.
+    target_host_ids_json: str | None = None   # JSON-массив id выбранных хостов
+    target_group_ids_json: str | None = None  # JSON-массив id выбранных групп
+    scenario_ids_json: str | None = None      # JSON-массив id выбранных сценариев
+
+    # Прогресс wait_for_online по хостам (2026-09-10): JSON-массив id хостов, на
+    # которых сценарий уже отработал в рамках этой задачи. Группа раскрывается в
+    # конкретные хосты; задача «просыпается» по первому онлайн-хосту, выполняет
+    # только на онлайн, а офлайн-хосты продолжают ждать. Когда покрыты все —
+    # задача закрывается (mark_ran), а список очищается.
+    done_host_ids_json: str | None = None

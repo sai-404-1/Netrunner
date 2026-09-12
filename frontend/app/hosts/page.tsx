@@ -8,12 +8,17 @@ import {useToast} from "@/components/Toast";
 import {useAuth} from "@/components/AuthProvider";
 import type {Group, Host, SshKey} from "@/lib/host-types";
 import {HostList} from "./HostList";
+import {RunPanel} from "./RunPanel";
 import {AddHostModal} from "./modals/AddHostModal";
 import {EditHostModal} from "./modals/EditHostModal";
 import {ReprovisionModal} from "./modals/ReprovisionModal";
 import {BulkReprovisionModal} from "./modals/BulkReprovisionModal";
 import {GroupCreateModal} from "./modals/GroupCreateModal";
 import {GroupEditModal} from "./modals/GroupEditModal";
+
+// Ключ localStorage: выбранный кабинет-фильтр, строка поиска и активная вкладка
+// страницы переживают уход на профиль хоста (и перезагрузку).
+const HOSTS_VIEW_KEY = "netrunner_hosts_view";
 
 export default function HostsPage() {
   const {user} = useAuth();
@@ -25,6 +30,12 @@ export default function HostsPage() {
   const [keys, setKeys] = useState<SshKey[]>([]);
   const [search, setSearch] = useState("");
   const [groupFilter, setGroupFilter] = useState("");
+  const [listTab, setListTab] = useState<"hosts" | "groups">("hosts");
+  const [viewHydrated, setViewHydrated] = useState(false);
+  // Запуск задачи прямо со страницы «Хосты»: цель выбирается в списке,
+  // её тип следует за активной вкладкой (Хосты → хост, Кабинеты → кабинет).
+  const [runTargetId, setRunTargetId] = useState("");
+  const [pickMode, setPickMode] = useState(false);
   const [checkingAll, setCheckingAll] = useState(false);
   const [editHost, setEditHost] = useState<Host | null>(null);
   const [reprovisionHost, setReprovisionHost] = useState<Host | null>(null);
@@ -54,6 +65,28 @@ export default function HostsPage() {
     load();
   }, []);
 
+  // Восстанавливаем фильтр/вкладку после возврата с профиля хоста или перезагрузки.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(HOSTS_VIEW_KEY);
+      if (raw) {
+        const v = JSON.parse(raw);
+        if (typeof v.search === "string") setSearch(v.search);
+        if (typeof v.groupFilter === "string") setGroupFilter(v.groupFilter);
+        if (v.listTab === "hosts" || v.listTab === "groups") setListTab(v.listTab);
+      }
+    } catch {}
+    setViewHydrated(true);
+  }, []);
+
+  // Сохраняем состояние фильтра при каждом изменении (после восстановления).
+  useEffect(() => {
+    if (!viewHydrated) return;
+    try {
+      localStorage.setItem(HOSTS_VIEW_KEY, JSON.stringify({search, groupFilter, listTab}));
+    } catch {}
+  }, [viewHydrated, search, groupFilter, listTab]);
+
   const filteredHosts = useMemo(() => {
     let rows = hosts;
     if (search) {
@@ -77,7 +110,7 @@ export default function HostsPage() {
   // Название выбранной группы для чипа-фильтра (null — фильтр не активен).
   const selectedGroupName = useMemo(() => {
     if (!groupFilter) return null;
-    if (groupFilter === "none") return "Без группы";
+    if (groupFilter === "none") return "Без кабинета";
     const g = groups.find((gr) => String(gr.id) === groupFilter);
     return g ? g.name : null;
   }, [groupFilter, groups]);
@@ -296,7 +329,7 @@ export default function HostsPage() {
   async function createGroup(fd: FormData) {
     try {
       await apiPostClient("/api/groups", {name: fd.get("name"), description: fd.get("description") || null});
-      showToast("Группа создана");
+      showToast("Кабинет создан");
       setCreateGroupOpen(false);
       await load();
     } catch (err: any) {
@@ -311,7 +344,7 @@ export default function HostsPage() {
         name: fd.get("name"),
         description: fd.get("description") || null
       });
-      showToast("Группа обновлена");
+      showToast("Кабинет обновлён");
       setEditGroup(null);
       await load();
     } catch (err: any) {
@@ -321,10 +354,10 @@ export default function HostsPage() {
 
   async function deleteGroup(id: number) {
     const group = groups.find((g) => g.id === id);
-    if (!confirm(`Удалить группу "${group?.name || id}"? Хосты в группе останутся без группы.`)) return;
+    if (!confirm(`Удалить кабинет "${group?.name || id}"? Хосты в кабинете останутся без кабинета.`)) return;
     try {
       await apiPostClient("/api/groups/delete", {id});
-      showToast("Группа удалена");
+      showToast("Кабинет удалён");
       await load();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -341,6 +374,31 @@ export default function HostsPage() {
     setGroupFilter("");
   }
 
+  // Вкладка задаёт тип цели запуска: «Хосты» → хост, «Кабинеты» → кабинет.
+  // Переключение вкладки сбрасывает ранее выбранную цель (тип-то изменился).
+  const runTargetType: "host" | "group" = listTab === "hosts" ? "host" : "group";
+
+  function changeListTab(tab: "hosts" | "groups") {
+    setListTab(tab);
+    setRunTargetId("");
+    setPickMode(false);
+  }
+
+  function pickTarget(id: string) {
+    setRunTargetId(id);
+    setPickMode(false);
+  }
+
+  const runTargetName = useMemo(() => {
+    if (!runTargetId) return null;
+    if (runTargetType === "host") {
+      const h = hosts.find((x) => String(x.id) === runTargetId);
+      return h ? `${h.name} (${h.address})` : null;
+    }
+    const g = groups.find((x) => String(x.id) === runTargetId);
+    return g ? g.name : null;
+  }, [runTargetId, runTargetType, hosts, groups]);
+
   return (
     <div className="space-y-6">
       <HostList
@@ -354,6 +412,21 @@ export default function HostsPage() {
         checkingAll={checkingAll}
         selectionMode={selectionMode}
         selectedIds={selectedIds}
+        listTab={listTab}
+        onListTab={changeListTab}
+        pickMode={pickMode}
+        pickedId={runTargetId || null}
+        onPickTarget={pickTarget}
+        runPanel={
+          <RunPanel
+            targetType={runTargetType}
+            targetId={runTargetId}
+            targetName={runTargetName}
+            pickMode={pickMode}
+            onTogglePick={() => setPickMode((v) => !v)}
+            onClearTarget={() => setRunTargetId("")}
+          />
+        }
         onSearch={setSearch}
         onGroupFilter={setGroupFilter}
         onSelectGroup={selectGroup}

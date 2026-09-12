@@ -272,19 +272,17 @@ window.switchView = function switchView(view, opts = {}) {
 }
 
 async function loadBaseLists() {
-  const [hosts, groups, modules, templates] = await Promise.all([
+  const [hosts, groups, modules] = await Promise.all([
     api("/api/hosts"),
     api("/api/groups"),
     api("/api/modules"),
-    api("/api/task-templates"),
   ]);
   state.hosts = hosts;
   state.groups = groups;
   state.modules = modules;
-  state.templates = templates;
+  state.templates = [];
   fillModuleSelect();
   updateTargetSelects();
-  fillSelect(byId("schedule-template"), templates, (item) => `${item.name} #${item.id}`);
 }
 
 async function loadDashboard() {
@@ -496,7 +494,7 @@ function renderInventory(tableId, rows) {
 function renderScheduled(tableId, rows) {
   renderTable(tableId, [
     { title: "Название", key: "name" },
-    { title: "Шаблон", render: (r) => escapeHtml((state.templates.find((t) => t.id === r.template_id) || {}).name || r.template_id) },
+    { title: "Сценарий", render: (r) => escapeHtml(r.scenario_id ?? "—") },
     { title: "Цель", render: (r) => {
       const targetName = (currentTargets(r.target_type).find((t) => t.id === r.target_id) || {}).name || r.target_id;
       return `${r.target_type === "host" ? "хост" : "группа"}:${escapeHtml(targetName)}`;
@@ -868,11 +866,9 @@ window.clearHistory = async function() {
 window.editSchedule = function(id) {
   const task = state.scheduled.find((s) => s.id === id);
   if (!task) return;
-  fillSelect(byId("schedule-edit-template"), state.templates, (item) => `${item.name} #${item.id}`);
   fillSelect(byId("schedule-edit-target"), currentTargets(task.target_type), (item) => `${item.name || "Без имени"} #${item.id}`);
   byId("schedule-edit-id").value = task.id;
   byId("schedule-edit-name").value = task.name;
-  byId("schedule-edit-template").value = task.template_id;
   byId("schedule-edit-target-type").value = task.target_type;
   byId("schedule-edit-target").value = task.target_id;
   byId("schedule-edit-run-at").value = task.run_at ? task.run_at.slice(0, 16) : "";
@@ -1347,7 +1343,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     const form = byId("schedule-edit-form");
     const data = formDataObject(form);
     data.id = Number(data.id);
-    data.template_id = Number(data.template_id);
     data.target_id = Number(data.target_id);
     data.is_enabled = byId("schedule-edit-enabled").checked;
     const runAtInput = byId("schedule-edit-run-at").value;
@@ -1429,7 +1424,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   byId("schedule-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const data = formDataObject(event.currentTarget);
-    data.template_id = Number(data.template_id);
     data.target_id = Number(data.target_id);
     data.run_at = scheduleRunAt();
     data.interval_seconds = data.interval_seconds ? Number(data.interval_seconds) : null;

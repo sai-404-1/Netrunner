@@ -30,14 +30,26 @@ from aiohttp import web
 
 from database import open_database
 from services import HostService
+from services.agent_service import AgentService
 from .endpoints.build_app import build_app
 from services.logger import Logger
 
 logger = Logger()
 
+# Размер батча fallback-пинга: SSH-пингуются только хосты БЕЗ endpoint-агента,
+# по N машин за раз с паузой между батчами — не молотить всем списком разом.
+PING_BATCH_SIZE = 10
+PING_BATCH_PAUSE_SEC = 5
+
 # TODO пересмотреть надобность, поскольку присутствует WebSocket
 async def _periodic_ping(app: web.Application, interval: int):
-    """Background daemon: periodically check all hosts using a fresh DB connection."""
+    """Fallback-пинг по таймеру.
+
+    SSH-пингуются ТОЛЬКО хосты без endpoint-агента: машины, где агент жив,
+    сами поддерживают свой онлайн-статус через WS (online/heartbeat →
+    AgentService.record_event). Запускается редко (см. ping_interval),
+    машины идут батчами по PING_BATCH_SIZE с паузой между батчами.
+    """
     db_path = app["ctx"].db_path
     while True:
         try:
@@ -48,11 +60,70 @@ async def _periodic_ping(app: web.Application, interval: int):
             db = open_database(db_path)
             try:
                 host_service = HostService(db)
-                await host_service.check_all_hosts_async()
+                agent_svc = AgentService(db)
+                agented = agent_svc.agent_host_ids()
+                targets = [h for h in host_service.all_hosts() if h.id not in agented]
+                if not targets:
+                    continue
+                logger.info(
+                    "Fallback-пинг: %d хост(ов) без агента, батчами по %d",
+                    len(targets), PING_BATCH_SIZE,
+                )
+                for i in range(0, len(targets), PING_BATCH_SIZE):
+                    batch = targets[i:i + PING_BATCH_SIZE]
+                    await asyncio.gather(
+                        *[host_service.check_host_async(h.id) for h in batch],
+                        return_exceptions=True,
+                    )
+                    if i + PING_BATCH_SIZE < len(targets):
+                        await asyncio.sleep(PING_BATCH_PAUSE_SEC)
             finally:
                 db.close()
         except Exception as _ping_exc:
             logger.warning("Periodic host ping failed: %s", _ping_exc)
+
+
+async def _agent_offline_sweeper(app: web.Application, interval: int = 60):
+    """Offline-свип: раз в минуту помечает is_active=0 у хостов, чей агент
+    молчит дольше порога (3 пропущенных heartbeat). Только SQL, без SSH —
+    стоимость около нуля даже при сотнях хостов."""
+    db_path = app["ctx"].db_path
+    while True:
+        try:
+            await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            break
+        try:
+            db = open_database(db_path)
+            try:
+                switched = AgentService(db).mark_stale_agents_offline()
+                if switched:
+                    logger.info("Offline-свип: %d хост(ов) помечены офлайн (агент молчит)", switched)
+            finally:
+                db.close()
+        except Exception as _sweep_exc:
+            logger.warning("Agent offline sweep failed: %s", _sweep_exc)
+
+
+async def _scheduler_loop(app: web.Application, interval: int = 30):
+    """Background daemon: периодически (раз в interval сек) дёргает планировщик.
+
+    Это и есть «фоновый цикл» планировщика, которого не хватало: раньше tick_async
+    вызывался только разово при старте и вручную кнопкой на /scheduled. Теперь
+    запланированные задачи (в т.ч. отложенные «на потом») выполняются сами, пока
+    сервер жив. Планировщик использует БД контекста приложения (тот же event loop,
+    отдельный коннект не нужен — в отличие от _periodic_ping, который гоняет SSH
+    и не должен блокировать общий коннект).
+    """
+    while True:
+        try:
+            await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            break
+        try:
+            await app["ctx"].scheduler.tick_async()
+        except Exception as _sched_exc:
+            logger.warning("Scheduler tick failed: %s", _sched_exc)
 
 
 def run_web_server(
@@ -60,9 +131,13 @@ def run_web_server(
         host: str = "127.0.0.1",
         port: int = 8000,
         open_browser: bool = False,
-        ping_interval: int = 60,
+        ping_interval: int = 1200,
 ) -> None:
-    """Запускает локальную async server-панель NetRunner."""
+    """Запускает локальную async server-панель NetRunner.
+
+    ping_interval — интервал fallback-пинга хостов без агента (сек, по
+    умолчанию 20 минут); 0 отключает fallback-пинг совсем.
+    """
 
     app = build_app(app_context)
 
@@ -71,11 +146,14 @@ def run_web_server(
         if ping_interval > 0:
             ping_task = asyncio.create_task(_periodic_ping(_app, ping_interval))
             _app["ping_task"] = ping_task
+        sweep_task = asyncio.create_task(_agent_offline_sweeper(_app))
+        _app["offline_sweep_task"] = sweep_task
+        _app["scheduler_task"] = asyncio.create_task(_scheduler_loop(_app, interval=60))
         _app["update_task"] = asyncio.create_task(_update_monitor(_app))
         _app["telegram_task"] = asyncio.create_task(_telegram_poller(_app))
 
     async def _on_cleanup(_app):
-        for _key in ("ping_task", "update_task", "telegram_task"):
+        for _key in ("ping_task", "scheduler_task", "offline_sweep_task", "update_task", "telegram_task"):
             if _key in _app:
                 _app[_key].cancel()
                 try:

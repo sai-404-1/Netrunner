@@ -63,19 +63,8 @@ CREATE TABLE IF NOT EXISTS modules (
     created_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS task_templates (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    module_id INTEGER NOT NULL,
-    default_args_json TEXT,
-    description TEXT,
-    created_at TEXT NOT NULL,
-    FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE
-);
-
 CREATE TABLE IF NOT EXISTS task_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    template_id INTEGER,
     module_id INTEGER NOT NULL,
     target_type TEXT NOT NULL,
     target_id INTEGER NOT NULL,
@@ -89,7 +78,6 @@ CREATE TABLE IF NOT EXISTS task_runs (
     finished_at TEXT,
     trigger_type TEXT NOT NULL DEFAULT 'manual',
     created_by TEXT,
-    FOREIGN KEY (template_id) REFERENCES task_templates(id) ON DELETE SET NULL,
     FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE
 );
 
@@ -115,14 +103,27 @@ CREATE TABLE IF NOT EXISTS inventory_snapshots (
 CREATE TABLE IF NOT EXISTS scheduled_tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
-    template_id INTEGER NOT NULL,
+    description TEXT,
+    scenario_id INTEGER,
     target_type TEXT NOT NULL,
     target_id INTEGER NOT NULL,
     run_at TEXT NOT NULL,
     is_enabled INTEGER NOT NULL DEFAULT 1,
     last_run_at TEXT,
     created_at TEXT NOT NULL,
-    FOREIGN KEY (template_id) REFERENCES task_templates(id) ON DELETE CASCADE
+    interval_seconds INTEGER,
+    max_runs INTEGER,
+    run_count INTEGER NOT NULL DEFAULT 0,
+    wait_for_online INTEGER NOT NULL DEFAULT 0,
+    days_of_week TEXT NOT NULL DEFAULT '',
+    start_min INTEGER,
+    end_min INTEGER,
+    interval_min INTEGER,
+    target_host_ids_json TEXT,
+    target_group_ids_json TEXT,
+    scenario_ids_json TEXT,
+    done_host_ids_json TEXT,
+    FOREIGN KEY (scenario_id) REFERENCES scenarios(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS reports (
@@ -142,7 +143,6 @@ CREATE TABLE IF NOT EXISTS reports (
 CREATE INDEX IF NOT EXISTS idx_hosts_ssh_key_id ON hosts (ssh_key_id);
 CREATE INDEX IF NOT EXISTS idx_group_hosts_host_id ON group_hosts (host_id);
 CREATE INDEX IF NOT EXISTS idx_modules_slug ON modules (slug);
-CREATE INDEX IF NOT EXISTS idx_task_templates_module_id ON task_templates (module_id);
 CREATE INDEX IF NOT EXISTS idx_task_runs_module_id ON task_runs (module_id);
 CREATE INDEX IF NOT EXISTS idx_task_runs_target ON task_runs (target_type, target_id);
 CREATE INDEX IF NOT EXISTS idx_task_runs_status ON task_runs (status);
@@ -254,11 +254,160 @@ def _migrate_ssh_keys(conn) -> None:
     _add_column_if_missing(conn, "ssh_keys", "fingerprint", "TEXT")
 
 
+def _column_names(conn, table: str) -> list[str]:
+    return [row[1] for row in conn.execute(f"PRAGMA table_info({table})")]
+
+
 def _migrate_scheduled_tasks(conn) -> None:
-    """Добавляет поля для поддержки повторяющихся задач."""
-    _add_column_if_missing(conn, "scheduled_tasks", "interval_seconds", "INTEGER DEFAULT NULL")
-    _add_column_if_missing(conn, "scheduled_tasks", "max_runs", "INTEGER DEFAULT NULL")
-    _add_column_if_missing(conn, "scheduled_tasks", "run_count", "INTEGER NOT NULL DEFAULT 0")
+    """Перевод расписания с шаблонов-модулей на сценарии + поля recurring-расписания.
+
+    Сначала добавляет недостающие поля повторяемости/ожидания онлайн/расписания,
+    затем убирает устаревшую колонку template_id: пересоздаёт scheduled_tasks
+    без неё и со ссылкой на scenarios. Старые задачи были привязаны к шаблону
+    (одиночному модулю) — сценария-аналога у них нет, поэтому их действие после
+    сноса шаблонов неизвестно: такие строки переносятся с scenario_id=NULL и
+    отключаются (is_enabled=0), чтобы не «висеть» в расписании без действия.
+    Задачи, уже привязанные к сценарию (scenario_id задан), переносятся как есть.
+    """
+    cols = _column_names(conn, "scheduled_tasks")
+
+    for column, definition in [
+        ("description", "TEXT DEFAULT NULL"),
+        ("interval_seconds", "INTEGER DEFAULT NULL"),
+        ("max_runs", "INTEGER DEFAULT NULL"),
+        ("run_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("wait_for_online", "INTEGER NOT NULL DEFAULT 0"),
+        ("scenario_id", "INTEGER DEFAULT NULL"),
+        # recurring-расписание по времени (cron): дни + окно + интервал в минутах
+        ("days_of_week", "TEXT NOT NULL DEFAULT ''"),
+        ("start_min", "INTEGER DEFAULT NULL"),
+        ("end_min", "INTEGER DEFAULT NULL"),
+        ("interval_min", "INTEGER DEFAULT NULL"),
+        # мульти-выбор цели/сценариев (JSON-массивы id)
+        ("target_host_ids_json", "TEXT DEFAULT NULL"),
+        ("target_group_ids_json", "TEXT DEFAULT NULL"),
+        ("scenario_ids_json", "TEXT DEFAULT NULL"),
+        # прогресс wait_for_online по хостам: id хостов, на которых сценарий уже
+        # отработал (задача «дожидается» оставшихся офлайн-машин группы)
+        ("done_host_ids_json", "TEXT DEFAULT NULL"),
+    ]:
+        if column not in cols:
+            _add_column_if_missing(conn, "scheduled_tasks", column, definition)
+
+    if "template_id" not in _column_names(conn, "scheduled_tasks"):
+        # Таблица уже в финальном виде (свежая или уже мигрированная) — нечего чинить.
+        return
+
+    conn.execute("""
+        CREATE TABLE scheduled_tasks_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            description TEXT,
+            scenario_id INTEGER,
+            target_type TEXT NOT NULL,
+            target_id INTEGER NOT NULL,
+            run_at TEXT NOT NULL,
+            is_enabled INTEGER NOT NULL DEFAULT 1,
+            last_run_at TEXT,
+            created_at TEXT NOT NULL,
+            interval_seconds INTEGER,
+            max_runs INTEGER,
+            run_count INTEGER NOT NULL DEFAULT 0,
+            wait_for_online INTEGER NOT NULL DEFAULT 0,
+            days_of_week TEXT NOT NULL DEFAULT '',
+            start_min INTEGER,
+            end_min INTEGER,
+            interval_min INTEGER,
+            target_host_ids_json TEXT,
+            target_group_ids_json TEXT,
+            scenario_ids_json TEXT,
+            done_host_ids_json TEXT,
+            FOREIGN KEY (scenario_id) REFERENCES scenarios(id) ON DELETE CASCADE
+        )
+    """)
+    conn.execute("""
+        INSERT INTO scheduled_tasks_new (
+            id, name, description, scenario_id, target_type, target_id, run_at,
+            is_enabled, last_run_at, created_at, interval_seconds, max_runs, run_count,
+            wait_for_online, days_of_week, start_min, end_min, interval_min,
+            target_host_ids_json, target_group_ids_json, scenario_ids_json,
+            done_host_ids_json
+        )
+        SELECT
+            id, name, description, scenario_id, target_type, target_id, run_at,
+            CASE WHEN scenario_id IS NOT NULL THEN is_enabled ELSE 0 END,
+            last_run_at, created_at, interval_seconds, max_runs, run_count,
+            wait_for_online, days_of_week, start_min, end_min, interval_min,
+            target_host_ids_json, target_group_ids_json, scenario_ids_json,
+            NULL
+        FROM scheduled_tasks
+    """)
+    conn.execute("DROP TABLE scheduled_tasks")
+    conn.execute("ALTER TABLE scheduled_tasks_new RENAME TO scheduled_tasks")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_run_at ON scheduled_tasks (run_at)"
+    )
+
+
+def _migrate_task_runs(conn) -> None:
+    """Полный снос task_templates: убирает колонку template_id из task_runs.
+
+    Раньше задача (запуск модуля) была привязана к шаблону (task_templates)
+    через task_runs.template_id. Таблица task_templates удалена, шаблоны-модули
+    заменены на сценарии (scenario_id в scheduled_tasks). Поэтому пересоздаёт
+    task_runs без колонки template_id и связанного FK-каскада (ON DELETE
+    SET NULL). Данные о прошлых запусках модулей (module_id, вывод, статусы)
+    не теряются — теряется только ссылка на удалённый шаблон, которая больше
+    нигде не используется (кроме legacy-статики, которая выпиливается).
+    """
+    if "template_id" not in _column_names(conn, "task_runs"):
+        # Таблица уже без template_id (свежая или уже мигрированная) — нечего чинить.
+        return
+
+    conn.execute("""
+        CREATE TABLE task_runs_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            module_id INTEGER NOT NULL,
+            target_type TEXT NOT NULL,
+            target_id INTEGER NOT NULL,
+            args_json TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            stdout_text TEXT,
+            stderr_text TEXT,
+            exit_code INTEGER,
+            per_host_json TEXT,
+            started_at TEXT,
+            finished_at TEXT,
+            trigger_type TEXT NOT NULL DEFAULT 'manual',
+            created_by TEXT,
+            FOREIGN KEY (module_id) REFERENCES modules(id) ON DELETE CASCADE
+        )
+    """)
+    conn.execute("""
+        INSERT INTO task_runs_new (
+            id, module_id, target_type, target_id, args_json, status,
+            stdout_text, stderr_text, exit_code, per_host_json,
+            started_at, finished_at, trigger_type, created_by
+        )
+        SELECT
+            id, module_id, target_type, target_id, args_json, status,
+            stdout_text, stderr_text, exit_code, per_host_json,
+            started_at, finished_at, trigger_type, created_by
+        FROM task_runs
+    """)
+    conn.execute("DROP TABLE task_runs")
+    conn.execute("ALTER TABLE task_runs_new RENAME TO task_runs")
+    for index in ("idx_task_runs_module_id", "idx_task_runs_target", "idx_task_runs_status"):
+        conn.execute(
+            f"CREATE INDEX IF NOT EXISTS {index} ON task_runs "
+            "(" + {"idx_task_runs_module_id": "module_id",
+                   "idx_task_runs_target": "target_type, target_id",
+                   "idx_task_runs_status": "status"}[index] + ")"
+        )
+    # Окончательно сносим таблицу шаблонов-модулей и её индекс (для существующих БД,
+    # где она уже была создана). Новые БД её вообще не создают (убран CREATE TABLE).
+    conn.execute("DROP TABLE IF EXISTS task_templates")
+    conn.execute("DROP INDEX IF EXISTS idx_task_templates_module_id")
 
 
 def _migrate_users(conn) -> None:
@@ -411,6 +560,30 @@ CREATE TABLE IF NOT EXISTS system_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_system_logs_created ON system_logs (created_at);
 
+-- Единая лента «История»: общий журнал сервисных событий NetRunner. Сюда пишут
+-- все сервисы (сценарии, TaskRunner, агент, планировщик) через HistoryService.
+-- НЕ путать с system_logs (программные логи кода) или task_runs/scenario_runs
+-- (рабочие таблицы исполнения). source — slug зарегистрированного сервиса
+-- (scenario/task/agent/agent_message/scheduler), payload_json — специфичные поля,
+-- которые сервис сам решил записать (колонки из его реестра).
+CREATE TABLE IF NOT EXISTS history_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    actor_name TEXT,
+    actor_id INTEGER,
+    title TEXT NOT NULL,
+    description TEXT,
+    level TEXT NOT NULL DEFAULT 'info',
+    payload_json TEXT,
+    ref_type TEXT,
+    ref_id INTEGER,
+    host_id INTEGER REFERENCES hosts(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_history_entries_created ON history_entries (created_at);
+CREATE INDEX IF NOT EXISTS idx_history_entries_source ON history_entries (source);
+
 CREATE TABLE IF NOT EXISTS host_default_credentials (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL,
@@ -423,6 +596,7 @@ def create_schema(conn) -> None:
     conn.executescript(SCHEMA_SQL)
     _migrate_ssh_keys(conn)
     _migrate_scheduled_tasks(conn)
+    _migrate_task_runs(conn)
     _migrate_users(conn)
     _migrate_modules(conn)
     _migrate_hosts(conn)

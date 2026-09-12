@@ -20,6 +20,11 @@ interface Props {
   selectedIds: Set<number>;
   onToggleSelect: (id: number) => void;
   onInfoHost: (h: Host) => void;
+  /** Режим выбора цели для запуска: клик по карточке выбирает цель. */
+  pickMode: boolean;
+  /** id выбранной цели (строкой) — карточка подсвечивается рамкой. */
+  pickedId: string | null;
+  onPickTarget: (id: string) => void;
   /** Родитель показывает счётчик на уровне шапки. Должен быть стабильным (useCallback). */
   onCount?: (online: number, total: number) => void;
 }
@@ -78,6 +83,9 @@ export function HostStatusGrid({
                                 selectedIds,
                                 onToggleSelect,
                                 onInfoHost,
+                                pickMode,
+                                pickedId,
+                                onPickTarget,
                                 onCount,
                               }: Props) {
   const [statuses, setStatuses] = useState<Host[] | null>(null);
@@ -171,27 +179,35 @@ export function HostStatusGrid({
   function renderCard(h: Host) {
     const selected = selectedIds.has(h.id);
     const isOn = Boolean(h.is_active);
+    const picked = pickedId === String(h.id);
     return (
       <button
         key={h.id}
         data-host-id={h.id}
         className={`nr-card ${isOn ? "nr-on" : "nr-off"} ${
-          selectionMode ? (selected ? "nr-sel" : "nr-unsel") : ""
+          pickMode ? (picked ? "nr-picked" : "nr-pickable") : ""
+        } ${selectionMode ? (selected ? "nr-sel" : "nr-unsel") : ""} ${
+          !pickMode && !selectionMode && picked ? "nr-target" : ""
         }`}
         onClick={(e) => {
-          if (selectionMode) {
+          if (pickMode) {
+            onPickTarget(String(h.id));
+          } else if (selectionMode) {
             onToggleSelect(h.id);
           } else {
             e.stopPropagation();
             onInfoHost(h);
           }
         }}
-        title="Информация"
+        title={pickMode ? "Выбрать целью" : "Информация"}
       >
         <span className="nr-dot"/>
-        <div className="nr-name">{h.name}</div>
-        <div className="nr-ip">{h.address}</div>
-        <span className="nr-state">{isOn ? "в сети" : "не в сети"}</span>
+        {/* Имя — первая строка, адрес — вторая. В строку не помещаются: длинное
+            имя выдавливало адрес за край карточки. */}
+        <span className="nr-text">
+          <span className="nr-name">{h.name}</span>
+          <span className="nr-ip">{h.address}</span>
+        </span>
       </button>
     );
   }
@@ -212,9 +228,12 @@ export function HostStatusGrid({
 
         /* Горизонтальные полосы-«вкладки»: плоские, на всю ширину, без закруглений. */
         .nr-row { display:flex; flex-direction:column; }
+        /* Полоса растянута до краёв панели: отрицательные поля компенсируют её
+            внутренний отступ (p-5 в .panel), иначе линия обрывается, не дойдя
+            до края. */
         .nr-row-head {
-          width:100%; display:flex; align-items:center; gap:10px;
-          padding:12px 2px; cursor:pointer; background:transparent; border:0;
+          display:flex; align-items:center; gap:10px;
+          margin:0 -20px; padding:12px 20px; cursor:pointer; background:transparent; border:0;
           border-bottom:1px solid rgb(229 231 235); text-align:left; font-size:14px;
         }
         .dark .nr-row-head { border-bottom-color:#374151; }
@@ -252,18 +271,20 @@ export function HostStatusGrid({
         .nr-card.nr-sel { border-color:#2563eb; }
         .nr-card.nr-unsel { border-color:#d1d5db; }
         .dark .nr-card.nr-unsel { border-color:#4b5563; }
+        /* Режим выбора цели: выбранная карточка — как выбранный сценарий. */
+        .nr-card.nr-picked { border-color:#2563eb; box-shadow:0 0 0 2px rgba(37,99,235,.35); }
+        .nr-card.nr-pickable { cursor:pointer; }
+        .nr-card.nr-target { border-color:#2563eb; }
         .nr-dot { width:10px; height:10px; border-radius:50%; flex:none; }
         .nr-card.nr-on .nr-dot { background:#22c55e; }
         .nr-card.nr-off .nr-dot { background:#9ca3af; }
+        /* Две строки: имя сверху, адрес снизу. */
+        .nr-text { display:flex; flex-direction:column; min-width:0; }
         .nr-name { min-width:0; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         /* Моно-шрифт для адресов — как в прототипе. */
         .nr-ip { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
                  font-size:12.5px; color:#6b7280; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
         .dark .nr-ip { color:#9ca3af; }
-        .nr-state { flex:none; font-size:10px; text-transform:uppercase; letter-spacing:.05em;
-                    font-weight:700; padding:3px 8px; border-radius:20px; }
-        .nr-card.nr-on .nr-state { background:rgba(34,197,94,.14); color:#16a34a; }
-        .nr-card.nr-off .nr-state { background:rgba(156,163,175,.18); color:#6b7280; }
       `}</style>
 
       {/* Две горизонтальные полосы: заголовок + раскрывающийся контент, на всю ширину. */}

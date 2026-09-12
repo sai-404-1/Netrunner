@@ -10,10 +10,9 @@
   auth и отчёты (`close()` закрывает ресурсы).
 - `create_app_context(db_path, reports_dir, run_scheduler_on_start)` — собирает единый
   `AppContext` для CLI или web-GUI: открывает/мигрирует БД, регистрирует встроенные и
-  пользовательские модули, грузит модули с диска, сидит шаблоны задач, создаёт пользователя
-  `admin/admin`, прогоняет один тик планировщика.
+  пользовательские модули, грузит модули с диска, создаёт пользователя `admin/admin`,
+  прогоняет один тик планировщика.
 - `bootstrap_database(db, host_service)` — первичная подготовка БД и импорт legacy `hosts.json`.
-- `bootstrap_task_templates(db)` — создание базовых шаблонов задач.
 - `_load_user_modules_from_disk(module_registry)` — загрузка модулей из `/app/modules` (или `modules/`).
 
 ### `host_service.py` — работа с хостами
@@ -22,8 +21,16 @@
     `remove_host`, `import_legacy_hosts_json`.
   - Пароли хостов: `set_host_password(host_id, password)` (шифрует),
     `get_host_password(host_id)` (расшифровывает) — для повторной привязки SSH-ключа.
-  - Группы: `create_group`, `add_host_to_group`, `group_hosts`, `resolve_targets`.
+  - Группы: `create_group`, `add_host_to_group`, `group_hosts`, `resolve_targets`,
+    `resolve_scheduled_targets(host_ids, group_ids)` — раскрытие мульти-выбора цели
+    планировщика в список хостов (группы → их хосты, дедуп).
   - SSH: `to_computer(host)`/`to_computers(hosts)` — строит фасад `Computer`.
+    Пользователь исполнения берётся из глобальной настройки
+    `execution_settings.ssh_user_mode`: `service` → `netrunner-svc` (ключ агента),
+    `primary` → первичный пользователь хоста (`host.username`). Настройка
+    перечитывается на каждом вызове, на хостах ничего не меняется.
+    `to_computer_bootstrap(host)` — всегда первичный пользователь (проверка
+    доступности, первичная установка агента).
   - Проверка: `check_host`/`async check_host_async`, `check_all_hosts`/`async check_all_hosts_async`.
 
 ### `secrets.py` — шифрование секретов хостов
@@ -46,15 +53,43 @@
     для живого прогресса; число одновременных хостов ограничивается семафором, если у
     модуля задан `max_parallel` (напр. рассылка файлов).
 
-### `scheduler.py` — планировщик
-- `class Scheduler`: `tick()` / `async tick_async()` — найти просроченные задачи и запустить их.
+### `scheduler.py` — планировщик (исполняет только сценарии)
+- `class Scheduler(db, scenario_runner, logger, history, host_service)` — планировщик
+  запланированных задач. Каждая задача привязана к **сценарию** (`scenario_id`), шаблоны
+  из планировщика убраны.
+  - `tick()` — синхронная обёртка над `tick_async()` через `asyncio.run` (для старта
+    сервера и CLI/TUI вне event loop).
+  - `async tick_async()` — главный тик: `db.scheduled.due()` → каждую due-задачу запускает
+    через `scenario_runner.run_scenario_async(..., trigger_type="scheduled")`, затем
+    `mark_ran`. Фоновый цикл крутит его в `server/server.py` раз в 60 секунд.
+  - Триггеры задачи (см. `schedule_repo`): разовый по времени, recurring-расписание
+    (дни недели + окно «С…До» + интервал), ожидание сети (`wait_for_online`).
+  - Для recurring-слота при офлайн-цели слот **пропускается** (запись в историю
+    `scheduler_skip` «цель не в сети»), `run_at` сдвигается на следующий слот — без
+    «догонялок» (для выполнения по факту включения есть отдельный режим wait_for_online).
+  - **`wait_for_online` — пер-хост (`_run_wait_for_online`):** группа не выступает
+    единой целью, а раскрывается в конкретные хосты. «Просыпается» по первому
+    онлайн-хосту, но сценарий выполняет **только на тех, что сейчас в сети**; хосты,
+    до которых не достучались, продолжают ждать (прогресс — `scheduled_tasks.
+    done_host_ids_json`). Когда покрыты все хосты цели — задача закрывается
+    (`mark_ran`). Правка задачи сбрасывает прогресс.
 
 ### `scenario_runner.py` — исполнение сценариев (цепочек модулей)
-- `class ScenarioRunner`: `run_scenario_async(scenario_id, target_type, target_id, trigger_type, scenario_run_id=None)`
-  — последовательно прогоняет шаги сценария, каждый шаг — по хостам конкурентно
-  (семафор), пишет live-статусы в `scenario_step_runs` (running → completed/failed) и
-  `scenario_runs`. Параметр `scenario_run_id` позволяет переиспользовать заранее
-  созданную run-строку (фоновый запуск через API с немедленным возвратом `run_id`).
+- `class ScenarioRunner` — асинхронный прогон многошаговых сценариев **пер-хост**: у каждого
+  компьютера своя очередь шагов, падение хоста уводит с дистанции только его (`on_failure`
+  `stop`/`continue`). Результаты пишутся в `scenario_step_runs` (running → completed/failed/
+  skipped) и агрегируются в `scenario_runs`.
+  - `run_scenario_async(scenario_id, target_type, target_id, trigger_type, scenario_run_id)` —
+    запуск одного сценария.
+  - `run_scenarios_async(scenario_ids, ...)` — очередь сценариев на одну цель.
+  - Темп выполнения (`execution_settings`): пакетами (`MODE_BATCH`) или с ограничением
+    параллелизма; шаги-модули резолвятся заранее (`_StepPlan`) — недоступный модуль —
+    ошибка шага, а не падение всего запуска.
+  - **Coldawn** (`_run_scenario_on_host_with_coldawn`): если сценарий не смог даже
+    начаться на хосте (первый шаг не выполнился — отказ SSH/сети на старте), запуск
+    повторяется до `execution_settings.coldawn_retries` раз с паузой `COLDAWN_RETRY_DELAY`.
+    Исчерпали — в историю пишется факт `scenario_coldawn` (warning), машина пропускается,
+    очередь идёт к следующей. Логируется только факт исчерпания, не каждый повтор.
 
 ### `module_registry.py` — реестр модулей
 - `class RegisteredModule` — обёртка над runtime-экземпляром модуля.
@@ -96,6 +131,34 @@
 - `class ReportService` — экспорт в TXT/CSV/JSON: `export_task_runs`, `export_inventory`,
   `export_host_status`, `export_filesystem`, `export_task_history`, `export_from_task_run`
   плюс приватные writer'ы `_write_*`.
+
+### `history.py` — единая история событий
+- `class HistoryService` — общая лента событий NetRunner. Сервисы регистрируются с
+  реестром (`slug`, имя, колонки, типы событий): `scenario`, `task`, `agent`,
+  `agent_message`, `scheduler`. Единая точка записи — `record(source, event_type, title, ...)`
+  → строка в `history_entries` (общая лента в UI). Чтение: `list(limit, sources, offset)`,
+  `count(sources)`. События сценария: `scenario_run`, `scenario_run_done` (success),
+  `scenario_run_partial` (**warning** — часть машин прошла, часть нет; НЕ ошибка),
+  `scenario_step_failed`, `scenario_failed`, `scenario_coldawn` (warning — запуск
+  не удалось начать после повторов, машина пропущена).
+
+### `execution_settings.py` — настройки исполнения (темп + пользователь)
+- `class ExecutionSettings(db)` — глобальные настройки исполнения на сервере:
+  - темп «как гнать хосты»: режим пакетами (`MODE_BATCH`, `batch_size`, `batch_delay`)
+    либо с ограничением параллелизма (`max_parallel`);
+  - **пользователь исполнения** `ssh_user_mode`: `service` (`netrunner-svc`, дефолт)
+    либо `primary` (первичный пользователь хоста) — влияет на `HostService.to_computer`;
+  - **повторы запуска** `coldawn_retries`: сколько раз повторить запуск, если сценарий
+    не смог начаться (по умолчанию 3, 0 — выключено) — читает `ScenarioRunner`.
+  - `FIELDS` — единственный источник правды (ключ в `app_settings`, дефолт, границы,
+    подпись для формы); `get_config`/`set_config`/`schema`. Перечитывается перед каждым
+    запуском; меняется со страницы «Администрирование».
+
+### `agent_service.py` — обслуживание endpoint-агента
+- `class AgentService` — жизненный цикл endpoint-агента на управляемой машине:
+  провижининг/переустановка (под первичным пользователем через `netrunner-svc`,
+  `sudoers.d` с root), `get_existing` — определение режима переустановки без ротации
+  ключа/токена, конфиг WS-адреса (`NETRUNNER_AGENT_WS_URL` в Docker).
 
 ### `menu_actions.py` — действия интерактивного TUI-меню
 Набор классов `*Action` (наследники `MenuAction`) для CLI-меню: показать хосты/группы/

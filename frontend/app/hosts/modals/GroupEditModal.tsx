@@ -12,7 +12,7 @@ interface Props {
 /** Редактирование группы. Stateless: отдаёт FormData наверх. */
 export function GroupEditModal({group, onClose, onSubmit}: Props) {
   return (
-    <Modal title="Редактирование группы" onClose={onClose}>
+    <Modal title="Редактирование кабинета" onClose={onClose}>
       <form
         onSubmit={(e) => {
           e.preventDefault();

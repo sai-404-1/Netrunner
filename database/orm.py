@@ -10,7 +10,6 @@ from .repos.host_repo import HostRepo
 from .repos.ssh_key_repo import SSHKeyRepo
 from .repos.group_repo import GroupRepo
 from .repos.module_repo import ModuleRepo
-from .repos.task_template_repo import TaskTemplateRepo
 from .repos.task_run_repo import TaskRunRepo
 from .repos.inventory_repo import InventoryRepo
 from .repos.schedule_repo import ScheduledTaskRepo
@@ -25,6 +24,7 @@ from .repos.trusted_device_repo import TrustedDeviceRepo
 from .repos.host_agent_repo import HostAgentRepo
 from .repos.host_event_repo import HostEventRepo
 from .repos.system_log_repo import SystemLogRepo
+from .repos.history_entry_repo import HistoryEntryRepo
 from .repos.scenario_repo import ScenarioRepo, ScenarioStepRepo, ScenarioRunRepo, ScenarioStepRunRepo
 
 
@@ -38,7 +38,6 @@ class Database:
         self.hosts = HostRepo(self.conn)
         self.groups = GroupRepo(self.conn)
         self.modules = ModuleRepo(self.conn)
-        self.task_templates = TaskTemplateRepo(self.conn)
         self.task_runs = TaskRunRepo(self.conn)
         self.inventory = InventoryRepo(self.conn)
         self.scheduled = ScheduledTaskRepo(self.conn)
@@ -53,6 +52,7 @@ class Database:
         self.host_agents = HostAgentRepo(self.conn)
         self.host_events = HostEventRepo(self.conn)
         self.system_logs = SystemLogRepo(self.conn)
+        self.history_entries = HistoryEntryRepo(self.conn)
         self.scenarios = ScenarioRepo(self.conn)
         self.scenario_steps = ScenarioStepRepo(self.conn)
         self.scenario_runs = ScenarioRunRepo(self.conn)
@@ -64,7 +64,6 @@ class Database:
             'hosts': self.hosts,
             'groups': self.groups,
             'modules': self.modules,
-            'task_templates': self.task_templates,
             'task_runs': self.task_runs,
             'inventory_snapshots': self.inventory,
             'scheduled_tasks': self.scheduled,
@@ -82,6 +81,7 @@ class Database:
             'host_agents': self.host_agents,
             'host_events': self.host_events,
             'system_logs': self.system_logs,
+            'history_entries': self.history_entries,
             'host_default_credentials': self.host_default_cred,
         }
 

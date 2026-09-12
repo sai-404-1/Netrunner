@@ -1,73 +1,63 @@
-import { Scenario, Placeholder, Module, ScenarioRun, StepForm } from "@/lib/scenario-types";
-import { ChevronDown, ChevronRight, Trash2 } from "lucide-react";
-import { Dispatch, SetStateAction } from "react"; // 1. Импортируем типы React
-
+import { Pencil } from "lucide-react";
+import { Scenario } from "@/lib/scenario-types";
 interface Props {
     scenarios: Scenario[];
     loading: boolean;
-    expandedScenarios: Set<number>;
-    handleDelete: (id: number) => void;
-    prev?: StepForm[]; 
-    setExpandedScenarios: Dispatch<SetStateAction<Set<number>>>;
+    /** Выбранные (мульти-выбор) id сценариев для запуска. */
+    selectedIds: Set<number>;
+    /** Клик по названию карточки — выбрать/снять (мульти-выбор). */
+    onToggle: (id: number) => void;
+    /** Кнопка-карандаш — открыть редактирование. */
+    onEdit: (scenario: Scenario) => void;
 }
 
-export default function Scenarios({ scenarios, loading, expandedScenarios, setExpandedScenarios, handleDelete, prev }: Props) {
+export default function Scenarios({ scenarios, loading, selectedIds, onToggle, onEdit }: Props) {
     return (
         <div className="panel">
-        <h3 className="font-semibold mb-4">Существующие сценарии</h3>
-        {loading ? (
-          <p className="text-gray-500">Загрузка...</p>
-        ) : scenarios.length === 0 ? (
-          <p className="text-gray-400">Сценариев пока нет</p>
-        ) : (
-          <div className="space-y-2">
-            {scenarios.map((sc) => (
-              <div key={sc.id} className="overflow-auto border border-gray-200 dark:border-gray-700 rounded-2xl bg-white dark:bg-gray-800">
-                <button
-                  className="w-full flex items-center justify-between p-3 hover:bg-gray-50 text-left"
-                  onClick={() =>
-                    setExpandedScenarios((prev) => {
-                      const next = new Set(prev);
-                      next.has(sc.id) ? next.delete(sc.id) : next.add(sc.id);
-                      return next;
-                    })
-                  }
-                >
-                  <div className="flex items-center gap-3">
-                    {expandedScenarios.has(sc.id) ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-                    <span className="font-medium">{sc.name}</span>
-                    <span className="text-sm text-gray-500">{sc.description}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-gray-500">
-                    <span>{sc.step_count} шагов</span>
-                    <button className="btn-danger py-1 px-2" onClick={(e) => { e.stopPropagation(); handleDelete(sc.id); }}>
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </button>
-                {expandedScenarios.has(sc.id) && (
-                  <div className="border-t dark:border-gray-700 p-3 bg-gray-50">
-                    {sc.steps && sc.steps.length > 0 ? (
-                      <ul className="space-y-1 text-sm">
-                        {sc.steps.map((step, i) => (
-                          <li key={step.id} className="flex gap-2">
-                            <span className="text-gray-400">{i + 1}.</span>
-                            <span className="font-medium">{step.step_name}</span>
-                            <span className="text-gray-500">
-                              (модуль #{step.module_id}, on_failure: {step.on_failure}, config: {step.config_json})
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-gray-400 text-sm">Нет шагов</p>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+            <h3 className="font-semibold mb-4">Существующие сценарии</h3>
+            {loading ? (
+                <p className="text-gray-500">Загрузка...</p>
+            ) : scenarios.length === 0 ? (
+                <p className="text-gray-400">Сценариев пока нет</p>
+            ) : (
+                /* Сетка карточек: клик по названию = выбрать (мульти-выбор), карандаш справа = редактировать */
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {scenarios.map((sc) => {
+                        const selected = selectedIds.has(sc.id);
+                        return (
+                            <div
+                                key={sc.id}
+                                className={`rounded-2xl border p-1.5 transition-colors ${
+                                    selected
+                                        ? "border-blue-600 bg-blue-50 dark:bg-blue-950/40"
+                                        : "border-gray-200 dark:border-gray-700"
+                                }`}
+                            >
+                                <div className="flex items-center gap-1.5">
+                                    <button
+                                        type="button"
+                                        className={`btn-secondary text-left flex-1 justify-center px-3 py-2 font-medium truncate ${
+                                            selected ? "border-blue-600 text-blue-700 dark:text-blue-300" : ""
+                                        }`}
+                                        onClick={() => onToggle(sc.id)}
+                                        title={selected ? "Снять выбор" : "Выбрать для запуска"}
+                                    >
+                                        {sc.name}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="btn-secondary p-2 shrink-0"
+                                        onClick={() => onEdit(sc)}
+                                        title="Редактировать"
+                                    >
+                                        <Pencil size={16} />
+                                    </button>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
     )
 }

@@ -15,6 +15,7 @@ from cryptography.hazmat.primitives.serialization import BestAvailableEncryption
 
 from computer import Computer
 from database.repos.base import utcnow_iso
+from services.execution_settings import ExecutionSettings, SSH_USER_PRIMARY, SSH_USER_SERVICE
 from services.secrets import decrypt_secret, encrypt_secret
 
 
@@ -89,25 +90,40 @@ class HostService:
 
         raise ValueError(f"Unknown target_type: {target_type}")
 
-    def resolve_targets_multi(self, host_ids=None, group_ids=None):
-        """Раскрывает произвольную смесь выбранных хостов и групп (кабинетов) в
-        дедуплицированный список конкретных хостов. Порядок: сначала явные хосты,
-        потом хосты групп. Используется формой запуска сценария на нескольких ЦЕЛЯХ."""
+    def resolve_scheduled_targets(
+        self, host_ids: list[int] | None = None, group_ids: list[int] | None = None
+    ) -> list:
+        """Набор хостов для задачи планировщика из мульти-выбора цели.
+
+        Принимает списки id хостов и id групп (произвольной длины). Собирает
+        хосты из обеих категорий, дедуплицируя по id. Список групп разворачивается
+        в их хосты (group_hosts). Порядок: сначала явные хосты, потом хосты групп.
+        """
+        host_ids = list(host_ids or [])
+        group_ids = list(group_ids or [])
         seen: set[int] = set()
         result: list = []
-        for hid in (host_ids or []):
+        for hid in host_ids:
             host = self.get_host(hid)
             if host and host.id not in seen:
                 seen.add(host.id)
                 result.append(host)
-        for gid in (group_ids or []):
+        for gid in group_ids:
             for host in self.group_hosts(gid):
                 if host.id not in seen:
                     seen.add(host.id)
                     result.append(host)
         return result
 
-    def to_computer(self, host):
+    def to_computer_bootstrap(self, host):
+        """Computer под ПЕРВИЧНЫМ пользователем хоста (host.username + его ключ).
+
+        В отличие от to_computer(), здесь не учитывается провиженный агент:
+        подключение идёт именно под тем пользователем, который был при добавлении
+        хоста. Используется для проверки доступности (check_host/check_host_async)
+        и первичной установки агента — т.к. первичный пользователь физически есть
+        на хосте, а netrunner-svc может отсутствовать (ещё не установлен).
+        """
         key_path = None
         if getattr(host, "ssh_key_id", None):
             key_row = self.db.ssh_keys.get(host.ssh_key_id)
@@ -119,6 +135,68 @@ class HostService:
             key_path=key_path,
         )
 
+    def to_computer(self, host):
+        """Возвращает Computer для исполнения команд на хосте.
+
+        Пользователь исполнения задаётся глобальной настройкой на сервере
+        (`execution_settings.ssh_user_mode`, страница «Администрирование»):
+
+        - **service** (по умолчанию) — сервисный ``netrunner-svc``: если endpoint-агент
+          хоста провижен, подключаемся его per-host ключом (материализуется в кэш-файл),
+          команды идут с root через sudo;
+        - **primary** — первичный пользователь хоста (``host.username``) его обычным
+          ключом, тот же, под которым хост добавлялся.
+
+        Переключение живёт на сервере и на самих хостах ничего не меняет. Настройка
+        перечитывается на каждом вызове — правка в админке применяется к следующей
+        команде без перезапуска сервера.
+        """
+        if self._execution_ssh_user_mode() == SSH_USER_PRIMARY:
+            # Первичный пользователь — тот же канал, что bootstrap/проверка доступности.
+            return self.to_computer_bootstrap(host)
+
+        agent = self.db.host_agents.by_host(host.id)
+        if agent and agent.private_key_encrypted:
+            key_path = self._materialize_agent_key(host.id, agent.ssh_username, agent.private_key_encrypted)
+            return Computer(
+                host=f"{agent.ssh_username}@{host.address}",
+                port=str(host.port),
+                key_path=key_path,
+            )
+
+        key_path = None
+        if getattr(host, "ssh_key_id", None):
+            key_row = self.db.ssh_keys.get(host.ssh_key_id)
+            if key_row and getattr(key_row, "private_key_path", None):
+                key_path = key_row.private_key_path
+        return Computer(
+            host=f"{host.username}@{host.address}",
+            port=str(host.port),
+            key_path=key_path,
+        )
+
+    def _execution_ssh_user_mode(self) -> str:
+        """Пользователь исполнения из app_settings (см. execution_settings.FIELDS).
+
+        Битое/отсутствующее значение приводится к дефолту внутри ExecutionSettings.
+        """
+        return ExecutionSettings(self.db).get_config().get("ssh_user_mode") or SSH_USER_SERVICE
+
+    def _materialize_agent_key(self, host_id: int, ssh_username: str, private_key_encrypted: str) -> str:
+        """Расшифровывает приватный ключ endpoint-агента и пишет его в кэш-файл.
+
+        Возвращает путь к файлу ключа. Сам приватный ключ на диске не хранится —
+        только расшифрованная копия в кэше (chmod 0600), как остальные SSH-ключи.
+        """
+        private_pem = decrypt_secret(private_key_encrypted)
+        keys_dir = Path("/app/keys") if Path("/app/keys").is_dir() else Path("keys")
+        keys_dir.mkdir(parents=True, exist_ok=True)
+        cache_path = keys_dir / f"agent_{ssh_username}_host{host_id}.key"
+        if not cache_path.exists() or cache_path.read_text(encoding="utf-8") != private_pem:
+            cache_path.write_text(private_pem, encoding="utf-8")
+        cache_path.chmod(0o600)
+        return str(cache_path)
+
     def to_computers(self, hosts: Iterable):
         return [self.to_computer(host) for host in hosts]
 
@@ -126,7 +204,7 @@ class HostService:
         host = self.get_host(host_id)
         if not host:
             raise ValueError(f"Host {host_id} not found")
-        computer = self.to_computer(host)
+        computer = self.to_computer_bootstrap(host)
         result = computer.executor_ssh("echo netrunner-ok")
         is_active = "[ERROR]" not in result and "Error:" not in result and "netrunner-ok" in result
         updates = {"is_active": 1 if is_active else 0}
@@ -157,7 +235,7 @@ class HostService:
         host = self.get_host(host_id)
         if not host:
             raise ValueError(f"Host {host_id} not found")
-        computer = self.to_computer(host)
+        computer = self.to_computer_bootstrap(host)
         result = await computer.async_executor_ssh("echo netrunner-ok")
         is_active = "[ERROR]" not in result and "Error:" not in result and "netrunner-ok" in result
         updates = {"is_active": 1 if is_active else 0}

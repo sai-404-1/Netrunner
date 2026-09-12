@@ -2,37 +2,34 @@
 
 import { useEffect, useState } from "react";
 import { apiGetClient, apiPostClient } from "@/lib/api-client";
-import { formatDate, toLocalISO } from "@/lib/utils";
-import { Modal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
-import { Pencil, Trash2, Settings, Settings2, RefreshCw } from "lucide-react";
-import type { ScheduledTask, Template, Host, Group } from "@/lib/schedule-types";
-import EditTaskModal from "./EditTaskModal";
+import { RefreshCw } from "lucide-react";
+import type { ScheduledTask, Scenario, Host, Group } from "@/lib/schedule-types";
 import TaskTable from "./TaskTable";
-import CreateTaskModal from "./CreateTaskModal";
+import TaskFormModal from "./TaskFormModal";
 
 export default function ScheduledPage() {
   const showToast = useToast();
   const [tasks, setTasks] = useState<ScheduledTask[]>([]);
   const [tasksInactive, setInactiveTasks] = useState<ScheduledTask[]>([]);
-  const [templates, setTemplates] = useState<Template[]>([]);
+  const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [hosts, setHosts] = useState<Host[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [editTask, setEditTask] = useState<ScheduledTask | null>(null);
   const [listTab, setListTab] = useState<"active" | "inactive">("active");
-  const [createTask, setCreateTask] = useState<true | false>(false);
+  const [createOpen, setCreateOpen] = useState(false);
 
   async function load() {
-    const [active, inactive, te, h, g] = await Promise.all([
+    const [active, inactive, sc, h, g] = await Promise.all([
       apiGetClient("/api/schedule/active"),
       apiGetClient("/api/schedule/inactive"),
-      apiGetClient("/api/task-templates"),
+      apiGetClient("/api/scenarios"),
       apiGetClient("/api/hosts"),
       apiGetClient("/api/groups"),
     ]);
     setTasks(active || []);
     setInactiveTasks(inactive || []);
-    setTemplates(te || []);
+    setScenarios(sc || []);
     setHosts(h || []);
     setGroups(g || []);
   }
@@ -41,36 +38,17 @@ export default function ScheduledPage() {
     load();
   }, []);
 
-  async function onCreate(fd: FormData) {
+  async function handleSubmit(data: Record<string, unknown>, isEdit: boolean) {
     try {
-      await apiPostClient("/api/schedule", {
-        name: fd.get("name"),
-        template_id: Number(fd.get("template_id")),
-        target_type: fd.get("target_type"),
-        target_id: Number(fd.get("target_id")),
-        run_at: fd.get("run_at") ? toLocalISO(new Date(String(fd.get("run_at")))) : "",
-      });
-      showToast("Запланированная задача создана");
-      setCreateTask(false); // закрыть модал вместо e.currentTarget.reset()
-      await load();
-    } catch (err: any) {
-      showToast(err.message, "error");
-    }
-  }
-
-  async function onUpdate(fd: FormData) {
-    try {
-      await apiPostClient("/api/schedule/update", {
-        id: Number(fd.get("id")),
-        name: fd.get("name"),
-        template_id: Number(fd.get("template_id")),
-        target_type: fd.get("target_type"),
-        target_id: Number(fd.get("target_id")),
-        run_at: fd.get("run_at") ? toLocalISO(new Date(String(fd.get("run_at")))) : "",
-        is_enabled: fd.get("is_enabled") === "on",
-      });
-      showToast("Задача обновлена");
+      if (isEdit) {
+        await apiPostClient("/api/schedule/update", { ...data, id: editTask?.id });
+        showToast("Задача обновлена");
+      } else {
+        await apiPostClient("/api/schedule", data);
+        showToast("Запланированная задача создана");
+      }
       setEditTask(null);
+      setCreateOpen(false);
       await load();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -109,79 +87,71 @@ export default function ScheduledPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div>
         <h2 className="text-3xl font-bold">Планировщик</h2>
         <p className="text-gray-500">Создание и запуск запланированных задач</p>
       </div>
 
-      <div className="panel">
-        {/* Вкладки: Активные / Не активные */}
-        <div className="flex items-center gap-1 mb-4 justify-between">
-          <div className="flex items-center gap-1 border-b border-gray-200 dark:border-gray-700">
-            <button
-              onClick={() => setListTab("active")}
-              className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${listTab === "active" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
-                }`}
-            >
-              Активные
-            </button>
-            <button
-              onClick={() => setListTab("inactive")}
-              className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${listTab === "inactive" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
-                }`}
-            >
-              Не активные
-            </button>
-          </div>
-          <div className="flex gap-5">
-            <button className="btn-secondary" onClick={tickScheduler}>
-              <RefreshCw size={16} />
-            </button>
-            <button className="btn" onClick={() => setCreateTask(!createTask)} title="Запланировать плановую задачу">Запланировать</button>
-          </div>
+      {/* Табы + кнопки в едином стабильном ряду (стиль страницы истории) —
+          кнопки не уезжают, их позиция фиксирована независимо от состояния. */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-2 justify-between">
+        <div className="flex items-center gap-1 border-gray-200 dark:border-gray-700">
+          <button
+            onClick={() => setListTab("active")}
+            className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${listTab === "active" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
+              }`}
+          >
+            Активные
+          </button>
+          <button
+            onClick={() => setListTab("inactive")}
+            className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${listTab === "inactive" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700"
+              }`}
+          >
+            Не активные
+          </button>
         </div>
-        {listTab == "inactive" && (
-          <TaskTable
-            rows={tasksInactive}
-            templates={templates}
-            hosts={hosts}
-            groups={groups}
-            onEdit={setEditTask}
-            onDelete={deleteTask}
-          />
-        )}
-
-        {listTab == "active" && (
-          <TaskTable
-            rows={tasks}
-            templates={templates}
-            hosts={hosts}
-            groups={groups}
-            onEdit={setEditTask}
-            onDelete={deleteTask}
-          />
-        )}
+        <div className="flex gap-2">
+          <button className="btn-secondary py-1.5 px-3 text-sm" onClick={tickScheduler} title="Проверить расписание">
+            <RefreshCw size={14} />
+          </button>
+          <button className="btn py-1.5 px-3 text-sm" onClick={() => setCreateOpen(true)} title="Создать запланированную задачу">
+            Запланировать
+          </button>
+        </div>
       </div>
 
+      <TaskTable
+        rows={listTab === "active" ? tasks : tasksInactive}
+        scenarios={scenarios}
+        hosts={hosts}
+        groups={groups}
+        onEdit={setEditTask}
+        onDelete={deleteTask}
+        onToggle={toggleEnabled}
+      />
+
       {editTask && (
-        <EditTaskModal
+        <TaskFormModal
+          title="Редактировать задачу"
           task={editTask}
-          templates={templates}
+          scenarios={scenarios}
           hosts={hosts}
           groups={groups}
           onClose={() => setEditTask(null)}
-          onSubmit={onUpdate}
+          onSubmit={handleSubmit}
         />
       )}
 
-      {createTask && (
-        <CreateTaskModal
-          templates={templates}
+      {createOpen && (
+        <TaskFormModal
+          title="Создать запланированную задачу"
+          scenarios={scenarios}
           hosts={hosts}
           groups={groups}
-          onClose={() => setCreateTask(false)}
-          onCreate={onCreate}
+          onClose={() => setCreateOpen(false)}
+          onSubmit={handleSubmit}
         />
       )}
     </div>

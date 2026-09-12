@@ -1,34 +1,90 @@
 "use client";
 
-import type { ScheduledTask, Template, Host, Group } from "@/lib/schedule-types";
-import { targetsFor } from "@/lib/schedule-utils";
-import { formatDate } from "@/lib/utils";
+import type { ScheduledTask, Scenario, Host, Group } from "@/lib/schedule-types";
+import { taskScenarioIds, taskTargetIds } from "@/lib/schedule-types";
+import { scheduleLabel } from "@/lib/schedule-utils";
 import { DataTable } from "@/components/DataTable";
 import { Pencil, Trash2 } from "lucide-react";
 
 interface Props {
   rows: ScheduledTask[];
-  templates: Template[];
+  scenarios: Scenario[];
   hosts: Host[];
   groups: Group[];
   onEdit: (task: ScheduledTask) => void;
   onDelete: (id: number) => void;
+  onToggle: (task: ScheduledTask) => void;
 }
 
-export default function TaskTable({ rows, templates, hosts, groups, onEdit, onDelete }: Props) {
+export default function TaskTable({ rows, scenarios, hosts, groups, onEdit, onDelete, onToggle }: Props) {
   return (
     <DataTable
       columns={[
-        { title: "Название", key: "name" },
-        { title: "Шаблон", render: (t) => templates.find((x) => x.id === t.template_id)?.name || t.template_id },
+        {
+          title: "Название",
+          render: (t) => <span title={t.description || undefined}>{t.name}</span>,
+        },
+        {
+          title: "Сценарий",
+          render: (t) => {
+            const ids = taskScenarioIds(t);
+            if (ids.length === 0) return "—";
+            const names = ids.map((id) => scenarios.find((x) => x.id === id)?.name || `#${id}`);
+            return (
+              <span className="text-sm">
+                {names.length > 2 ? `${ids.length} сценария(ев)` : names.join(", ")}
+              </span>
+            );
+          },
+        },
+        {
+          title: "Условие",
+          render: (t) => (
+            <span className="text-sm">{scheduleLabel(t)}</span>
+          ),
+        },
         {
           title: "Цель",
           render: (t) => {
-            const target = targetsFor(t.target_type, hosts, groups).find((x) => x.id === t.target_id);
-            return `${t.target_type === "host" ? "хост" : "группа"}:${target?.name || t.target_id}`;
+            const [hostIds, groupIds] = taskTargetIds(t);
+            const parts: string[] = [];
+            if (hostIds.length) {
+              parts.push(
+                "хост: " +
+                  hostIds
+                    .map((id) => hosts.find((h) => h.id === id)?.name || `#${id}`)
+                    .join(", "),
+              );
+            }
+            if (groupIds.length) {
+              parts.push(
+                "кабинет: " +
+                  groupIds
+                    .map((id) => groups.find((g) => g.id === id)?.name || `#${id}`)
+                    .join(", "),
+              );
+            }
+            if (parts.length === 0) parts.push("—");
+            const full = parts.join(" · ");
+            return (
+              <span className="text-sm" title={full}>
+                {full.length > 40 ? full.slice(0, 40) + "…" : full}
+              </span>
+            );
           },
         },
-        { title: "Запуск", render: (t) => formatDate(t.run_at) },
+        {
+          title: "Активна",
+          render: (t) => (
+            <input
+              type="checkbox"
+              className="w-4 h-4"
+              checked={!!t.is_enabled}
+              onChange={() => onToggle(t)}
+              title={t.is_enabled ? "Отключить" : "Активировать"}
+            />
+          ),
+        },
         {
           title: "",
           render: (t) => (

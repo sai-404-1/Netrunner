@@ -17,6 +17,8 @@
   Telegram, `logout`, `refresh` — перечитать `/api/me`). `login` может вернуть
   `mfa_required` вместо сессии.
 - `Toast.tsx` — всплывающие уведомления: `ToastProvider` + хук `useToast()`.
+  Анимация: появление выплывает справа налево (`toast-in`), исчезновение — тем же
+  движением обратно (`toast-out`); см. `globals.css`.
 - `Modal.tsx` — модальные окна: `Modal` (универсальное) и `OutputModal` (показ вывода задач).
 - `DataTable.tsx` — обобщённая таблица `DataTable<T>` с колонками и кастомным рендером ячеек.
 - `Badge.tsx` — бейджи статусов: `StatusBadge`, `BooleanBadge`, `LabelBadge`.

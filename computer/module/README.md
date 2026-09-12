@@ -64,6 +64,15 @@
   пакетов (для каждого показателя есть sync- и async-версия `_read_*`), формирует
   `inventory_item`. Методы: `run`, `async run_for_host`, набор `_read_*`/`_clean_*`.
 
+### `agent_provision.py` — установка/переустановка endpoint-агента
+- `class UserModule` (slug `agent_provision`): провижинит на хосте выделенного
+  сервисного пользователя **`netrunner-svc`** (без пароля), даёт ему root через
+  `sudoers.d` (NOPASSWD: ALL) и ставит endpoint-агент. Дальше NetRunner исполняет команды
+  под `netrunner-svc` (его per-host ключом), а не под первичным пользователем.
+  Повторный запуск на уже провиженном хосте — **переустановка**: не ротирует ключ/токен,
+  чинит `sudoers` (через первичного пользователя на машинах старой провизии, где
+  netrunner-svc есть, а sudoers-правила ещё нет), обновляет файлы и юнит агента.
+
 ### `get_update.py` — обновление системы
 - `main()`, `get_update(update)`, `class UserModule(exec)`.
 

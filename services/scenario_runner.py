@@ -3,19 +3,66 @@ from __future__ import annotations
 import asyncio
 import json
 import traceback
+from dataclasses import dataclass, field
+from typing import Any
 
+from services.execution_settings import MODE_BATCH, ExecutionSettings
 from services.task_runner import ModuleContext
+
+# Пауза между попытками coldawn, секунды: мгновенные повторы подряд бессмысленны
+# (SSH-канал/сеть могут быть заняты), но и держать долго не нужно.
+COLDAWN_RETRY_DELAY = 3
+
+
+@dataclass(slots=True)
+class _StepPlan:
+    """Разобранный шаг сценария: модуль и аргументы резолвятся один раз на запуск,
+    а не заново на каждом хосте."""
+
+    step: Any
+    module_row: Any = None
+    instance: Any = None
+    args: dict = field(default_factory=dict)
+    error: str | None = None
+
+    @property
+    def name(self) -> str:
+        module_name = getattr(self.module_row, "name", "") or f"модуль #{self.step.module_id}"
+        return self.step.step_name or f"Шаг {self.step.step_order} ({module_name})"
+
+    @property
+    def on_failure(self) -> str:
+        return self.step.on_failure
+
+
+@dataclass(slots=True)
+class _ScenarioPlan:
+    """Один сценарий в очереди запуска: строка scenario_runs + разобранные шаги."""
+
+    run_id: int
+    scenario: Any
+    steps: list[_StepPlan]
+    pending_hosts: int = 0
+    host_statuses: dict[int, str] = field(default_factory=dict)
 
 
 class ScenarioRunner:
-    """Async runner for multi-step scenarios against host targets."""
+    """Async runner for multi-step scenarios against host targets.
 
-    def __init__(self, db, host_service, module_registry, logger):
+    Модель выполнения — **пер-хост**: каждый компьютер идёт по своей очереди
+    сценариев и внутри сценария по своим шагам независимо от остальных.
+    Упавший хост уводит с дистанции только себя: соседи продолжают до конца.
+    """
+
+    def __init__(self, db, host_service, module_registry, logger, execution_settings=None, history=None):
         self.db = db
         self.host_service = host_service
         self.module_registry = module_registry
         self.logger = logger
-        self.max_parallel = 10
+        # Темп выполнения перечитывается перед каждым запуском, а не берётся
+        # один раз при старте: правка настройки в админке должна работать сразу.
+        self.execution_settings = execution_settings or ExecutionSettings(db)
+        self.history = history
 
     async def run_scenario_async(
         self,
@@ -24,126 +71,367 @@ class ScenarioRunner:
         target_id: int,
         trigger_type: str = "manual",
         scenario_run_id: int | None = None,
-        hosts: list | None = None,
+        targets: list | None = None,
     ):
-        scenario = self.db.scenarios.get(scenario_id)
-        if not scenario:
-            raise RuntimeError(f"Сценарий #{scenario_id} не найден")
+        """Запускает один сценарий — частный случай очереди из одного элемента."""
+        runs = await self.run_scenarios_async(
+            scenario_ids=[scenario_id],
+            target_type=target_type,
+            target_id=target_id,
+            trigger_type=trigger_type,
+            scenario_run_ids=[scenario_run_id] if scenario_run_id is not None else None,
+            targets=targets,
+        )
+        return runs[0]
 
-        steps = self.db.scenario_steps.by_scenario(scenario_id)
-        if not steps:
-            raise RuntimeError(f"Сценарий '{scenario.name}' не содержит шагов")
+    async def run_scenarios_async(
+        self,
+        scenario_ids: list[int],
+        target_type: str,
+        target_id: int,
+        trigger_type: str = "manual",
+        scenario_run_ids: list[int] | None = None,
+        targets: list | None = None,
+    ):
+        """Прогоняет очередь сценариев на цели.
 
-        # Мультивыбор: вызывающий передал готовый список хостов (смесь кабинетов и
-        # конкретных компов). Иначе резолвим одну цель по target_type/target_id.
-        targets = hosts if hosts is not None else self.host_service.resolve_targets(target_type, target_id)
+        Очередь сценариев — своя у каждого хоста: быстрый компьютер уходит на
+        следующий сценарий, не дожидаясь, пока медленный сосед добьёт текущий.
+
+        `targets` (опц.): готовый список хостов. Если передан — используется как
+        есть (резолв не выполняется); это нужно мульти-цели (несколько хостов +
+        несколько групп). `target_type`/`target_id` тогда пишутся в scenario_runs
+        как информативные.
+        """
+        if not scenario_ids:
+            raise RuntimeError("Не указан ни один сценарий")
+
+        if targets is None:
+            targets = self.host_service.resolve_targets(target_type, target_id)
         if not targets:
             raise RuntimeError("Нет хостов для выполнения")
 
-        # Если run-строка уже создана (фоновый запуск через API) — используем её,
-        # чтобы клиент мог опрашивать прогресс по run_id. Иначе создаём новую.
-        if scenario_run_id is not None:
-            scenario_run = self.db.scenario_runs.get(scenario_run_id)
-        else:
-            scenario_run = self.db.scenario_runs.start(
-                scenario_id=scenario_id,
-                target_type=target_type,
-                target_id=target_id,
-                trigger_type=trigger_type,
+        config = self.execution_settings.get_config()
+        if config["mode"] == MODE_BATCH:
+            self.logger.info(
+                "Темп: пакетами по %d машин, пауза между пакетами %d с",
+                config["batch_size"], config["batch_delay"],
             )
-        self.logger.info(
-            "ScenarioRun #%d: '%s' на %d хостах, %d шагов",
-            scenario_run.id, scenario.name, len(targets), len(steps),
-        )
+        else:
+            self.logger.info("Темп: до %d машин одновременно", config["max_parallel"])
 
-        overall_status = "completed"
+        plans: list[_ScenarioPlan] = []
+        for index, scenario_id in enumerate(scenario_ids):
+            scenario = self.db.scenarios.get(scenario_id)
+            if not scenario:
+                raise RuntimeError(f"Сценарий #{scenario_id} не найден")
 
-        for step in steps:
-            success = await self._run_step_async(scenario_run.id, step, targets)
-            if not success:
-                if step.on_failure == "stop":
-                    self.logger.info(
-                        "Шаг %d '%s' упал, on_failure=stop — сценарий остановлен",
-                        step.step_order, step.step_name or f"Шаг {step.step_order}",
-                    )
-                    overall_status = "failed"
-                    break
-                elif step.on_failure == "skip":
-                    self.logger.info(
-                        "Шаг %d '%s' упал, on_failure=skip — пропускаем",
-                        step.step_order, step.step_name or f"Шаг {step.step_order}",
-                    )
+            steps = self.db.scenario_steps.by_scenario(scenario_id)
+            if not steps:
+                raise RuntimeError(f"Сценарий '{scenario.name}' не содержит шагов")
 
-        self.db.scenario_runs.finish(scenario_run.id, status=overall_status)
-        self.logger.info("ScenarioRun #%d завершён: %s", scenario_run.id, overall_status)
-        return self.db.scenario_runs.get(scenario_run.id)
+            # Если run-строки уже созданы (фоновый запуск через API) — используем их,
+            # чтобы клиент мог опрашивать прогресс по run_id. Иначе создаём новые.
+            run_id = scenario_run_ids[index] if scenario_run_ids else None
+            if run_id is None:
+                run_id = self.db.scenario_runs.start(
+                    scenario_id=scenario_id,
+                    target_type=target_type,
+                    target_id=target_id,
+                    trigger_type=trigger_type,
+                ).id
 
-    async def _run_step_async(self, scenario_run_id: int, step, targets):
+            plans.append(
+                _ScenarioPlan(
+                    run_id=run_id,
+                    scenario=scenario,
+                    steps=[self._plan_step(step) for step in steps],
+                    pending_hosts=len(targets),
+                )
+            )
+            self.logger.info(
+                "ScenarioRun #%d: '%s' на %d хостах, %d шагов",
+                run_id, scenario.name, len(targets), len(steps),
+            )
+            if self.history:
+                self.history.record(
+                    source="scenario",
+                    event_type="scenario_run",
+                    title=f'Запуск сценария "{scenario.name}"',
+                    description=f"Сценарий на {len(targets)} хостах, {len(steps)} шагов",
+                    payload={
+                        "scenario_name": scenario.name,
+                        "hosts_count": len(targets),
+                        "target_type": target_type,
+                    },
+                    ref_type="scenario",
+                    ref_id=scenario_id,
+                    level="info",
+                )
+
+        async def _host_queue(host):
+            for plan in plans:
+                status = await self._run_scenario_on_host_with_coldawn(plan, host)
+                self._report_host_finished(plan, host, status)
+
+        results = await self._dispatch_hosts(targets, _host_queue, config)
+
+        for host, result in zip(targets, results):
+            if isinstance(result, BaseException):
+                self.logger.error("Очередь сценариев на %s оборвалась: %s", host.name, result)
+
+        # Страховка: если очередь хоста упала до отчёта, run мог остаться незакрытым.
+        for plan in plans:
+            if plan.pending_hosts > 0:
+                plan.pending_hosts = 0
+                self._finish_run(plan)
+
+        return [self.db.scenario_runs.get(plan.run_id) for plan in plans]
+
+    # --- темп выполнения --------------------------------------------------
+
+    async def _dispatch_hosts(self, targets, run_host, config) -> list:
+        """Запускает очередь на хостах в темпе, заданном настройкой.
+
+        Возвращает результаты в порядке `targets` (исключения — как значения),
+        чтобы вызывающий мог сопоставить их с хостами.
+        """
+        if config["mode"] == MODE_BATCH:
+            return await self._run_in_batches(targets, run_host, config)
+        return await self._run_with_limit(targets, run_host, config)
+
+    async def _run_in_batches(self, targets, run_host, config) -> list:
+        """Пакетами: следующая партия машин стартует только после того, как
+        предыдущая прошла свою очередь сценариев целиком."""
+        size = config["batch_size"]
+        delay = config["batch_delay"]
+        batches = [targets[i:i + size] for i in range(0, len(targets), size)]
+
+        results: list = []
+        for number, batch in enumerate(batches, start=1):
+            self.logger.info(
+                "Пакет %d/%d: %s",
+                number, len(batches), ", ".join(host.name for host in batch),
+            )
+            tasks = [
+                asyncio.create_task(run_host(host), name=f"sc-host-{host.id}")
+                for host in batch
+            ]
+            results.extend(await asyncio.gather(*tasks, return_exceptions=True))
+            if delay and number < len(batches):
+                self.logger.info("Пауза %d с перед следующим пакетом", delay)
+                await asyncio.sleep(delay)
+        return results
+
+    async def _run_with_limit(self, targets, run_host, config) -> list:
+        """Скользящий параллелизм: освободилось место — сразу заходит следующая
+        машина, партий не ждём."""
+        semaphore = asyncio.Semaphore(config["max_parallel"])
+
+        async def _guarded(host):
+            async with semaphore:
+                return await run_host(host)
+
+        tasks = [
+            asyncio.create_task(_guarded(host), name=f"sc-host-{host.id}")
+            for host in targets
+        ]
+        return await asyncio.gather(*tasks, return_exceptions=True)
+
+    # --- планирование -----------------------------------------------------
+
+    def _plan_step(self, step) -> _StepPlan:
+        """Резолвит модуль шага заранее: недоступный модуль — это ошибка шага,
+        а не падение всего запуска."""
         module_row = self.db.modules.get(step.module_id)
         if not module_row:
-            self.logger.error("Модуль #%d не найден", step.module_id)
-            return False
+            return _StepPlan(step=step, error=f"Модуль #{step.module_id} не найден")
 
         registry_item = self.module_registry.get(module_row.slug)
         if not registry_item or not registry_item.supports_task_runner:
-            self.logger.error("Модуль '%s' не поддерживает task runner", module_row.slug)
-            return False
+            return _StepPlan(
+                step=step,
+                module_row=module_row,
+                error=f"Модуль '{module_row.slug}' не поддерживает task runner",
+            )
 
-        step_args = json.loads(step.config_json) if step.config_json else {}
-        step_name = step.step_name or f"Шаг {step.step_order} ({module_row.name})"
-        self.logger.info("  → Шаг %d: %s на %d хостах", step.step_order, step_name, len(targets))
+        return _StepPlan(
+            step=step,
+            module_row=module_row,
+            instance=registry_item.instance,
+            args=json.loads(step.config_json) if step.config_json else {},
+        )
 
-        instance = registry_item.instance
-        semaphore = asyncio.Semaphore(self.max_parallel)
+    # --- выполнение пер-хост ---------------------------------------------
 
-        async def _run_host(host):
-            async with semaphore:
-                return await self._run_on_host_async(
-                    instance, module_row, host, step_args,
-                    scenario_run_id, step.id,
+    def _coldawn_retries(self) -> int:
+        """Сколько раз повторять запуск, если сценарий не смог начаться (coldawn).
+
+        Читается из настроек исполнения на каждом запуске (правка в админке
+        применяется сразу). Битое значение трактуется как «не повторять».
+        """
+        try:
+            return max(0, int(self.execution_settings.get_config().get("coldawn_retries") or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    async def _run_scenario_on_host_with_coldawn(self, plan: _ScenarioPlan, host) -> str:
+        """Прогон сценария на хосте с повторами coldawn.
+
+        Если сценарий не смог даже начаться (первый шаг не выполнился — обычно
+        отказ SSH/сети на старте), запуск повторяется до ``coldawn_retries`` раз с
+        паузой. Исчерпали попытки — фиксируем факт coldawn в истории и пропускаем
+        машину: очередь переходит к следующей цели (у каждого хоста она своя).
+
+        Логируется только факт исчерпания (``scenario_coldawn``), не каждый повтор.
+        """
+        limit = self._coldawn_retries()
+        attempt = 0
+        while True:
+            started, status = await self._run_scenario_on_host(plan, host)
+            if started or attempt >= limit:
+                if not started and limit:
+                    self._record_coldawn(plan, host, attempt)
+                return status
+            attempt += 1
+            self.logger.warning(
+                "  %s: сценарий '%s' не начался, повтор %d/%d через %d с",
+                host.name, plan.scenario.name, attempt, limit, COLDAWN_RETRY_DELAY,
+            )
+            await asyncio.sleep(COLDAWN_RETRY_DELAY)
+
+    def _record_coldawn(self, plan: _ScenarioPlan, host, attempts: int) -> None:
+        """Фиксирует в общей истории факт coldawn: запуск не удался, машина пропущена."""
+        if not self.history:
+            return
+        self.history.record(
+            source="scenario",
+            event_type="scenario_coldawn",
+            title=f'Сценарий "{plan.scenario.name}" не запустился на хосте {host.name}',
+            description=(
+                f"Coldawn: {attempts} повтор(ов) запуска без успеха — "
+                f"машина пропущена, очередь переходит к следующей"
+            ),
+            payload={
+                "scenario_name": plan.scenario.name,
+                "host_name": host.name,
+                "attempts": attempts,
+            },
+            ref_type="scenario",
+            ref_id=plan.scenario.id,
+            level="warning",
+        )
+
+    async def _run_scenario_on_host(self, plan: _ScenarioPlan, host) -> tuple[bool, str]:
+        """Прогоняет шаги сценария на одном хосте.
+
+        Возвращает ``(started, status)``: ``started`` — удалось ли начать сценарий
+        (успешно выполнен первый шаг); ``status`` — completed / partial / failed.
+        """
+        had_failure = False
+        started: bool | None = None
+
+        for index, step_plan in enumerate(plan.steps):
+            ok = await self._run_step_on_host(plan.run_id, step_plan, host)
+            if started is None:
+                # Первый шаг решает, «начался» ли сценарий (для coldawn-повторов).
+                started = ok
+            if ok:
+                continue
+
+            had_failure = True
+            self._record_step_failed(plan, step_plan, host)
+            if step_plan.on_failure == "stop":
+                self.logger.info(
+                    "  %s: шаг %d '%s' упал, on_failure=stop — хост сходит с дистанции",
+                    host.name, step_plan.step.step_order, step_plan.name,
                 )
+                self._skip_steps(
+                    plan.run_id, plan.steps[index + 1:], host,
+                    reason=f"Пропущен: шаг '{step_plan.name}' упал (on_failure=stop)",
+                )
+                return bool(started), "failed"
 
-        tasks = [asyncio.create_task(_run_host(host), name=f"sc-host-{host.id}") for host in targets]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+            self.logger.info(
+                "  %s: шаг %d '%s' упал, on_failure=%s — идём дальше",
+                host.name, step_plan.step.step_order, step_plan.name, step_plan.on_failure,
+            )
 
-        ok_count = 0
-        for host, result in zip(targets, results):
-            if isinstance(result, BaseException):
-                self.logger.warning("  %s FAIL: %s", host.name, result)
-            elif result is True:
-                ok_count += 1
-                self.logger.info("  %s OK", host.name)
-            else:
-                self.logger.warning("  %s FAIL: %s", host.name, result)
+        return bool(started), ("partial" if had_failure else "completed")
 
-        self.logger.info("  ✓ Шаг %d: %d/%d успешно", step.step_order, ok_count, len(targets))
-        return ok_count > 0
+    def _record_step_failed(self, plan: _ScenarioPlan, step_plan: _StepPlan, host) -> None:
+        """Записывает в общую историю падение шага сценария на хосте."""
+        if not self.history:
+            return
+        self.history.record(
+            source="scenario",
+            event_type="scenario_step_failed",
+            title=f'Шаг "{step_plan.name}" сценария "{plan.scenario.name}" упал',
+            description=f"Шаг завершился с ошибкой на хосте {host.name}",
+            payload={
+                "scenario_name": plan.scenario.name,
+                "step_name": step_plan.name,
+                "host_name": host.name,
+            },
+            ref_type="scenario",
+            ref_id=plan.scenario.id,
+            level="error",
+        )
 
-    async def _run_on_host_async(self, instance, module_row, host, step_args, scenario_run_id, step_id):
+    def _skip_steps(self, scenario_run_id: int, step_plans: list[_StepPlan], host, reason: str) -> None:
+        """Отмечает оставшиеся шаги хоста как пропущенные — чтобы в интерфейсе было
+        видно, что они не выполнялись, а не «висят в очереди»."""
+        for step_plan in step_plans:
+            sr = self.db.scenario_step_runs.start_step(
+                scenario_run_id=scenario_run_id,
+                step_id=step_plan.step.id,
+                host_id=host.id,
+                module_id=step_plan.step.module_id,
+            )
+            self.db.scenario_step_runs.finish_step(
+                sr.id, status="skipped", error_text=reason, exit_code=0,
+            )
+
+    async def _run_step_on_host(self, scenario_run_id: int, step_plan: _StepPlan, host) -> bool:
         sr = self.db.scenario_step_runs.start_step(
             scenario_run_id=scenario_run_id,
-            step_id=step_id,
+            step_id=step_plan.step.id,
             host_id=host.id,
-            module_id=module_row.id,
+            module_id=step_plan.step.module_id,
         )
+
+        if step_plan.error:
+            self.logger.error("  %s: %s", host.name, step_plan.error)
+            self.db.scenario_step_runs.finish_step(
+                sr.id, status="failed", error_text=step_plan.error, exit_code=1,
+            )
+            return False
+
+        self.logger.info("  → %s: шаг %d '%s'", host.name, step_plan.step.step_order, step_plan.name)
+        instance = step_plan.instance
+        module_row = step_plan.module_row
         context = ModuleContext(
             logger=self.logger,
             task_run_id=sr.id,
             db=self.db,
-            to_computer=self.host_service.to_computer,   # ← добавил
+            to_computer=self.host_service.to_computer,
         )
 
         try:
             if hasattr(instance, "run_for_host"):
-                result = await instance.run_for_host(context, host, **step_args)
-                self.logger.info(f"Выполнено: {result.get('command', None)}\nРезультат: {result.get('output', None)}")
+                result = await instance.run_for_host(context, host, **step_plan.args)
             else:
-                result = await asyncio.to_thread(instance.run, context, targets=[host], **step_args)
+                result = await asyncio.to_thread(
+                    instance.run, context, targets=[host], **step_plan.args
+                )
 
-            output = ""
             if isinstance(result, dict):
-                output = result.get("output", result.get("summary_text", json.dumps(result, ensure_ascii=False, default=str)))
+                output = result.get(
+                    "output",
+                    result.get("summary_text", json.dumps(result, ensure_ascii=False, default=str)),
+                )
                 if result.get("status") == "error" or str(output).startswith("[ERROR]"):
+                    self.logger.warning("  %s FAIL: %s", host.name, output)
                     self.db.scenario_step_runs.finish_step(
                         sr.id, status="failed", error_text=output, exit_code=1,
                     )
@@ -153,13 +441,62 @@ class ScenarioRunner:
             else:
                 output = json.dumps(result, ensure_ascii=False, default=str)
 
+            self.logger.info("  %s OK", host.name)
             self.db.scenario_step_runs.finish_step(
                 sr.id, status="completed", output_text=output, exit_code=0,
             )
             return True
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             err = f"{exc}\n{traceback.format_exc()}"
+            self.logger.warning("  %s FAIL: %s", host.name, exc)
             self.db.scenario_step_runs.finish_step(
                 sr.id, status="failed", error_text=err, exit_code=1,
             )
             return False
+
+    # --- агрегация статуса запуска ---------------------------------------
+
+    def _report_host_finished(self, plan: _ScenarioPlan, host, status: str) -> None:
+        """Хост закончил сценарий. Когда отчитались все — закрываем scenario_run."""
+        plan.host_statuses[host.id] = status
+        plan.pending_hosts -= 1
+        if plan.pending_hosts <= 0:
+            self._finish_run(plan)
+
+    def _finish_run(self, plan: _ScenarioPlan) -> None:
+        statuses = list(plan.host_statuses.values())
+        if statuses and all(s == "completed" for s in statuses):
+            overall = "completed"
+        elif statuses and all(s == "failed" for s in statuses):
+            overall = "failed"
+        elif not statuses:
+            overall = "failed"
+        else:
+            overall = "partial"
+
+        self.db.scenario_runs.finish(plan.run_id, status=overall)
+        self.logger.info(
+            "ScenarioRun #%d '%s' завершён: %s (%s)",
+            plan.run_id, plan.scenario.name, overall,
+            ", ".join(f"host {hid}={st}" for hid, st in plan.host_statuses.items()) or "нет хостов",
+        )
+        if self.history:
+            if overall == "completed":
+                event_type, hlevel = "scenario_run_done", "success"
+            elif overall == "partial":
+                # Сценарий выполнился частично: часть машин ок, часть нет.
+                # Это НЕ ошибка сценария — пишем отдельным warning-событием,
+                # чтобы история не показывала его как упавший.
+                event_type, hlevel = "scenario_run_partial", "warning"
+            else:
+                event_type, hlevel = "scenario_failed", "error"
+            self.history.record(
+                source="scenario",
+                event_type=event_type,
+                title=f'Сценарий "{plan.scenario.name}" завершён: {overall}',
+                description=f"Завершение сценария, статус {overall}",
+                payload={"scenario_name": plan.scenario.name, "overall_status": overall},
+                ref_type="scenario",
+                ref_id=plan.scenario.id,
+                level=hlevel,
+            )

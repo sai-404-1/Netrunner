@@ -15,6 +15,7 @@ class ModuleContext:
     task_run_id: int
     to_computer: object | None = None
     db: object | None = None
+    host_service: object | None = None
 
 
 class TaskRunner:
@@ -33,11 +34,12 @@ class TaskRunner:
     Per-host results are logged as soon as they arrive via the context logger.
     """
 
-    def __init__(self, db, host_service, module_registry, logger):
+    def __init__(self, db, host_service, module_registry, logger, history=None):
         self.db = db
         self.host_service = host_service
         self.module_registry = module_registry
         self.logger = logger
+        self.history = history
         self._running_tasks: dict[int, asyncio.Task] = {}
 
     def cancel(self, run_id: int | None = None) -> bool:
@@ -139,7 +141,22 @@ class TaskRunner:
             task_run_id=task_run.id,
             to_computer=self.host_service.to_computer,
             db=self.db,
+            host_service=self.host_service,
         )
+
+        if self.history:
+            module_name = module_row.name or module_row.slug
+            self.history.record(
+                source="task",
+                event_type="task_run",
+                title=f"Запуск модуля {module_name}",
+                description=f"Цель: {target_type}:{target_id}, {len(targets)} хостов",
+                actor_name=created_by,
+                payload={"module_name": module_name, "target": f"{target_type}:{target_id}", "hosts_count": len(targets)},
+                ref_type="task_run",
+                ref_id=task_run.id,
+                level="info",
+            )
 
         current = asyncio.current_task()
         if current is not None:
@@ -208,6 +225,20 @@ class TaskRunner:
                 for r in per_host_results
             )
             final_status = "error" if (module_reported_error or any_host_error) else "success"
+
+            if self.history:
+                module_name = module_row.name or module_row.slug
+                self.history.record(
+                    source="task",
+                    event_type="task_done" if final_status == "success" else "task_failed",
+                    title=f"Задача «{module_name}» завершена: {final_status}",
+                    description=f"Цель: {target_type}:{target_id}, {len(targets)} хостов",
+                    actor_name=created_by,
+                    payload={"module_name": module_name, "target": f"{target_type}:{target_id}", "hosts_count": len(targets)},
+                    ref_type="task_run",
+                    ref_id=task_run.id,
+                    level="success" if final_status == "success" else "error",
+                )
 
             self.db.task_runs.finish(
                 run_id=task_run.id,
@@ -371,48 +402,3 @@ class TaskRunner:
             log_detail,
         )
         return result
-
-    def run_template(self, template_id: int, target_type: str, target_id: int, trigger_type: str = "manual"):
-        template = self.db.task_templates.get(template_id)
-        if not template:
-            raise RuntimeError(f"Template #{template_id} not found")
-
-        args = {}
-        if template.default_args_json:
-            args = json.loads(template.default_args_json)
-
-        module_row = self.db.modules.get(template.module_id)
-        return self.run(
-            module_slug=module_row.slug,
-            target_type=target_type,
-            target_id=target_id,
-            args=args,
-            trigger_type=trigger_type,
-        )
-
-    async def run_template_async(
-        self,
-        template_id: int,
-        target_type: str,
-        target_id: int,
-        trigger_type: str = "manual",
-        task_run_id: int | None = None,
-    ):
-        """Asynchronous version of run_template for use in the async server server."""
-        template = self.db.task_templates.get(template_id)
-        if not template:
-            raise RuntimeError(f"Template #{template_id} not found")
-
-        args = {}
-        if template.default_args_json:
-            args = json.loads(template.default_args_json)
-
-        module_row = self.db.modules.get(template.module_id)
-        return await self.run_async(
-            module_slug=module_row.slug,
-            target_type=target_type,
-            target_id=target_id,
-            args=args,
-            trigger_type=trigger_type,
-            task_run_id=task_run_id,
-        )
