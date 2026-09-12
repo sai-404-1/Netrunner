@@ -7,7 +7,6 @@ import { StatusBadge } from "@/components/Badge";
 import { useToast } from "@/components/Toast";
 import { Plus, Play, Trash2, ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle, Circle, ChevronLeft } from "lucide-react";
 import { Scenario, Placeholder, Module, ScenarioRun, StepForm } from "@/lib/scenario-types";
-import Scenarios from "./Scenarios";
 import ScenariosList from "./ScenariosList";
 
 function parsePlaceholders(schema_json?: string): Placeholder[] {
@@ -45,10 +44,11 @@ export default function ScenariosPage() {
 
   // Run form state
   const [runScenarioId, setRunScenarioId] = useState("");
-  const [runTargetType, setRunTargetType] = useState("host");
-  const [runTargetId, setRunTargetId] = useState("");
-  const [hosts, setHosts] = useState<{ id: number; name: string }[]>([]);
-  const [groups, setGroups] = useState<{ id: number; name: string }[]>([]);
+  // Мультивыбор целей: выбранные кабинеты (группы целиком) и отдельные компы.
+  const [runGroups, setRunGroups] = useState<Set<number>>(new Set());
+  const [runHosts, setRunHosts] = useState<Set<number>>(new Set());
+  const [hosts, setHosts] = useState<{ id: number; name: string; address?: string; group_id?: number | null }[]>([]);
+  const [groups, setGroups] = useState<{ id: number; name: string; hosts?: { id: number }[] }[]>([]);
   const [runResult, setRunResult] = useState<string>("");
   const [addSceranioCollapsed, setSceranioCollapsed] = useState(true);
   const [activeRun, setActiveRun] = useState<ScenarioRun | null>(null);
@@ -177,19 +177,49 @@ export default function ScenariosPage() {
       .catch(() => {});
   }, [loadRuns, loadData]);
 
+  // --- Мультивыбор целей для запуска сценария ---
+  const toggleRunGroup = (id: number) =>
+    setRunGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const toggleRunHost = (id: number) =>
+    setRunHosts((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  // Число реально задействованных компов: выбранные кабинеты складываются с
+  // отдельно выбранными компыми (пересечения исключаем по группам выбранных компов).
+  const selectedHostsInGroups = new Set<number>();
+  for (const g of groups) {
+    if (runGroups.has(g.id)) {
+      for (const h of g.hosts || []) selectedHostsInGroups.add(h.id);
+    }
+  }
+  const distinctTargetCount = new Set([...selectedHostsInGroups, ...runHosts]).size;
+
   const handleRun = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!runScenarioId || !runTargetId) { showToast("Выберите сценарий и цель", "error"); return; }
+    if (!runScenarioId || (runGroups.size === 0 && runHosts.size === 0)) {
+      showToast("Выберите сценарий и хотя бы одну цель", "error");
+      return;
+    }
     setRunResult("");
     setActiveRun(null);
     if (pollRef.current) clearTimeout(pollRef.current);
     try {
       const result = await apiPostClient("/api/scenarios/run", {
         scenario_id: parseInt(runScenarioId),
-        target_type: runTargetType,
-        target_id: parseInt(runTargetId),
+        host_ids: [...runHosts],
+        group_ids: [...runGroups],
       });
-      showToast("Сценарий запущен");
+      showToast(`Сценарий запущен на ${distinctTargetCount} машинах`);
       pollRun(result.run_id);
     } catch (err: any) {
       showToast(err.message, "error");
@@ -358,9 +388,18 @@ export default function ScenariosPage() {
 
       {/* Run form */}
       <div className="panel">
-        <h3 className="font-semibold mb-4">Запустить сценарий</h3>
-        <form onSubmit={handleRun} className="space-y-3">
-          <div className="grid md:grid-cols-3 gap-4 items-end">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold">Запустить сценарий</h3>
+          {distinctTargetCount > 0 && (
+            <span className="text-sm text-blue-600 font-medium">
+              Цели: {runGroups.size > 0 ? `кабинетов ${runGroups.size}, ` : ""}
+              {runHosts.size > 0 ? `компьютеров ${runHosts.size}, ` : ""}
+              всего машин: {distinctTargetCount}
+            </span>
+          )}
+        </div>
+        <form onSubmit={handleRun} className="space-y-4">
+          <div className="grid md:grid-cols-2 gap-4 items-end">
             <label className="label">
               Сценарий
               <select className="input" value={runScenarioId} onChange={(e) => setRunScenarioId(e.target.value)}>
@@ -370,25 +409,105 @@ export default function ScenariosPage() {
                 ))}
               </select>
             </label>
-            <label className="label">
-              Тип цели
-              <select className="input" value={runTargetType} onChange={(e) => setRunTargetType(e.target.value)}>
-                <option value="host">Хост</option>
-                <option value="group">Группа</option>
-              </select>
-            </label>
-            <label className="label">
-              ID цели
-              <select className="input" value={runTargetId} onChange={(e) => setRunTargetId(e.target.value)}>
-                {(runTargetType === "host" ? hosts : groups).map((t) => (
-                  <option key={t.id} value={t.id}>{t.name} #{t.id}</option>
-                ))}
-              </select>
-            </label>
           </div>
-          <button className="btn" type="submit">
-            <Play size={16} /> Запустить
-          </button>
+
+          {/* Выбор целей: кабинеты целиком или конкретные компы */}
+          <div>
+            <h4 className="font-medium text-gray-700 mb-2">Цели</h4>
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg divide-y dark:divide-gray-700">
+              {groups.length === 0 && hosts.length === 0 && (
+                <div className="p-3 text-sm text-gray-400">Хостов и кабинетов пока нет</div>
+              )}
+
+              {/* Кабинеты (группы): чекбокс на весь кабинет + его компы */}
+              {groups.map((g) => {
+                const gHosts = g.hosts || [];
+                return (
+                  <div key={g.id} className="p-2.5">
+                    <label className="flex items-center gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="accent-blue-600 w-4 h-4"
+                        checked={runGroups.has(g.id)}
+                        onChange={() => {
+                          if (runGroups.has(g.id)) {
+                            toggleRunGroup(g.id);
+                            // снять выбор всех компов из этого кабинета
+                            const gHostIds = new Set(gHosts.map((h) => h.id));
+                            setRunHosts((prev) => {
+                              const next = new Set(prev);
+                              for (const hid of gHostIds) next.delete(hid);
+                              return next;
+                            });
+                          } else {
+                            toggleRunGroup(g.id);
+                          }
+                        }}
+                      />
+                      <span className="font-medium text-sm">{g.name}</span>
+                      <span className="text-xs text-gray-500">({gHosts.length} компов)</span>
+                      <span className="text-xs text-blue-600 ml-auto">
+                        {runGroups.has(g.id) ? "весь кабинет" : ""}
+                      </span>
+                    </label>
+                    {gHosts.length > 0 && (
+                      <div className="ml-7 mt-1.5 grid sm:grid-cols-2 lg:grid-cols-3 gap-1">
+                        {gHosts.map((h: any) => {
+                          const selectedHost = runHosts.has(h.id);
+                          const inCabin = runGroups.has(g.id);
+                          return (
+                            <label
+                              key={h.id}
+                              className={`flex items-center gap-2 text-sm rounded px-2 py-1 cursor-pointer ${
+                                inCabin ? "opacity-50 pointer-events-none" : "hover:bg-gray-50 dark:hover:bg-gray-700/40"
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                className="accent-blue-600 w-3.5 h-3.5"
+                                checked={inCabin || selectedHost}
+                                disabled={inCabin}
+                                onChange={() => toggleRunHost(h.id)}
+                              />
+                              <span className="truncate">{h.name || h.address || `#${h.id}`}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Компы без кабинета */}
+              {(hosts.some((h) => !h.group_id) || hosts.length === 0) && (
+                <div className="p-2.5">
+                  <div className="font-medium text-sm mb-1.5">Компьютеры без кабинета</div>
+                  <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-1">
+                    {hosts
+                      .filter((h) => !h.group_id)
+                      .map((h) => (
+                        <label key={h.id} className="flex items-center gap-2 text-sm rounded px-2 py-1 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/40">
+                          <input
+                            type="checkbox"
+                            className="accent-blue-600 w-3.5 h-3.5"
+                            checked={runHosts.has(h.id)}
+                            onChange={() => toggleRunHost(h.id)}
+                          />
+                          <span className="truncate">{h.name || h.address || `#${h.id}`}</span>
+                        </label>
+                      ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <button className="btn" type="submit" disabled={distinctTargetCount === 0}>
+              <Play size={16} /> Запустить ({distinctTargetCount > 0 ? `${distinctTargetCount} машин` : "цель не выбрана"})
+            </button>
+          </div>
         </form>
       </div>
 

@@ -63,18 +63,34 @@ async def api_scenarios_create(request: web.Request) -> web.Response:
 
 
 async def api_scenarios_run(request: web.Request) -> web.Response:
-    """Запускает сценарий в фоне и сразу возвращает run_id для опроса прогресса."""
+    """Запускает сценарий в фоне и сразу возвращает run_id для опроса прогресса.
+
+    Поддерживает как одиночную цель (target_type/target_id), так и мультивыбор
+    (host_ids + group_ids — смесь конкретных компов и кабинетов)."""
     ctx = _ctx(request)
     payload = await _read_json(request)
     scenario_id = _safe_int(payload.get("scenario_id"))
     target_type = str(payload.get("target_type", "group")).strip()
     target_id = _safe_int(payload.get("target_id"))
+    host_ids = payload.get("host_ids")
+    group_ids = payload.get("group_ids")
+    is_multi = (isinstance(host_ids, list) and host_ids) or (isinstance(group_ids, list) and group_ids)
+
+    targets = None
+    effective_target_type = target_type
+    effective_target_id = target_id
+    if is_multi:
+        # Мультивыбор: раскрываем смесь кабинетов/компов в конкретный список хостов.
+        targets = ctx.host_service.resolve_targets_multi(host_ids, group_ids)
+        if targets:
+            effective_target_type = "host"
+            effective_target_id = targets[0].id  # совместимость истории/целей
 
     # Создаём run-строку заранее, чтобы вернуть run_id немедленно.
     run = ctx.db.scenario_runs.start(
         scenario_id=scenario_id,
-        target_type=target_type,
-        target_id=target_id,
+        target_type=effective_target_type,
+        target_id=effective_target_id,
         trigger_type="manual",
     )
 
@@ -82,10 +98,11 @@ async def api_scenarios_run(request: web.Request) -> web.Response:
         try:
             await ctx.scenario_runner.run_scenario_async(
                 scenario_id=scenario_id,
-                target_type=target_type,
-                target_id=target_id,
+                target_type=effective_target_type,
+                target_id=effective_target_id,
                 trigger_type="manual",
                 scenario_run_id=run.id,
+                hosts=targets,
             )
         except Exception:  # noqa: BLE001
             logger.exception("Ошибка при выполнении сценария %s", run.id)

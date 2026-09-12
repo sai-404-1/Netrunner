@@ -24,6 +24,7 @@ class ScenarioRunner:
         target_id: int,
         trigger_type: str = "manual",
         scenario_run_id: int | None = None,
+        hosts: list | None = None,
     ):
         scenario = self.db.scenarios.get(scenario_id)
         if not scenario:
@@ -33,7 +34,9 @@ class ScenarioRunner:
         if not steps:
             raise RuntimeError(f"Сценарий '{scenario.name}' не содержит шагов")
 
-        targets = self.host_service.resolve_targets(target_type, target_id)
+        # Мультивыбор: вызывающий передал готовый список хостов (смесь кабинетов и
+        # конкретных компов). Иначе резолвим одну цель по target_type/target_id.
+        targets = hosts if hosts is not None else self.host_service.resolve_targets(target_type, target_id)
         if not targets:
             raise RuntimeError("Нет хостов для выполнения")
 

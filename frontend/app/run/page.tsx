@@ -1,10 +1,10 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { apiGetClient, apiPostClient } from "@/lib/api-client";
 import { useToast } from "@/components/Toast";
-import { OutputModal } from "@/components/Modal";
+import { Modal, OutputModal } from "@/components/Modal";
 import { FileManager } from "@/components/FileManager";
 import { X, Maximize2, Loader2 } from "lucide-react";
 import { Placeholder, parsePlaceholders } from "@/lib/module-schema";
@@ -54,13 +54,15 @@ function RunForm() {
   const [hosts, setHosts] = useState<Host[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [moduleSlug, setModuleSlug] = useState(preselected);
-  const [targetType, setTargetType] = useState<"host" | "group">("host");
-  const [targetId, setTargetId] = useState(preselectedHost);
+  // Единая цель в формате "host:5" / "group:3" — тип цели выводится неявно,
+  // отдельное поле «Тип цели» в UI не показывается (он перенесён в модалку подтверждения).
+  const [targetKey, setTargetKey] = useState(preselectedHost ? `host:${preselectedHost}` : "");
   const [dynArgs, setDynArgs] = useState<Record<string, string>>({});
   const [selectedFileIds, setSelectedFileIds] = useState<number[]>([]);
   const [run, setRun] = useState<TaskRun | null>(null);
   const [polling, setPolling] = useState(false);
   const [outputModal, setOutputModal] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const pollTimer = useRef<NodeJS.Timeout | null>(null);
 
@@ -75,18 +77,21 @@ function RunForm() {
     setHosts(h || []);
     setGroups(g || []);
     if (!moduleSlug && runnable.length) setModuleSlug(runnable[0].slug);
-    if (!targetId) {
-      const targets = targetType === "host" ? h || [] : g || [];
-      if (targets.length) setTargetId(String(targets[0].id));
+    if (!targetKey) {
+      if ((h || []).length) setTargetKey(`host:${h[0].id}`);
+      else if ((g || []).length) setTargetKey(`group:${g[0].id}`);
     }
   }
 
   useEffect(() => { load(); }, []);
 
   useEffect(() => {
-    const targets = targetType === "host" ? hosts : groups;
-    if (targets.length && !targetId) setTargetId(String(targets[0].id));
-  }, [targetType, hosts, groups]);
+    if (!targetKey) {
+      if (hosts.length) setTargetKey(`host:${hosts[0].id}`);
+      else if (groups.length) setTargetKey(`group:${groups[0].id}`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hosts, groups]);
 
   // Reset dynamic args to defaults when module changes
   useEffect(() => {
@@ -129,20 +134,43 @@ function RunForm() {
     }
   }
 
-  async function startRun(e: React.FormEvent) {
+  // Разбор строки цели "host:5" / "group:3" → тип и id.
+  function parseTargetKey() {
+    const [t, id] = targetKey.split(":");
+    return { targetType: (t as "host" | "group") || "host", targetId: Number(id) };
+  }
+
+  // Текстовое представление выбранной цели для модалки подтверждения.
+  const targetLabel = useMemo(() => {
+    const { targetType, targetId } = parseTargetKey();
+    const list = targetType === "host" ? hosts : groups;
+    const t = list.find((x) => x.id === targetId);
+    return t ? t.name : targetKey || "цель не выбрана";
+  }, [targetKey, hosts, groups]);
+
+  // Кнопка «Запустить» открывает модалку подтверждения, а не шлёт сразу.
+  function requestRun(e: React.FormEvent) {
     e.preventDefault();
+    if (!targetKey) { showToast("Выберите цель", "error"); return; }
     const isFileModule = moduleSlug === "file_distribute";
     if (isFileModule && selectedFileIds.length === 0) {
       showToast("Выберите хотя бы один файл для рассылки", "error");
       return;
     }
+    setConfirmOpen(true);
+  }
+
+  async function doRun() {
+    setConfirmOpen(false);
+    const { targetType, targetId } = parseTargetKey();
+    const isFileModule = moduleSlug === "file_distribute";
     try {
       const args: Record<string, unknown> = { ...dynArgs };
       if (isFileModule) args.file_ids = selectedFileIds;
       const result = await apiPostClient("/api/run", {
         module_slug: moduleSlug,
         target_type: targetType,
-        target_id: Number(targetId),
+        target_id: targetId,
         args,
       });
       setRun({ id: result.run_id, status: "pending" });
@@ -190,8 +218,8 @@ function RunForm() {
 
       <div className="panel">
         <h3 className="font-semibold mb-4">Запуск модуля</h3>
-        <form onSubmit={startRun} className="space-y-4">
-          <div className="grid lg:grid-cols-4 gap-4 items-end">
+        <form onSubmit={requestRun} className="space-y-4">
+          <div className="grid lg:grid-cols-[1fr_1fr_auto_auto] gap-4 items-end">
             <label className="label">
               Модуль
               <select className="input" value={moduleSlug} onChange={(e) => setModuleSlug(e.target.value)}>
@@ -203,22 +231,27 @@ function RunForm() {
               </select>
             </label>
             <label className="label">
-              Тип цели
-              <select className="input" value={targetType} onChange={(e) => setTargetType(e.target.value as any)}>
-                <option value="host">Хост</option>
-                <option value="group">Группа</option>
-              </select>
-            </label>
-            <label className="label">
               Цель
-              <select className="input" value={targetId} onChange={(e) => setTargetId(e.target.value)}>
-                {(targetType === "host" ? hosts : groups).map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name} #{t.id}
-                  </option>
-                ))}
+              <select className="input" value={targetKey} onChange={(e) => setTargetKey(e.target.value)}>
+                <optgroup label="Хосты">
+                  {hosts.map((t) => (
+                    <option key={`host-${t.id}`} value={`host:${t.id}`}>
+                      {t.name} #{t.id}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="Группы (кабинеты)">
+                  {groups.map((t) => (
+                    <option key={`group-${t.id}`} value={`group:${t.id}`}>
+                      {t.name} #{t.id}
+                    </option>
+                  ))}
+                </optgroup>
               </select>
             </label>
+            <button type="button" className="btn-secondary" onClick={() => setConfirmOpen(true)}>
+              Выбрать
+            </button>
             <div className="flex gap-3">
               <button className="btn" type="submit" disabled={polling}>
                 Запустить
@@ -362,6 +395,28 @@ function RunForm() {
           </div>
         )}
       </div>
+
+      {confirmOpen && (
+        <Modal title="Подтвердите запуск" onClose={() => setConfirmOpen(false)}>
+          <div className="space-y-4">
+            <p className="text-sm text-gray-700 dark:text-gray-300">
+              Вы хотите применить модуль <strong>{activeModule?.name || moduleSlug}</strong> к цели{" "}
+              <strong>{targetLabel}</strong>?
+            </p>
+            <p className="text-sm text-gray-500">
+              Подтвердите выбор: запустить {targetLabel}?
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button type="button" className="btn-secondary" onClick={() => setConfirmOpen(false)}>
+                Нет
+              </button>
+              <button type="button" className="btn" onClick={doRun}>
+                Да, запустить
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {outputModal && run && (
         <OutputModal

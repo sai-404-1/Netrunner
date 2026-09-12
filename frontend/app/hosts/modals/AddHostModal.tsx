@@ -67,7 +67,7 @@ export function AddHostModal({groups, onClose, onSubmit, onCreateGroup}: Props) 
         <label className="label">
           Группа
           <select className="input" name="group_id"
-                  onChange={(e) => setSelectedGroup(e.target.selectedOptions.item(0).text)}>
+                  onChange={(e) => setSelectedGroup(e.target.selectedOptions.item(0)?.text ?? "")}>
             <option value="">Без группы</option>
             {groups.map((g) => (
               <option key={g.id} value={g.id}>{g.name}</option>

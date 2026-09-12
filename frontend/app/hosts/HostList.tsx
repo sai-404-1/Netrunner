@@ -1,6 +1,6 @@
 "use client";
 
-import {useState} from "react";
+import {useCallback, useState} from "react";
 import {
   RefreshCw,
   Search,
@@ -9,10 +9,11 @@ import {
   List,
   LayoutGrid,
   Pencil,
-  Trash2, X, LucideMonitorX,
+  Trash2, X,
 } from "lucide-react";
 import {DataTable} from "@/components/DataTable";
 import {HostBoardView} from "@/components/HostBoardView";
+import {HostStatusGrid} from "@/components/HostStatusGrid";
 import type {Group, Host} from "@/lib/host-types";
 
 interface Props {
@@ -68,6 +69,14 @@ export function HostList({
                          }: Props) {
   const [viewMode, setViewMode] = useState<"list" | "board">("list");
   const [listTab, setListTab] = useState<"hosts" | "groups">("hosts");
+  const [statusCount, setStatusCount] = useState<{ online: number; total: number } | null>(null);
+  // Стабильный колбэк: счётчик обновляем только при реальном изменении, иначе
+  // setState → рендер → новая функция → бесконечный цикл у дочернего компонента.
+  const handleStatusCount = useCallback((online: number, total: number) => {
+    setStatusCount((prev) =>
+      prev && prev.online === online && prev.total === total ? prev : {online, total}
+    );
+  }, []);
 
   return (
     <>
@@ -151,6 +160,12 @@ export function HostList({
               </div>
             </div>
 
+            {statusCount && listTab === "hosts" && (
+              <span className="shrink-0 text-sm text-green-600 dark:text-green-400 font-medium">
+                В сети: {statusCount.online} из {statusCount.total}
+              </span>
+            )}
+
             <button
               type="button"
               className="btn shrink-0"
@@ -163,55 +178,16 @@ export function HostList({
           <div className="panel">
             {listTab === "hosts" && (
               <>
-                {/* Сетка хостов: 1 колонка на телефоне, 2-3 на широких экранах.
-            В режиме выбора клик по карточке переключает выделение — рамка
-            утолщается (анимированно) и меняет цвет у выбранных карточек. */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {filteredHosts.length === 0 && (
-                    <div className="col-span-full m-auto text-gray-500 dark:text-gray-400 py-8">
-                      <>
-                        <LucideMonitorX size={48} className="m-auto"/>
-                        <h4>404: хосты не найдены</h4>
-                      </>
-                    </div>
-                  )}
-                  {filteredHosts.map((h) => {
-                    const selected = selectedIds.has(h.id);
-                    return (
-                      <button
-                        key={h.id}
-                        className={`flex items-center gap-3 rounded-2xl bg-white dark:bg-gray-800 p-4 text-left transition-all duration-200 ${
-                          selectionMode
-                            ? `cursor-pointer border-4 ${
-                              selected
-                                ? "border-blue-600 hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950"
-                                : "border-gray-300 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-700 hover:bg-blue-50 dark:hover:bg-gray-750"
-                            }`
-                            : "border-2 border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700"
-                        }`}
-                        onClick={(e) => {
-                          if (selectionMode) {
-                            onToggleSelect(h.id)
-                          } else {
-                            e.stopPropagation();
-                            onInfoHost(h);
-                          }
-                        }}
-                        title="Информация"
-                      >
-                <span
-                  className={`w-2.5 h-2.5 rounded-full shrink-0 ${h.is_active ? "bg-green-500" : "bg-gray-400"}`}
-                  title={h.is_active ? "Активен" : "Недоступен"}
+                {/* Живая сетка хостов: опрос сервера каждые 5 секунд, две секции
+                    («В сети» / «Не в сети») и анимация затухание→смещение. */}
+                <HostStatusGrid
+                  hosts={filteredHosts}
+                  selectionMode={selectionMode}
+                  selectedIds={selectedIds}
+                  onToggleSelect={onToggleSelect}
+                  onInfoHost={onInfoHost}
+                  onCount={handleStatusCount}
                 />
-                        <div className="min-w-0 flex-1">
-                          <div
-                            className={`font-semibold truncate ${h.is_active ? "gray" : "text-gray-500"}`}>{h.name}</div>
-                          <div className="text-sm text-gray-500 dark:text-gray-400 truncate">{h.address}</div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
               </>
             )}
 

@@ -7,7 +7,11 @@ from services.secrets import encrypt_secret, decrypt_secret
 
 async def api_hosts(request: web.Request) -> web.Response:
     db = _ctx(request).db
-    user = request.get("auth_user")
+    return _ok(_hosts_payload(db, request.get("auth_user")))
+
+
+def _hosts_payload(db, user) -> list:
+    """Общий сбор хостов для /api/hosts и /api/hosts/status."""
     all_hosts = db.hosts.all()
     if user and not user.get("is_superuser"):
         access_rows = db.user_group_access.by_user(int(user["id"]))
@@ -26,7 +30,30 @@ async def api_hosts(request: web.Request) -> web.Response:
         group = db.groups.first_group_for_host(host.id)
         item["group_name"] = group.name if group else None
         hosts.append(item)
-    return _ok(hosts)
+    return hosts
+
+
+async def api_hosts_status(request: web.Request) -> web.Response:
+    """Лёгкий статус всех хостов для живого опроса сетки (каждые 5с).
+
+    Отдаёт только id/имя/адрес/активность — БЕЗ перепинга хостов, читает из базы.
+    Фронт сам делит на «в сети» / «не в сети» и рисует анимацию.
+    """
+    db = _ctx(request).db
+    rows = _hosts_payload(db, request.get("auth_user"))
+    payload = [
+        {
+            "id": h.get("id"),
+            "name": h.get("name"),
+            "address": h.get("address"),
+            "group_id": h.get("group_id"),
+            "group_name": h.get("group_name"),
+            "is_active": bool(h.get("is_active")),
+            "last_seen": h.get("last_seen"),
+        }
+        for h in rows
+    ]
+    return _ok(payload)
 
 
 async def api_hosts_create(request: web.Request) -> web.Response:

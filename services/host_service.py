@@ -89,6 +89,24 @@ class HostService:
 
         raise ValueError(f"Unknown target_type: {target_type}")
 
+    def resolve_targets_multi(self, host_ids=None, group_ids=None):
+        """Раскрывает произвольную смесь выбранных хостов и групп (кабинетов) в
+        дедуплицированный список конкретных хостов. Порядок: сначала явные хосты,
+        потом хосты групп. Используется формой запуска сценария на нескольких ЦЕЛЯХ."""
+        seen: set[int] = set()
+        result: list = []
+        for hid in (host_ids or []):
+            host = self.get_host(hid)
+            if host and host.id not in seen:
+                seen.add(host.id)
+                result.append(host)
+        for gid in (group_ids or []):
+            for host in self.group_hosts(gid):
+                if host.id not in seen:
+                    seen.add(host.id)
+                    result.append(host)
+        return result
+
     def to_computer(self, host):
         key_path = None
         if getattr(host, "ssh_key_id", None):
