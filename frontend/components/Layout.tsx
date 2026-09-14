@@ -59,7 +59,7 @@ function recordNavClick(href: string) {
   } catch {}
 }
 
-const TEACHER_ALLOWED = new Set(["/", "/hosts"]);
+const TEACHER_ALLOWED = new Set(["/hosts", "/modules", "/history", "/scheduled", "/scenarios", "/account"]);
 const LAST_TAB_KEY = "netrunner_last_tab";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -118,8 +118,10 @@ function LayoutInner({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Запоминаем текущую вкладку при каждом переходе.
+  // Запоминаем текущую вкладку при каждом переходе (не /account и не /terminal —
+  // они не являются «рабочими» вкладками и не должны быть точкой входа).
   useEffect(() => {
+    if (pathname.startsWith("/account") || pathname.startsWith("/terminal")) return;
     try { window.localStorage.setItem(LAST_TAB_KEY, pathname); } catch {}
   }, [pathname]);
 

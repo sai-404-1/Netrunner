@@ -71,7 +71,7 @@ def _host_permissions(ctx, user) -> dict:
         "terminal": is_admin or is_teacher,
         "power": is_admin or is_teacher,
         "run_modules": is_admin or is_teacher,
-        "edit": is_admin,
+        "edit": is_admin or is_teacher,
         "reprovision": is_admin,
         "delete": is_admin,
     }
