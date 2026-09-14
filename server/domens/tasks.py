@@ -2,7 +2,7 @@ from aiohttp import web
 import json
 
 from server.domens.websocket import _broadcast_task_update
-from server.tools import _ctx, _ok, model_to_dict, _safe_int, _error, _read_json
+from server.tools import _ctx, _ok, model_to_dict, _safe_int, _error, _read_json, is_teacher, allowed_host_ids
 from services.host_service import _run_background
 
 from services.logger import Logger
@@ -74,6 +74,17 @@ async def api_run(request: web.Request) -> web.Response:
         return _error(f"Module '{module_slug}' not found", status=404)
 
     user = request.get("auth_user")
+    # Преподаватель запускает модули только на хостах своих кабинетов. Резолвим
+    # цели (для legacy-формата — по target_type/target_id) и проверяем, что все
+    # они входят в доступный ему набор.
+    if is_teacher(user):
+        visible = allowed_host_ids(ctx.db, user)
+        run_targets = targets if targets is not None else \
+            ctx.host_service.resolve_targets(target_type, target_id)
+        if not run_targets:
+            return _error("Нет доступных целей для запуска", status=403)
+        if visible is not None and any(t.id not in visible for t in run_targets):
+            return _error("Запуск разрешён только на хостах ваших кабинетов", status=403)
     # Модули «только для админа» запускает лишь суперпользователь.
     try:
         runtime = ctx.module_registry.get(module_slug)
