@@ -171,8 +171,27 @@ sudo chmod 0440 /etc/sudoers.d/{shlex.quote(ssh_username)}
 sudo chown root:root /etc/sudoers.d/{shlex.quote(ssh_username)}
 """
 
+        # Прайминг sudo паролем хоста: на машинах, где у первичного пользователя
+        # НЕТ passwordless sudo, голый `sudo` в скрипте падает («a terminal is
+        # required to read the password»). Если пароль хоста сохранён — разово
+        # валидируем и кешируем sudo-креды через `sudo -S -v` (пароль подаётся на
+        # stdin ssh-канала, НЕ в командную строку — не светится в `ps`), дальше
+        # все sudo в скрипте берут из кеша. Если пароль не сохранён или у юзера
+        # NOPASSWD — ведём себя как раньше (прайминг не мешает: при NOPASSWD sudo
+        # не читает stdin). set -e поймает неудачу прайминга (неверный пароль и
+        # нет NOPASSWD) как [ERROR] — тихого «успеха» не будет.
+        host_password = None
+        hsvc_pw = getattr(context, "host_service", None)
+        if hsvc_pw is not None and hasattr(hsvc_pw, "get_host_password"):
+            try:
+                host_password = hsvc_pw.get_host_password(host.id)
+            except Exception:  # noqa: BLE001
+                host_password = None
+        sudo_prime = "sudo -S -v -p '' 2>/dev/null\n" if host_password else ""
+        stdin_data = (host_password + "\n") if host_password else None
+
         remote_script = f"""set -e
-{create_user_block}
+{sudo_prime}{create_user_block}
 {pubkey_block}
 {sudoers_block}
 sudo mkdir -p /etc/netrunner-agent /opt/netrunner-agent
@@ -211,7 +230,7 @@ echo "Агент установлен и запущен ({ssh_username}, report-
             from computer import Computer as _C
             computer = _C(host=f"{host.username}@{host.address}", port=str(host.port))
 
-        output = await computer.async_executor_ssh(remote_script)
+        output = await computer.async_executor_ssh(remote_script, input_data=stdin_data)
         status = "error" if output.startswith("[ERROR]") else "success"
         return {**base, "status": status, "output": output, "is_reinstall": existing is not None}
 

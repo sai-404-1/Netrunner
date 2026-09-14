@@ -16,11 +16,11 @@ class Computer():
         self.port = port
         self.key_path = key_path
 
-    def executor_ssh(self, command):
-        return executor_ssh(host=self.host, port=self.port, command=command, key_path=self.key_path)
+    def executor_ssh(self, command, input_data: str | None = None):
+        return executor_ssh(host=self.host, port=self.port, command=command, key_path=self.key_path, input_data=input_data)
 
-    async def async_executor_ssh(self, command):
-        return await async_executor_ssh(host=self.host, port=self.port, command=command, key_path=self.key_path)
+    async def async_executor_ssh(self, command, input_data: str | None = None):
+        return await async_executor_ssh(host=self.host, port=self.port, command=command, key_path=self.key_path, input_data=input_data)
 
     def executor_scp(self, path_from, path_to):
         return executor_scp(host=self.host, port=self.port, path_from=path_from, path_to=path_to)

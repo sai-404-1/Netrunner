@@ -69,7 +69,7 @@ def _format_result(host, returncode, stdout, stderr):
     return stdout or "[пустой stdout]"
 
 
-def main(host, port="22", command: str = "uname -a", key_path=None):
+def main(host, port="22", command: str = "uname -a", key_path=None, input_data: str | None = None):
     import subprocess
 
     cmd = _build_ssh_cmd(host, port, command, key_path=key_path)
@@ -77,6 +77,7 @@ def main(host, port="22", command: str = "uname -a", key_path=None):
     try:
         result = subprocess.run(
             cmd,
+            input=input_data if input_data is not None else None,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -91,17 +92,22 @@ def main(host, port="22", command: str = "uname -a", key_path=None):
         return f"Error: {e}"
 
 
-async def async_main(host, port="22", command: str = "uname -a", key_path=None):
+async def async_main(host, port="22", command: str = "uname -a", key_path=None, input_data: str | None = None):
     """Async version of SSH command execution.
 
     Runs the SSH subprocess via asyncio and supports cancellation:
     cancelling the surrounding asyncio.Task terminates the subprocess.
+
+    ``input_data`` — строка, подаваемая на stdin удалённой команды (например,
+    пароль для ``sudo -S``). Не светится в списке процессов хоста (в отличие от
+    встраивания в саму команду). None — stdin не подключается, как и раньше.
     """
     cmd = _build_ssh_cmd(host, port, command, key_path=key_path)
 
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
+            stdin=asyncio.subprocess.PIPE if input_data is not None else None,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -111,7 +117,13 @@ async def async_main(host, port="22", command: str = "uname -a", key_path=None):
     # TODO добавить отслеживание запущенных ssh процессов с возможностью их завершения
     SSH_COMMAND_TIMEOUT = 600  # seconds; covers the remote command execution after connect
 
+    _stdin_bytes = input_data.encode("utf-8") if input_data is not None else None
+
     async def _communicate():
+        # input передаём только когда он есть — иначе обычный вызов без аргумента
+        # (совместимость с существующим поведением и моками в тестах).
+        if _stdin_bytes is not None:
+            return await proc.communicate(input=_stdin_bytes)
         return await proc.communicate()
 
     try:
