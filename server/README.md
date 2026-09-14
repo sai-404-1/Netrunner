@@ -10,8 +10,14 @@
 Точка сборки приложения и большинство хендлеров.
 - `_build_app(app_context)` — собирает `web.Application`, middleware и регистрирует все маршруты.
 - `run_web_server(app_context, host, port, open_browser, ping_interval)` — запуск панели.
-- Утилиты: `model_to_dict` (сериализация dataclass'ов; **скрывает** `password_encrypted`),
-  `_ok`/`_error`/`_json_response`, `_read_json`, `_ctx`, `_safe_int`.
+- Утилиты (`tools.py`): `model_to_dict` (сериализация dataclass'ов; **скрывает** `password_encrypted`),
+  `_ok`/`_error`/`_json_response`, `_read_json`, `_ctx`, `_safe_int`, `_require_admin`.
+- **Доступ по кабинетам (`tools.py`)** — общий расчёт для роли `teacher`:
+  `is_teacher(user)`, `allowed_group_ids(db,user)` / `allowed_host_ids(db,user)`
+  (возвращают `None` = без ограничений, для суперпользователя и роли `user` без выданных
+  кабинетов), `host_visible(db,user,host_id)`. Преподаватель видит и трогает только
+  хосты/кабинеты из `user_group_access`; **пусто → не видит ничего** (в отличие от роли
+  `user`, где пусто = видно всё). Применяются per-endpoint (не middleware).
 - Фоновые задачи и WebSocket: `_run_background`, `_broadcast_task_update`,
   `websocket_handler`, `_periodic_ping` (демон проверки хостов),
   `_scheduler_loop` (фоновый цикл планировщика: раз в **60 секунд** `ctx.scheduler.tick_async()`
@@ -39,10 +45,17 @@
   `api_hosts_check`, `api_hosts_check_all`,
   `api_hosts_reprovision` — заново копирует SSH-ключ на хост (при отвале/удалении ключа),
   используя сохранённый или переданный пароль.
+  **Права teacher:** `api_hosts`/`_check_all` отдают только его кабинеты; create/delete/reprovision —
+  только админ; update/check — только на своих хостах (`host_visible`).
 - **Группы:** `api_groups`, `api_groups_create/update/delete/add_host`.
+  **Права teacher:** `api_groups` отдаёт только его кабинеты; create/update/delete/add_host —
+  только админ (`_deny_teacher`).
 - **Модули:** `api_modules`, `api_modules_create/update/delete`.
 - **Задачи:** `api_run` (старт в фоне, возврат `run_id`), `api_run_cancel`,
   `api_task_runs`, `api_task_run_status`, `api_task_runs_clear`.
+  **Права teacher:** `api_run` проверяет, что все цели в его кабинетах; `api_task_runs` и
+  `api_task_run_status` фильтруются по кабинетам (запуск виден, если участвовал хотя бы
+  один его хост — по `per_host_json`/`target`).
 - **Планировщик:** `api_scheduled`, `api_schedule_create/update/delete`, `api_scheduler_tick`
   (ручной тик). Логика в `domens/scheduled.py`; каждая задача привязана к **сценарию**
   (`scenario_id`), исполняет её `Scheduler` → `ScenarioRunner`. Create/update принимают
@@ -79,6 +92,18 @@
 
 ### `board_handlers.py` — доски размещения хостов
 - `api_boards_list/create/get/update/delete`, `api_boards_save_layout`; `_board_safe`, `_require_auth`.
+
+### `terminal_handler.py` — веб-терминал (WS `/api/terminal/ws`)
+- `api_terminal_ws` — интерактивный shell к хосту через `ssh -tt` + локальный PTY.
+  Доступен суперпользователю (любой хост) и **преподавателю на машинах его кабинетов**
+  (`host_visible`); чужой хост → 403.
+
+### `domens/history.py` — единая лента истории (API)
+- `api_history_entries` (`/api/history`, фильтр `?sources=` + пагинация), `api_history_entry`
+  (`/api/history/{id}`), `api_history_types` (реестр сервисов для фронта).
+  **Права teacher:** видит только записи, чьи `host_ids` пересекаются с его кабинетами
+  (`_entry_host_ids` = `host_id` + `payload['host_ids']`); без привязки к компам — скрыто;
+  чужая деталь → 403. Логика записи истории — в `services/history.py`.
 
 ### `static/` — легаси статический UI
 `index.html`, `app.js`, `styles.css` — старый интерфейс, который сервер отдаёт на `/`.
