@@ -1,15 +1,13 @@
 "use client";
 
-import {useCallback, useState} from "react";
+import {useState} from "react";
 import {
   RefreshCw,
   Search,
-  CheckSquare,
   PlusIcon,
   List,
   LayoutGrid,
-  Pencil,
-  Trash2, X,
+  X,
 } from "lucide-react";
 import {DataTable} from "@/components/DataTable";
 import {HostBoardView} from "@/components/HostBoardView";
@@ -31,11 +29,6 @@ interface Props {
    *  Держится в родителе, чтобы выбор переживал уход на профиль хоста и возврат. */
   listTab: "hosts" | "groups";
   onListTab: (tab: "hosts" | "groups") => void;
-  /** Режим выбора цели для запуска: список подсвечен, клик по карточке выбирает цель. */
-  pickMode: boolean;
-  /** id выбранной цели (строкой) — карточка подсвечивается фоном, как выбранный сценарий. */
-  pickedId: string | null;
-  onPickTarget: (id: string) => void;
   /** Блок запуска задачи — рендерится сразу под строкой вкладок/поиска/добавления. */
   runPanel?: React.ReactNode;
   onSearch: (s: string) => void;
@@ -67,9 +60,6 @@ export function HostList({
                            selectedIds,
                            listTab,
                            onListTab,
-                           pickMode,
-                           pickedId,
-                           onPickTarget,
                            runPanel,
                            onSearch,
                            onGroupFilter,
@@ -85,14 +75,6 @@ export function HostList({
                            onBoardsChange,
                          }: Props) {
   const [viewMode, setViewMode] = useState<"list" | "board">("list");
-  const [statusCount, setStatusCount] = useState<{ online: number; total: number } | null>(null);
-  // Стабильный колбэк: счётчик обновляем только при реальном изменении, иначе
-  // setState → рендер → новая функция → бесконечный цикл у дочернего компонента.
-  const handleStatusCount = useCallback((online: number, total: number) => {
-    setStatusCount((prev) =>
-      prev && prev.online === online && prev.total === total ? prev : {online, total}
-    );
-  }, []);
 
   return (
     <>
@@ -127,14 +109,9 @@ export function HostList({
 
       {viewMode === "list" && (
         <>
-          {/* Вкладки + поиск + добавление — в одном ряду (как на странице истории):
-              слева вкладки, по центру поиск, справа кнопка добавления.
-              flex-wrap: на узком экране ряд переносится на вторую строку, а не
-              уезжает по горизонтали за край окна. */}
+          {/* Вкладки + поиск + добавление — в одном ряду. */}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-gray-200 dark:border-gray-700">
             <div className="flex items-center gap-1 shrink-0 -mb-2">
-              {/* Порядок вкладок: сначала «Кабинеты», затем «Хосты».
-                  Клик по вкладке выбирает и тип цели для запуска (см. блок запуска). */}
               <button
                 onClick={() => onListTab("groups")}
                 className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${
@@ -154,8 +131,6 @@ export function HostList({
             </div>
 
             <div className="flex-1 flex flex-wrap justify-center gap-3 min-w-0">
-              {/* Чип выбранного кабинета-фильтра — в стиле выбранного сценария
-                  (менее округлый, чем прежняя «пилюля» rounded-full). */}
               {selectedGroupName && (
                 <span
                   className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-sm cursor-pointer hover:bg-red-50 hover:border-red-300 dark:hover:bg-red-950/40 dark:hover:border-red-700 transition-colors"
@@ -173,19 +148,12 @@ export function HostList({
                 <input className="input pl-9" placeholder="Поиск по имени" value={search}
                        onChange={(e) => onSearch(e.target.value)}/>
               </div>
-              {/* Панель действий: проверка всех */}
               <div className="flex items-center justify-end">
                 <button className="btn-secondary p-3" onClick={onCheckAll} disabled={checkingAll}>
                   <RefreshCw size={16} className={checkingAll ? "animate-spin" : ""}/>
                 </button>
               </div>
             </div>
-
-            {statusCount && listTab === "hosts" && (
-              <span className="shrink-0 text-sm text-green-600 dark:text-green-400 font-medium">
-                В сети: {statusCount.online} из {statusCount.total}
-              </span>
-            )}
 
             <button
               type="button"
@@ -196,89 +164,51 @@ export function HostList({
             </button>
           </div>
 
-          {/* Блок запуска задачи — перенесён со страницы «Запуск задачи» (пункт
-              убран из сайдбара) и стоит сразу под строкой вкладок/поиска/добавления. */}
           {runPanel}
 
           <div className="panel">
             {listTab === "hosts" && (
-              <>
-                {/* Живая сетка хостов: опрос сервера каждые 5 секунд, две секции
-                    («В сети» / «Не в сети») и анимация затухание→смещение. */}
-                <HostStatusGrid
-                  hosts={filteredHosts}
-                  selectionMode={selectionMode}
-                  selectedIds={selectedIds}
-                  onToggleSelect={onToggleSelect}
-                  onInfoHost={onInfoHost}
-                  onCount={handleStatusCount}
-                  pickMode={pickMode}
-                  pickedId={pickedId}
-                  onPickTarget={onPickTarget}
-                />
-              </>
+              <HostStatusGrid
+                hosts={filteredHosts}
+                selectionMode={selectionMode}
+                selectedIds={selectedIds}
+                onToggleSelect={onToggleSelect}
+                onInfoHost={onInfoHost}
+              />
             )}
 
             {listTab === "groups" && (
-              <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 rounded-2xl ${
-                pickMode ? "ring-2 ring-blue-300 dark:ring-blue-700 p-2" : ""
-              }`}>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {groups.map((g) => {
                   const selected = selectedIds.has(g.id);
-                  // Выбранная цель-кабинет подсвечивается всегда (см. хосты выше).
-                  const picked = pickedId === String(g.id);
                   return (
                     <button
                       key={g.id}
-                      className={`flex items-center gap-3 rounded-2xl bg-white dark:bg-gray-800 p-4 text-left transition-all duration-200 ${
-                        pickMode
-                          ? `cursor-pointer border-2 ${
-                            picked
-                              ? "border-blue-600 ring-2 ring-blue-400 bg-blue-50 dark:bg-blue-950/40"
-                              : "border-gray-300 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-700 hover:bg-blue-50 dark:hover:bg-gray-750"
-                          }`
-                          : selectionMode
+                      className={`flex items-center gap-3 rounded-[14px] bg-white dark:bg-gray-800 p-4 text-left transition-all duration-200 ${
+                        selectionMode
                           ? `cursor-pointer border-4 ${
                             selected
                               ? "border-blue-600 hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950"
                               : "border-gray-300 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-700 hover:bg-blue-50 dark:hover:bg-gray-750"
                           }`
-                          : `border-2 ${
-                            picked
-                              ? "border-blue-600 bg-blue-50 dark:bg-blue-950/40"
-                              : "border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700"
-                          }`
+                          : "border-2 border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700"
                       }`}
                       onClick={() => {
-                        if (pickMode) {
-                          // Режим выбора цели: клик по кабинету выбирает его целью запуска.
-                          onPickTarget(String(g.id));
-                          return;
-                        }
-                        // Обычный режим: применяем фильтр по кабинету и переходим
-                        // на вкладку «Хосты» (фильтрацию делает родитель через groupFilter).
                         onSelectGroup(String(g.id));
                         onListTab("hosts");
                       }}
-                      title={pickMode ? "Выбрать целью" : "Информация"}
+                      title="Показать хосты кабинета"
                     >
-                      {/*<span*/}
-                      {/*  className={`w-2.5 h-2.5 rounded-full shrink-0 ${h.is_active ? "bg-green-500" : "bg-gray-400"}`}*/}
-                      {/*  title={h.is_active ? "Активен" : "Недоступен"}*/}
-                      {/*/>*/}
                       <div className="min-w-0 flex-1">
-                        <div
-                          className="font-semibold truncate flex flex-row gap-1">{g.name}
-                          <div
-                            className="text-xs text-gray-500 truncate mb-auto mt-auto">({g.hosts.length})
-                          </div>
+                        <div className="font-semibold truncate flex flex-row gap-1">{g.name}
+                          <div className="text-xs text-gray-500 truncate mb-auto mt-auto">({g.hosts.length})</div>
                         </div>
                         <div className="text-sm text-gray-500 dark:text-gray-400 truncate">
                           {(g.description !== "" && g.description !== null) ? g.description : "Описания нет"}
                         </div>
                       </div>
                     </button>
-                  )
+                  );
                 })}
               </div>
             )}

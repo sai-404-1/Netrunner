@@ -1,17 +1,12 @@
 "use client";
 
-// Блок запуска задачи, перенесённый на страницу «Хосты» (вкладка «Запуск задачи»
-// убрана из сайдбара). Выбор цели — в списке хостов/кабинетов ниже: кнопка
-// «Выбрать» включает режим выбора, клик по цели подсвечивает её (как выбор
-// сценария на /scenarios). Тип цели определяется активной вкладкой (Хосты →
-// хост, Кабинеты → кабинет), а не отдельным селектом.
-
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { apiGetClient, apiPostClient } from "@/lib/api-client";
 import { useToast } from "@/components/Toast";
 import { OutputModal } from "@/components/Modal";
-import { Loader2, X } from "lucide-react";
+import { ChevronDown, Loader2 } from "lucide-react";
 import { Placeholder, parsePlaceholders } from "@/lib/module-schema";
+import type { Group, Host } from "@/lib/host-types";
 
 interface Module {
   id: number;
@@ -31,28 +26,11 @@ interface TaskRun {
 }
 
 interface Props {
-  /** Тип цели — следует за активной вкладкой страницы: Хосты → host, Кабинеты → group. */
-  targetType: "host" | "group";
-  /** Выбранная цель (id строкой) или "" если не выбрана. */
-  targetId: string;
-  /** Человекочитаемое имя выбранной цели. */
-  targetName: string | null;
-  /** Активен режим выбора цели (подсвечен список). */
-  pickMode: boolean;
-  /** Кнопка «Выбрать» — включить/выключить режим выбора цели. */
-  onTogglePick: () => void;
-  /** Сбросить выбранную цель. */
-  onClearTarget: () => void;
+  hosts: Host[];
+  groups: Group[];
 }
 
-export function RunPanel({
-  targetType,
-  targetId,
-  targetName,
-  pickMode,
-  onTogglePick,
-  onClearTarget,
-}: Props) {
+export function RunPanel({ hosts, groups }: Props) {
   const showToast = useToast();
   const [modules, setModules] = useState<Module[]>([]);
   const [moduleSlug, setModuleSlug] = useState("");
@@ -62,6 +40,12 @@ export function RunPanel({
   const [run, setRun] = useState<TaskRun | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Мультивыбор целей — кабинеты и хосты независимо.
+  const [runGroupIds, setRunGroupIds] = useState<Set<number>>(new Set());
+  const [runHostIds, setRunHostIds] = useState<Set<number>>(new Set());
+  const [targetsOpen, setTargetsOpen] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     (async () => {
@@ -89,8 +73,56 @@ export function RunPanel({
     setDynArgs(defaults);
   }, [moduleSlug, modules]);
 
+  // Клик вне раскрытой панели закрывает её.
+  useEffect(() => {
+    if (!targetsOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        setTargetsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [targetsOpen]);
+
   const activeModule = modules.find((m) => m.slug === moduleSlug);
   const placeholders: Placeholder[] = parsePlaceholders(activeModule?.schema_json);
+
+  // Итоговое число уникальных хостов для отображения.
+  const distinctHostCount = useMemo(() => {
+    const ids = new Set<number>(runHostIds);
+    for (const gid of runGroupIds) {
+      const g = groups.find((gr) => gr.id === gid);
+      if (g) g.hosts.forEach((h) => ids.add(typeof h === "number" ? h : h.id));
+    }
+    return ids.size;
+  }, [runHostIds, runGroupIds, groups]);
+
+  const targetSummary = useMemo(() => {
+    const parts: string[] = [];
+    if (runGroupIds.size) parts.push(`${runGroupIds.size} кабин.`);
+    if (runHostIds.size) parts.push(`${runHostIds.size} хостов`);
+    if (!parts.length) return "";
+    return parts.join(", ") + (distinctHostCount > 0 ? ` · ${distinctHostCount} машин` : "");
+  }, [runGroupIds.size, runHostIds.size, distinctHostCount]);
+
+  function toggleGroup(id: number) {
+    setRunGroupIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleHost(id: number) {
+    setRunHostIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   function connectWs(runId: number) {
     const wsUrl = `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/api/python/ws`;
@@ -128,15 +160,15 @@ export function RunPanel({
       showToast("Выберите модуль", "error");
       return;
     }
-    if (!targetId) {
-      showToast("Выберите цель", "error");
+    if (runGroupIds.size === 0 && runHostIds.size === 0) {
+      showToast("Выберите хотя бы одну цель", "error");
       return;
     }
     try {
       const result = await apiPostClient("/api/run", {
         module_slug: moduleSlug,
-        target_type: targetType,
-        target_id: Number(targetId),
+        host_ids: [...runHostIds],
+        group_ids: [...runGroupIds],
         args: { ...dynArgs },
       });
       setRun({ id: result.run_id, status: "pending" });
@@ -155,61 +187,99 @@ export function RunPanel({
     .join("\n\n");
 
   return (
-    <div className="panel">
-      <div className="grid lg:grid-cols-4 gap-4 items-end">
-        <label className="label">
+    <div className="panel" ref={panelRef}>
+      {/* Один ряд: Модуль · Цели ▾ · Запустить */}
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="label flex-1 min-w-[14rem]">
           Модуль
-          <select className="input" value={moduleSlug} onChange={(e) => setModuleSlug(e.target.value)}>
+          <select className="input appearance-none" value={moduleSlug} onChange={(e) => setModuleSlug(e.target.value)}>
             {modules.map((m) => (
               <option key={m.slug} value={m.slug}>{m.name} ({m.slug})</option>
             ))}
           </select>
         </label>
 
-        {/* Тип цели показан, но задаётся вкладкой (Хосты/Кабинеты), не выбором здесь. */}
-        <div className="label">
-          Тип цели
-          <div className="input flex items-center text-gray-500">
-            {targetType === "host" ? "Хост" : "Кабинет"}
-          </div>
-        </div>
-
-        {/* Кнопка «Выбрать» — слева от поля цели (сначала выбираем, потом видим
-            результат). В режиме выбора становится «Отмена». */}
-        <div className="label">
-          &nbsp;
+        <div className="label flex-1 min-w-[16rem]">
+          Цели
           <button
             type="button"
-            className={`btn w-full ${pickMode ? "bg-red-600 hover:bg-red-700" : ""}`}
-            onClick={onTogglePick}
+            className="input flex items-center justify-between gap-2 cursor-pointer"
+            onClick={() => setTargetsOpen((v) => !v)}
           >
-            {pickMode ? "Отмена" : "Выбрать"}
+            <span className={targetSummary ? "" : "text-gray-400"}>
+              {targetSummary || "Выберите хосты или кабинеты…"}
+            </span>
+            <ChevronDown
+              size={16}
+              className={`shrink-0 text-gray-400 transition-transform ${targetsOpen ? "rotate-180" : ""}`}
+            />
           </button>
         </div>
 
-        <div className="label">
-          Цель
-          <div className="input flex items-center gap-2 truncate">
-            {targetName || <span className="text-gray-400">не выбрана</span>}
-            {targetName && (
-              <button type="button" className="text-gray-400 hover:text-red-500" onClick={onClearTarget} title="Сбросить цель">
-                <X size={14} />
-              </button>
+        <button
+          className="btn shrink-0 self-end"
+          type="button"
+          onClick={startRun}
+          disabled={polling}
+        >
+          {polling ? <Loader2 size={16} className="animate-spin" /> : null}
+          Запустить
+        </button>
+      </div>
+
+      {/* Раскрывающийся список целей */}
+      {targetsOpen && (
+        <div className="grid md:grid-cols-2 gap-4 rounded-[10px] border border-gray-200 dark:border-gray-700 p-3 mt-3 max-h-72 overflow-auto">
+          {/* Колонка кабинетов */}
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Кабинеты</div>
+            {groups.length === 0 ? (
+              <div className="text-sm text-gray-400">Нет кабинетов</div>
+            ) : (
+              <div className="flex flex-col gap-1">
+                {groups.map((g) => (
+                  <label key={g.id} className="flex items-center gap-2 cursor-pointer py-1 rounded hover:bg-gray-50 dark:hover:bg-gray-800 px-1">
+                    <input
+                      type="checkbox"
+                      className="accent-blue-600"
+                      checked={runGroupIds.has(g.id)}
+                      onChange={() => toggleGroup(g.id)}
+                    />
+                    <span className="text-sm font-medium">{g.name}</span>
+                    <span className="text-xs text-gray-400">({g.hosts.length})</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Колонка хостов */}
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Компьютеры</div>
+            {hosts.length === 0 ? (
+              <div className="text-sm text-gray-400">Нет хостов</div>
+            ) : (
+              <div className="flex flex-col gap-1">
+                {hosts.map((h) => (
+                  <label key={h.id} className="flex items-center gap-2 cursor-pointer py-1 rounded hover:bg-gray-50 dark:hover:bg-gray-800 px-1">
+                    <input
+                      type="checkbox"
+                      className="accent-blue-600"
+                      checked={runHostIds.has(h.id)}
+                      onChange={() => toggleHost(h.id)}
+                    />
+                    <span className="text-sm font-medium truncate">{h.name}</span>
+                    <span className="text-xs text-gray-400 font-mono shrink-0">{h.address}</span>
+                  </label>
+                ))}
+              </div>
             )}
           </div>
         </div>
-
-        <div className="label">
-          &nbsp;
-          <button className="btn w-full" type="button" onClick={startRun} disabled={polling}>
-            {polling ? <Loader2 size={16} className="animate-spin" /> : null}
-            Запустить
-          </button>
-        </div>
-      </div>
+      )}
 
       {placeholders.length > 0 && (
-        <div className="grid md:grid-cols-2 gap-4 pt-4 mt-4 border-t border-gray-100">
+        <div className="grid md:grid-cols-2 gap-4 pt-4 mt-4 border-t border-gray-100 dark:border-gray-700">
           {placeholders.map((p) => (
             <label key={p.name} className={`label${p.type === "textarea" ? " md:col-span-2" : ""}`}>
               {p.label}

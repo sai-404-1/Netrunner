@@ -32,10 +32,6 @@ export default function HostsPage() {
   const [groupFilter, setGroupFilter] = useState("");
   const [listTab, setListTab] = useState<"hosts" | "groups">("hosts");
   const [viewHydrated, setViewHydrated] = useState(false);
-  // Запуск задачи прямо со страницы «Хосты»: цель выбирается в списке,
-  // её тип следует за активной вкладкой (Хосты → хост, Кабинеты → кабинет).
-  const [runTargetId, setRunTargetId] = useState("");
-  const [pickMode, setPickMode] = useState(false);
   const [checkingAll, setCheckingAll] = useState(false);
   const [editHost, setEditHost] = useState<Host | null>(null);
   const [reprovisionHost, setReprovisionHost] = useState<Host | null>(null);
@@ -364,40 +360,13 @@ export default function HostsPage() {
     }
   }
 
-  // Выбор группы в табе «Группы» → применять фильтр по ней и уходить на «Хосты».
   function selectGroup(groupId: string) {
     setGroupFilter(groupId);
-    // переключение на таб «Хосты» делает HostList через колбэк onListTab
   }
 
   function clearGroupFilter() {
     setGroupFilter("");
   }
-
-  // Вкладка задаёт тип цели запуска: «Хосты» → хост, «Кабинеты» → кабинет.
-  // Переключение вкладки сбрасывает ранее выбранную цель (тип-то изменился).
-  const runTargetType: "host" | "group" = listTab === "hosts" ? "host" : "group";
-
-  function changeListTab(tab: "hosts" | "groups") {
-    setListTab(tab);
-    setRunTargetId("");
-    setPickMode(false);
-  }
-
-  function pickTarget(id: string) {
-    setRunTargetId(id);
-    setPickMode(false);
-  }
-
-  const runTargetName = useMemo(() => {
-    if (!runTargetId) return null;
-    if (runTargetType === "host") {
-      const h = hosts.find((x) => String(x.id) === runTargetId);
-      return h ? `${h.name} (${h.address})` : null;
-    }
-    const g = groups.find((x) => String(x.id) === runTargetId);
-    return g ? g.name : null;
-  }, [runTargetId, runTargetType, hosts, groups]);
 
   return (
     <div className="space-y-6">
@@ -413,19 +382,9 @@ export default function HostsPage() {
         selectionMode={selectionMode}
         selectedIds={selectedIds}
         listTab={listTab}
-        onListTab={changeListTab}
-        pickMode={pickMode}
-        pickedId={runTargetId || null}
-        onPickTarget={pickTarget}
+        onListTab={setListTab}
         runPanel={
-          <RunPanel
-            targetType={runTargetType}
-            targetId={runTargetId}
-            targetName={runTargetName}
-            pickMode={pickMode}
-            onTogglePick={() => setPickMode((v) => !v)}
-            onClearTarget={() => setRunTargetId("")}
-          />
+          <RunPanel hosts={hosts} groups={groups} />
         }
         onSearch={setSearch}
         onGroupFilter={setGroupFilter}

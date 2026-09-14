@@ -1,95 +1,81 @@
 "use client";
 
-import {useEffect, useLayoutEffect, useMemo, useRef, useState} from "react";
-import {apiGetClient} from "@/lib/api-client";
-import type {Host} from "@/lib/host-types";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ChevronRight } from "lucide-react";
+import { apiGetClient } from "@/lib/api-client";
+import type { Host } from "@/lib/host-types";
 
-/** Интервал опроса сервера (мс) — список берётся из базы, без перепинга. */
 const POLL_MS = 5000;
-/** Длительность затухания карточки (мс). */
 const FADE_MS = 1000;
-/** Задержка перед смещением — «на середине затухания» (мс). */
 const MOVE_DELAY_MS = 500;
-/** Длительность самого смещения (мс). */
 const MOVE_MS = 500;
 
 interface Props {
-  /** Отфильтрованный родителем список (поиск/группа) — задаёт допустимые id. */
   hosts: Host[];
   selectionMode: boolean;
   selectedIds: Set<number>;
   onToggleSelect: (id: number) => void;
   onInfoHost: (h: Host) => void;
-  /** Режим выбора цели для запуска: клик по карточке выбирает цель. */
-  pickMode: boolean;
-  /** id выбранной цели (строкой) — карточка подсвечивается рамкой. */
-  pickedId: string | null;
-  onPickTarget: (id: string) => void;
-  /** Родитель показывает счётчик на уровне шапки. Должен быть стабильным (useCallback). */
-  onCount?: (online: number, total: number) => void;
 }
 
 interface RowProps {
   title: string;
   items: Host[];
-  open: boolean;
-  toggle: () => void;
-  innerRef: React.RefObject<HTMLDivElement | null>;
   tone: "on" | "off";
+  open: boolean;
+  onToggle: () => void;
+  innerRef: React.RefObject<HTMLDivElement | null>;
   emptyText: string;
-  renderCard: (h: Host) => React.ReactNode;
+  children: React.ReactNode;
 }
 
-/** Горизонтальная полоса-«вкладка»: заголовок на всю ширину + раскрываемый список.
- *  Объявлена на уровне модуля (не внутри HostStatusGrid) — иначе React считает
- *  её новым типом на каждый рендер и перемонтирует секции. */
-function Row({title, items, open, toggle, innerRef, tone, emptyText, renderCard}: RowProps) {
+// Объявлена на уровне модуля — иначе React перемонтирует секции на каждый рендер.
+function Row({ title, items, tone, open, onToggle, innerRef, emptyText, children }: RowProps) {
+  const dotColor = tone === "on" ? "bg-green-500" : "bg-gray-400";
+  const countColor =
+    tone === "on"
+      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+      : "bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400";
+
   return (
-    <section className="nr-row">
+    <section>
+      {/* Обёртка с -mx-5 растягивает border-b на всю ширину панели с обеих сторон.
+          Кнопка внутри получает w-full и не нуждается в отрицательном margin. */}
+      <div className="-mx-5 border-b border-gray-200 dark:border-gray-700">
       <button
         type="button"
-        className={`nr-row-head nr-row-head-${tone} ${open ? "nr-head-open" : ""}`}
-        onClick={toggle}
+        onClick={onToggle}
+        className="flex w-full items-center gap-2.5 px-5 py-3 text-sm text-left bg-transparent hover:bg-black/[.02] dark:hover:bg-white/[.03] transition-colors cursor-pointer"
       >
-        <span className={`nr-row-dot nr-row-dot-${tone}`}/>
-        <span className="nr-row-title">{title}</span>
-        <span className={`nr-row-count nr-row-count-${tone}`}>{items.length}</span>
-        <span className="nr-row-chev">›</span>
+        <span className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
+        <span className="font-semibold">{title}</span>
+        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${countColor}`}>{items.length}</span>
+
+        <ChevronRight
+          size={16}
+          className={`ml-auto text-gray-400 transition-transform duration-300 ${open ? "rotate-90" : ""}`}
+        />
       </button>
-      <div className="nr-row-body">
-        <div className="nr-row-inner">
-          {items.length === 0 ? (
-            <div className="nr-empty">{emptyText}</div>
-          ) : (
-            <div ref={innerRef} className="nr-grid">
-              {items.map(renderCard)}
-            </div>
-          )}
-        </div>
+      </div>
+
+      <div
+        className={`overflow-hidden transition-[max-height] duration-400 ease-in-out ${open ? "max-h-[2000px]" : "max-h-0"}`}
+      >
+        {items.length === 0 ? (
+          <p className="text-sm text-gray-400 py-2">{emptyText}</p>
+        ) : (
+          <div ref={innerRef} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 py-3">
+            {children}
+          </div>
+        )}
       </div>
     </section>
   );
 }
 
-/**
- * Живая сетка хостов: каждые 5 секунд опрашивает сервер и делит машины на две
- * горизонтальные полосы-«вкладки» («В сети» / «Не в сети»), растянутые на всю
- * ширину и раскрываемые кликом. Пропавшая машина не исчезает — сначала затухает
- * в серый, затем смещается в свою полосу (FLIP).
- */
-export function HostStatusGrid({
-                                hosts,
-                                selectionMode,
-                                selectedIds,
-                                onToggleSelect,
-                                onInfoHost,
-                                pickMode,
-                                pickedId,
-                                onPickTarget,
-                                onCount,
-                              }: Props) {
+export function HostStatusGrid({ hosts, selectionMode, selectedIds, onToggleSelect, onInfoHost }: Props) {
   const [statuses, setStatuses] = useState<Host[] | null>(null);
-  // Авто-раскрытие: пока пользователь не кликнул сам — открыта та, где есть машины.
+  const statusFingerprintRef = useRef<string>("");
   const [userTouched, setUserTouched] = useState(false);
   const [openOnline, setOpenOnline] = useState(true);
   const [openOffline, setOpenOffline] = useState(false);
@@ -98,7 +84,6 @@ export function HostStatusGrid({
   const offlineRef = useRef<HTMLDivElement>(null);
   const posRef = useRef<Map<number, { left: number; top: number }>>(new Map());
 
-  // Допустимые id — то, что прошло поиск/фильтр группы у родителя.
   const allowedIds = useMemo(() => new Set(hosts.map((h) => h.id)), [hosts]);
 
   useEffect(() => {
@@ -107,43 +92,35 @@ export function HostStatusGrid({
       try {
         const rows = await apiGetClient("/api/hosts/status");
         if (!alive || !Array.isArray(rows)) return;
-        setStatuses(rows.filter((r: Host) => allowedIds.has(r.id)));
+        const filtered: Host[] = rows.filter((r: Host) => allowedIds.has(r.id));
+        // Обновляем состояние только если статусы реально изменились —
+        // иначе таймер вызывает FLIP-анимацию вхолостую и список прыгает.
+        const fp = filtered.map((r) => `${r.id}:${r.is_active}`).join(",");
+        if (fp !== statusFingerprintRef.current) {
+          statusFingerprintRef.current = fp;
+          setStatuses(filtered);
+        }
       } catch {
-        // тихий сбой опроса — сетка остаётся в прежнем состоянии
+        // тихий сбой — сетка остаётся в прежнем состоянии
       }
     }
     poll();
-    const pollTimer = setInterval(poll, POLL_MS);
-    return () => {
-      alive = false;
-      clearInterval(pollTimer);
-    };
+    const timer = setInterval(poll, POLL_MS);
+    return () => { alive = false; clearInterval(timer); };
   }, [allowedIds]);
 
-  // Разделение на полосы. Порядок внутри — как пришёл (живые впереди).
   const list = statuses ?? hosts;
   const online = useMemo(() => list.filter((h) => Boolean(h.is_active)), [list]);
   const offline = useMemo(() => list.filter((h) => !h.is_active), [list]);
 
-  // Отдаём счётчик наверх. onCount должен быть стабильным (useCallback у родителя),
-  // иначе этот эффект зациклится: setState у родителя → новый onCount → эффект…
-  useEffect(() => {
-    onCount?.(online.length, list.length);
-  }, [online.length, list.length, onCount]);
-
-  // Авто-раскрытие: есть живые — «В сети»; живых нет — «Не в сети».
+  // Авто-раскрытие: пока пользователь не кликнул — открыта нужная секция.
   useEffect(() => {
     if (userTouched) return;
-    if (online.length > 0) {
-      setOpenOnline(true);
-      setOpenOffline(false);
-    } else {
-      setOpenOnline(false);
-      setOpenOffline(true);
-    }
+    if (online.length > 0) { setOpenOnline(true); setOpenOffline(false); }
+    else { setOpenOnline(false); setOpenOffline(true); }
   }, [online.length, userTouched]);
 
-  // FLIP: затухание идёт сразу, смещение — с задержкой (после затухания).
+  // FLIP: карточка затухает, затем плавно смещается в новую позицию.
   useLayoutEffect(() => {
     const containers = [onlineRef.current, offlineRef.current].filter(Boolean) as HTMLDivElement[];
     const nodes: { el: HTMLElement; id: number; next: { left: number; top: number } }[] = [];
@@ -151,163 +128,83 @@ export function HostStatusGrid({
     for (const c of containers) {
       c.querySelectorAll<HTMLElement>("[data-host-id]").forEach((el) => {
         const r = el.getBoundingClientRect();
-        nodes.push({el, id: Number(el.dataset.hostId), next: {left: r.left, top: r.top}});
+        nodes.push({ el, id: Number(el.dataset.hostId), next: { left: r.left, top: r.top } });
       });
     }
 
-    for (const {el, id, next} of nodes) {
+    for (const { el, id, next } of nodes) {
       const prev = posRef.current.get(id);
       if (!prev) continue;
       const dx = prev.left - next.left;
       const dy = prev.top - next.top;
       if (!dx && !dy) continue;
       el.style.transition = "none";
-      el.style.transform = `translate(${dx}px, ${dy}px)`;
+      el.style.transform = `translate(${dx}px,${dy}px)`;
       requestAnimationFrame(() => {
-        el.style.transition =
-          `opacity ${FADE_MS}ms ease, background-color ${FADE_MS}ms ease, border-color ${FADE_MS}ms ease,` +
-          ` transform ${MOVE_MS}ms cubic-bezier(.22,.61,.36,1) ${MOVE_DELAY_MS}ms`;
-        el.style.transform = "translate(0px, 0px)";
+        el.style.transition = `opacity ${FADE_MS}ms ease, background-color ${FADE_MS}ms ease, border-color ${FADE_MS}ms ease, transform ${MOVE_MS}ms cubic-bezier(.22,.61,.36,1) ${MOVE_DELAY_MS}ms`;
+        el.style.transform = "translate(0,0)";
       });
     }
 
     const map = new Map<number, { left: number; top: number }>();
-    for (const {id, next} of nodes) map.set(id, next);
+    for (const { id, next } of nodes) map.set(id, next);
     posRef.current = map;
   }, [online, offline]);
 
   function renderCard(h: Host) {
-    const selected = selectedIds.has(h.id);
     const isOn = Boolean(h.is_active);
-    const picked = pickedId === String(h.id);
+    const selected = selectedIds.has(h.id);
+
+    let borderClass = isOn
+      ? "border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600"
+      : "border-gray-200 dark:border-gray-700";
+    if (selectionMode) {
+      borderClass = selected
+        ? "border-brand ring-2 ring-brand/20"
+        : "border-gray-300 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-700";
+    }
+
     return (
       <button
         key={h.id}
         data-host-id={h.id}
-        className={`nr-card ${isOn ? "nr-on" : "nr-off"} ${
-          pickMode ? (picked ? "nr-picked" : "nr-pickable") : ""
-        } ${selectionMode ? (selected ? "nr-sel" : "nr-unsel") : ""} ${
-          !pickMode && !selectionMode && picked ? "nr-target" : ""
-        }`}
-        onClick={(e) => {
-          if (pickMode) {
-            onPickTarget(String(h.id));
-          } else if (selectionMode) {
-            onToggleSelect(h.id);
-          } else {
-            e.stopPropagation();
-            onInfoHost(h);
-          }
-        }}
-        title={pickMode ? "Выбрать целью" : "Информация"}
+        onClick={() => selectionMode ? onToggleSelect(h.id) : onInfoHost(h)}
+        className={`flex items-center gap-3 w-full px-3.5 py-3 text-left rounded-[10px] border bg-white dark:bg-gray-800 cursor-pointer will-change-transform transition-[opacity,background-color,border-color] ${isOn ? "" : "opacity-50"} ${borderClass}`}
+        title={selectionMode ? (selected ? "Снять выбор" : "Выбрать") : "Открыть профиль"}
       >
-        <span className="nr-dot"/>
-        {/* Имя — первая строка, адрес — вторая. В строку не помещаются: длинное
-            имя выдавливало адрес за край карточки. */}
-        <span className="nr-text">
-          <span className="nr-name">{h.name}</span>
-          <span className="nr-ip">{h.address}</span>
+        <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${isOn ? "bg-green-500" : "bg-gray-400"}`} />
+        <span className="min-w-0 flex flex-col">
+          <span className="font-semibold text-sm truncate">{h.name}</span>
+          <span className="font-mono text-xs text-gray-500 dark:text-gray-400 truncate">{h.address}</span>
         </span>
       </button>
     );
   }
 
-  const toggleOnline = () => {
-    setUserTouched(true);
-    setOpenOnline((v) => !v);
-  };
-  const toggleOffline = () => {
-    setUserTouched(true);
-    setOpenOffline((v) => !v);
-  };
-
   return (
-    <div className="nr-wrap">
-      <style>{`
-        .nr-wrap { display:flex; flex-direction:column; gap:6px; }
-
-        /* Горизонтальные полосы-«вкладки»: плоские, на всю ширину, без закруглений. */
-        .nr-row { display:flex; flex-direction:column; }
-        /* Полоса растянута до краёв панели: отрицательные поля компенсируют её
-            внутренний отступ (p-5 в .panel), иначе линия обрывается, не дойдя
-            до края. */
-        .nr-row-head {
-          display:flex; align-items:center; gap:10px;
-          margin:0 -20px; padding:12px 20px; cursor:pointer; background:transparent; border:0;
-          border-bottom:1px solid rgb(229 231 235); text-align:left; font-size:14px;
-        }
-        .dark .nr-row-head { border-bottom-color:#374151; }
-        .nr-row-head:hover { background:rgba(0,0,0,.02); }
-        .dark .nr-row-head:hover { background:rgba(255,255,255,.03); }
-        .nr-row-dot { width:9px; height:9px; border-radius:50%; flex:none; }
-        .nr-row-dot-on { background:#22c55e; }
-        .nr-row-dot-off { background:#9ca3af; }
-        .nr-row-title { font-weight:600; }
-        .nr-row-count { font-size:11px; font-weight:700; padding:2px 9px; border-radius:20px; }
-        .nr-row-count-on { background:rgba(34,197,94,.14); color:#16a34a; }
-        .nr-row-count-off { background:rgba(156,163,175,.18); color:#6b7280; }
-        .nr-row-chev { margin-left:auto; font-size:16px; color:#9ca3af; transition:transform .3s ease; }
-        .nr-row-head.nr-head-open .nr-row-chev { transform:rotate(90deg); }
-
-        .nr-row-body { display:grid; grid-template-rows:0fr; transition:grid-template-rows .4s ease; }
-        .nr-row-head.nr-head-open ~ .nr-row-body { grid-template-rows:1fr; }
-        .nr-row-inner { overflow:hidden; }
-
-        .nr-grid { display:grid; gap:11px; padding:12px 0; grid-template-columns:1fr; }
-        @media (min-width: 640px) { .nr-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
-        @media (min-width: 1024px) { .nr-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } }
-        .nr-empty { font-size:13px; color:#9ca3af; padding:8px 0; }
-
-        .nr-card { display:flex; align-items:center; gap:12px; text-align:left;
-                   width:100%; padding:12px 14px; cursor:pointer;
-                   border:1px solid rgb(229 231 235); border-radius:10px;
-                   background:#fff;
-                   transition: opacity 1s ease, background-color 1s ease, border-color 1s ease;
-                   will-change: transform, opacity; }
-        .dark .nr-card { background:#16181d; border-color:#374151; }
-        .nr-card.nr-off { opacity:.5; }
-        .nr-card.nr-off .nr-name { color:#6b7280; }
-        .dark .nr-card.nr-off .nr-name { color:#9ca3af; }
-        .nr-card.nr-sel { border-color:#2563eb; }
-        .nr-card.nr-unsel { border-color:#d1d5db; }
-        .dark .nr-card.nr-unsel { border-color:#4b5563; }
-        /* Режим выбора цели: выбранная карточка — как выбранный сценарий. */
-        .nr-card.nr-picked { border-color:#2563eb; box-shadow:0 0 0 2px rgba(37,99,235,.35); }
-        .nr-card.nr-pickable { cursor:pointer; }
-        .nr-card.nr-target { border-color:#2563eb; }
-        .nr-dot { width:10px; height:10px; border-radius:50%; flex:none; }
-        .nr-card.nr-on .nr-dot { background:#22c55e; }
-        .nr-card.nr-off .nr-dot { background:#9ca3af; }
-        /* Две строки: имя сверху, адрес снизу. */
-        .nr-text { display:flex; flex-direction:column; min-width:0; }
-        .nr-name { min-width:0; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-        /* Моно-шрифт для адресов — как в прототипе. */
-        .nr-ip { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-                 font-size:12.5px; color:#6b7280; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-        .dark .nr-ip { color:#9ca3af; }
-      `}</style>
-
-      {/* Две горизонтальные полосы: заголовок + раскрывающийся контент, на всю ширину. */}
+    <div className="flex flex-col gap-1.5">
       <Row
         title="В сети"
         items={online}
-        open={openOnline}
-        toggle={toggleOnline}
-        innerRef={onlineRef}
         tone="on"
+        open={openOnline}
+        onToggle={() => { setUserTouched(true); setOpenOnline((v) => !v); }}
+        innerRef={onlineRef}
         emptyText="Нет машин в сети"
-        renderCard={renderCard}
-      />
+      >
+        {online.map(renderCard)}
+      </Row>
       <Row
         title="Не в сети"
         items={offline}
-        open={openOffline}
-        toggle={toggleOffline}
-        innerRef={offlineRef}
         tone="off"
+        open={openOffline}
+        onToggle={() => { setUserTouched(true); setOpenOffline((v) => !v); }}
+        innerRef={offlineRef}
         emptyText="Все машины в сети"
-        renderCard={renderCard}
-      />
+      >
+        {offline.map(renderCard)}
+      </Row>
     </div>
   );
 }
