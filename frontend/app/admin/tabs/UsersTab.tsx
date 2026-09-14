@@ -245,7 +245,11 @@ export function UsersTab() {
 
       {groupsUser && (
         <Modal title={`Доступ к кабинетам — ${groupsUser.username}`} onClose={() => setGroupsUser(null)}>
-          <p className="text-xs text-gray-500 mb-3">Если ни один кабинет не отмечен — пользователь видит все хосты.</p>
+          <p className="text-xs text-gray-500 mb-3">
+            {groupsUser.role === "teacher"
+              ? "Преподаватель видит и управляет только отмеченными кабинетами. Если не отмечен ни один — он не видит ни одного хоста."
+              : "Если ни один кабинет не отмечен — пользователь видит все хосты."}
+          </p>
           <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
             {groups.length === 0 && <p className="text-gray-500 text-sm">Нет кабинетов</p>}
             {groups.map((g) => (
