@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiGetClient, apiPostClient } from "@/lib/api-client";
 import { useToast } from "@/components/Toast";
-import { Play, Plus, X } from "lucide-react";
+import { ChevronDown, Play, Plus, X } from "lucide-react";
 import { Scenario, Module, ScenarioRun } from "@/lib/scenario-types";
 import ScenariosList from "./ScenariosList";
 import RunExecution from "./RunExecution";
@@ -24,11 +24,13 @@ export default function ScenariosPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editScenario, setEditScenario] = useState<Scenario | null>(null);
 
-  // Run form state (цель)
-  const [runTargetType, setRunTargetType] = useState("host");
-  const [runTargetId, setRunTargetId] = useState("");
-  const [hosts, setHosts] = useState<{ id: number; name: string }[]>([]);
-  const [groups, setGroups] = useState<{ id: number; name: string }[]>([]);
+  // Цель запуска — мультивыбор: набор кабинетов (групп целиком) и набор
+  // отдельных компьютеров. Сервер раскрывает смесь в общий список хостов.
+  const [runGroups, setRunGroups] = useState<Set<number>>(new Set());
+  const [runHosts, setRunHosts] = useState<Set<number>>(new Set());
+  const [targetsOpen, setTargetsOpen] = useState(false);
+  const [hosts, setHosts] = useState<{ id: number; name: string; address?: string }[]>([]);
+  const [groups, setGroups] = useState<{ id: number; name: string; hosts?: { id: number }[] }[]>([]);
   // Запуски, открытые в блоке «Выполнение»: свои после старта или любой,
   // к которому подключились из списка справа.
   const [watchedIds, setWatchedIds] = useState<number[]>([]);
@@ -123,18 +125,44 @@ export default function ScenariosPage() {
     });
   };
 
+  /** Переключает id в наборе целей (кабинеты/компьютеры выбираются независимо). */
+  const toggleIn = (set: Set<number>, apply: (s: Set<number>) => void, id: number) => {
+    const next = new Set(set);
+    next.has(id) ? next.delete(id) : next.add(id);
+    apply(next);
+  };
+
+  // Сколько машин реально попадёт под запуск: явные компы плюс хосты выбранных
+  // кабинетов, без повторов (один комп может быть в нескольких кабинетах).
+  const distinctTargetCount = (() => {
+    const ids = new Set<number>(runHosts);
+    for (const gid of runGroups) {
+      const group = groups.find((g) => g.id === gid);
+      for (const h of group?.hosts || []) ids.add(h.id);
+    }
+    return ids.size;
+  })();
+
+  const targetsSummary = (() => {
+    if (runGroups.size === 0 && runHosts.size === 0) return "";
+    const parts: string[] = [];
+    if (runGroups.size) parts.push(`кабинетов: ${runGroups.size}`);
+    if (runHosts.size) parts.push(`компьютеров: ${runHosts.size}`);
+    return `${parts.join(", ")} — машин: ${distinctTargetCount}`;
+  })();
+
   const handleRun = async (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedIds.size === 0) { showToast("Выберите хотя бы один сценарий", "error"); return; }
-    if (!runTargetId) { showToast("Выберите цель", "error"); return; }
+    if (distinctTargetCount === 0) { showToast("Выберите хотя бы одну цель", "error"); return; }
     setActiveRuns([]);
     try {
       const result = await apiPostClient("/api/scenarios/run", {
         scenario_ids: [...selectedIds],
-        target_type: runTargetType,
-        target_id: parseInt(runTargetId),
+        host_ids: [...runHosts],
+        group_ids: [...runGroups],
       });
-      showToast("Сценарии запущены");
+      showToast(`Сценарии запущены на ${distinctTargetCount} машинах`);
       setWatchedIds(result.run_ids || [result.run_id]);
       setMobileTab("scenarios");
     } catch (err: any) {
@@ -230,24 +258,62 @@ export default function ScenariosPage() {
           </div>
 
           <form onSubmit={handleRun} className="space-y-3">
-            <div className="grid md:grid-cols-2 gap-4 items-end">
-              <label className="label">
-                Тип цели
-                <select className="input" value={runTargetType} onChange={(e) => { setRunTargetType(e.target.value); setRunTargetId(""); }}>
-                  <option value="host">Хост</option>
-                  <option value="group">Кабинет</option>
-                </select>
-              </label>
-              <label className="label">
-                Цель
-                <select className="input" value={runTargetId} onChange={(e) => setRunTargetId(e.target.value)}>
-                  <option value="">Выберите цель</option>
-                  {(runTargetType === "host" ? hosts : groups).map((t) => (
-                    <option key={t.id} value={t.id}>{t.name} #{t.id}</option>
-                  ))}
-                </select>
-              </label>
+            {/* Цели набираются списком: можно взять несколько кабинетов целиком
+                и/или отдельные компьютеры — в том числе из другого кабинета. */}
+            <div className="label">
+              Цели
+              <button
+                type="button"
+                className="input flex items-center justify-between gap-2 text-left"
+                onClick={() => setTargetsOpen((v) => !v)}
+              >
+                <span className={targetsSummary ? "" : "text-gray-400"}>
+                  {targetsSummary || "Выберите кабинеты и компьютеры"}
+                </span>
+                <ChevronDown
+                  size={16}
+                  className={`shrink-0 transition-transform ${targetsOpen ? "rotate-180" : ""}`}
+                />
+              </button>
             </div>
+
+            {targetsOpen && (
+              <div className="grid md:grid-cols-2 gap-4 rounded-[10px] border border-gray-200 dark:border-gray-700 p-3 max-h-64 overflow-auto">
+                <div>
+                  <div className="text-sm font-semibold mb-2">Кабинеты</div>
+                  {groups.length === 0 && <div className="text-sm text-gray-400">Кабинетов нет</div>}
+                  {groups.map((g) => (
+                    <label key={g.id} className="flex items-center gap-2 text-sm py-1 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="accent-blue-600"
+                        checked={runGroups.has(g.id)}
+                        onChange={() => toggleIn(runGroups, setRunGroups, g.id)}
+                      />
+                      <span className="truncate">{g.name}</span>
+                      <span className="text-xs text-gray-400 shrink-0">({g.hosts?.length ?? 0})</span>
+                    </label>
+                  ))}
+                </div>
+                <div>
+                  <div className="text-sm font-semibold mb-2">Компьютеры</div>
+                  {hosts.length === 0 && <div className="text-sm text-gray-400">Компьютеров нет</div>}
+                  {hosts.map((h) => (
+                    <label key={h.id} className="flex items-center gap-2 text-sm py-1 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="accent-blue-600"
+                        checked={runHosts.has(h.id)}
+                        onChange={() => toggleIn(runHosts, setRunHosts, h.id)}
+                      />
+                      <span className="truncate">{h.name}</span>
+                      <span className="text-xs text-gray-400 font-mono shrink-0">{h.address}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <button className="btn" type="submit" disabled={selectedIds.size === 0}>
               <Play size={16} /> Запустить
             </button>
