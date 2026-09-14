@@ -7,7 +7,6 @@ import { TerminalManagerProvider, useTerminalManager, confirmDisconnect } from "
 import {
   LayoutDashboard,
   Server,
-  Key,
   Boxes,
   Play,
   History,
@@ -25,7 +24,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 const nav = [
   { href: "/", label: "Обзор", icon: LayoutDashboard },
   { href: "/hosts", label: "Хосты", icon: Server },
-  { href: "/keys", label: "Ключи", icon: Key },
   { href: "/modules", label: "Модули", icon: Boxes },
   { href: "/history", label: "История", icon: History },
   { href: "/scheduled", label: "Планировщик", icon: CalendarClock },
