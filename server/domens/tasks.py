@@ -51,8 +51,23 @@ async def api_run(request: web.Request) -> web.Response:
         return _error("args must be an object")
 
     module_slug = str(payload.get("module_slug") or "").strip()
-    target_type = str(payload.get("target_type") or "host").strip()
-    target_id = _safe_int(payload.get("target_id"))
+
+    # Мультивыбор: host_ids + group_ids (новый формат) или target_type + target_id (legacy).
+    raw_host_ids = payload.get("host_ids")
+    raw_group_ids = payload.get("group_ids")
+    is_multi = (isinstance(raw_host_ids, list) and raw_host_ids) or \
+               (isinstance(raw_group_ids, list) and raw_group_ids)
+
+    if is_multi:
+        host_ids = [int(x) for x in (raw_host_ids or []) if str(x).isdigit()]
+        group_ids = [int(x) for x in (raw_group_ids or []) if str(x).isdigit()]
+        targets = ctx.host_service.resolve_scheduled_targets(host_ids, group_ids)
+        target_type = "multi"
+        target_id = 0
+    else:
+        target_type = str(payload.get("target_type") or "host").strip()
+        target_id = _safe_int(payload.get("target_id"))
+        targets = None
 
     module_row = ctx.db.modules.by_slug(module_slug)
     if not module_row:
@@ -89,6 +104,7 @@ async def api_run(request: web.Request) -> web.Response:
                 args=args,
                 trigger_type="manual",
                 created_by=created_by,
+                targets=targets,
             )
         except Exception as exc:
             logger.exception("Background task run %s failed: %s", task_run.id, exc)

@@ -101,6 +101,7 @@ class TaskRunner:
         trigger_type: str = "manual",
         task_run_id: int | None = None,
         created_by: str | None = None,
+        targets=None,
     ):
         args = args or {}
         registry_item = self.module_registry.get(module_slug)
@@ -135,7 +136,8 @@ class TaskRunner:
                 created_by=created_by,
             )
 
-        targets = self.host_service.resolve_targets(target_type, target_id)
+        if targets is None:
+            targets = self.host_service.resolve_targets(target_type, target_id)
         context = ModuleContext(
             logger=self.logger,
             task_run_id=task_run.id,
