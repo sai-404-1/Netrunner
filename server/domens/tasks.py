@@ -9,9 +9,44 @@ from services.logger import Logger
 
 logger = Logger()
 
+def _run_host_ids(db, run) -> set[int]:
+    """Множество id хостов, которых касался запуск.
+
+    Предпочитаем per_host_json (там реальные цели любого типа запуска), а для
+    записей без него (pending / легаси) выводим цели из target_type/target_id.
+    """
+    if run.per_host_json:
+        try:
+            items = json.loads(run.per_host_json)
+            ids = {int(it["host_id"]) for it in items if it.get("host_id") is not None}
+            if ids:
+                return ids
+        except Exception:
+            pass
+    if run.target_type == "host" and run.target_id:
+        return {int(run.target_id)}
+    if run.target_type == "group" and run.target_id:
+        return {h.id for h in db.groups.hosts(int(run.target_id))}
+    return set()
+
+
 async def api_task_runs(request: web.Request) -> web.Response:
     limit = _safe_int(request.query.get("limit", 50), 50)
-    return _ok(_ctx(request).db.task_runs.list_recent(limit))
+    db = _ctx(request).db
+    user = request.get("auth_user")
+
+    # Преподаватель видит всю историю по своим кабинетам: любой запуск (свой или
+    # чужой), в котором участвовал хотя бы один хост его кабинетов. Берём запас
+    # строк и обрезаем до limit уже после фильтрации, чтобы не «худеть» список.
+    if is_teacher(user):
+        visible = allowed_host_ids(db, user)
+        if not visible:
+            return _ok([])
+        runs = db.task_runs.list_recent(max(limit * 10, 500))
+        filtered = [r for r in runs if _run_host_ids(db, r) & visible]
+        return _ok(filtered[:limit])
+
+    return _ok(db.task_runs.list_recent(limit))
 
 
 async def api_task_run_status(request: web.Request) -> web.Response:
@@ -20,6 +55,12 @@ async def api_task_run_status(request: web.Request) -> web.Response:
     run = ctx.db.task_runs.get(run_id)
     if run is None:
         return _error("Task run not found", status=404)
+    # Преподаватель открывает детали запуска только если он касался его кабинетов.
+    user = request.get("auth_user")
+    if is_teacher(user):
+        visible = allowed_host_ids(ctx.db, user)
+        if not visible or not (_run_host_ids(ctx.db, run) & visible):
+            return _error("Нет доступа к этому запуску", status=403)
     data = model_to_dict(run)
     # Прогресс: сколько хостов уже обработано (state ok|error) из общего числа.
     # per_host_json теперь содержит все цели с самого начала (queued/running/ok/error),

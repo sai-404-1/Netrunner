@@ -187,6 +187,7 @@ class Scheduler:
                     "task_name": f"scenario-{scenario_ids}",
                     "target": target_label,
                     "scenario_ids": scenario_ids,
+                    "host_ids": [h.id for h in all_targets],
                 },
                 level="info",
             )
@@ -262,6 +263,7 @@ class Scheduler:
                             "task_name": f"scenario-{scenario_ids}",
                             "target": self._target_label(scheduled),
                             "scenario_ids": scenario_ids,
+                            "host_ids": [h.id for h in self._resolve_multi_targets(scheduled)],
                         },
                         level="warning",
                     )
@@ -287,6 +289,7 @@ class Scheduler:
                         "task_name": f"scenario-{scenario_ids}",
                         "target": target_label,
                         "scenario_ids": scenario_ids,
+                        "host_ids": [h.id for h in targets],
                     },
                     level="info",
                 )
@@ -302,12 +305,16 @@ class Scheduler:
         except Exception as exc:  # noqa: BLE001
             self.logger.error("Scheduler failed for task %s: %s", scheduled.id, exc)
             if self.history:
+                try:
+                    failed_host_ids = [h.id for h in self._resolve_multi_targets(scheduled)]
+                except Exception:  # noqa: BLE001
+                    failed_host_ids = []
                 self.history.record(
                     source="scheduler",
                     event_type="scheduler_failed",
                     title="Автозапуск по расписанию завершился с ошибкой",
                     description=str(exc),
-                    payload={"task_name": f"scenario-{scheduled.scenario_id}"},
+                    payload={"task_name": f"scenario-{scheduled.scenario_id}", "host_ids": failed_host_ids},
                     level="error",
                 )
 

@@ -4,6 +4,10 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
+from services.logger import Logger
+
+_logger = Logger()
+
 
 @dataclass
 class ServiceRegistration:
@@ -17,6 +21,11 @@ class ServiceRegistration:
     - columns     — какие поля payload показывать колонками в таблице:
                     [(key, label), ...] — key — ключ в payload, label — заголовок
     - event_types — какие виды событий умеет порождать сервис (для подробностей)
+    - host_scoped — событие обязано быть привязано к конкретным компьютерам
+                    (host_id или payload['host_ids']). Нужно, чтобы историю можно
+                    было показывать преподавателю строго по его кабинетам. Если
+                    какой-то будущий сервис пишет действительно общесистемные
+                    события — он ставит host_scoped=False осознанно.
     """
 
     slug: str
@@ -24,6 +33,7 @@ class ServiceRegistration:
     columns: list[tuple[str, str]] = field(default_factory=list)
     level: str = 'info'
     event_types: dict[str, dict[str, Any]] = field(default_factory=dict)
+    host_scoped: bool = True
 
 
 class HistoryService:
@@ -172,10 +182,37 @@ class HistoryService:
         """Единственная точка входа: сервис пишет событие в общую историю."""
         if source not in self._services:
             raise ValueError(f"Unknown history source: {source!r}. Register service first.")
+        reg = self._services[source]
         if level is None:
-            reg = self._services[source]
             et_cfg = reg.event_types.get(event_type)
             level = (et_cfg or {}).get('level') or reg.level
+
+        # Каноническая привязка к компьютерам: любое хостовое событие несёт
+        # payload['host_ids'] — единый ключ, по которому история фильтруется для
+        # преподавателя. Одиночный host_id дублируем в этот список.
+        payload = dict(payload) if payload else {}
+        host_ids = payload.get("host_ids")
+        if host_ids:
+            host_ids = [int(h) for h in host_ids]
+        elif host_id is not None:
+            host_ids = [int(host_id)]
+        else:
+            host_ids = []
+        if host_ids:
+            payload["host_ids"] = host_ids
+
+        # Guard: хостовый сервис обязан атрибутировать событие к компьютерам.
+        # Мягко (warning, не роняем запись) — чтобы новый код, забывший про
+        # хосты, сразу отсвечивал в логах: такую запись нельзя корректно
+        # показать преподавателю по его кабинетам.
+        if reg.host_scoped and not host_ids:
+            _logger.warning(
+                "History: событие %s/%s записано без привязки к компьютерам "
+                "(host_id/host_ids) — оно не попадёт в историю преподавателя. "
+                "Укажите host_ids при вызове record().",
+                source, event_type,
+            )
+
         return self._db.history_entries.record(
             source=source,
             event_type=event_type,
