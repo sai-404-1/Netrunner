@@ -1,10 +1,12 @@
 """Закрытие окон приложений на рабочем столе хоста.
 
 Находит активную X11-сессию через loginctl (тот же паттерн, что и в
-screenshot_service.py) и закрывает окна по имени/подстроке через wmctrl.
-Пользователь один — первая (и единственная) активная сессия на seat0.
+screenshot_service.py) и закрывает окна по имени/подстроке через xdotool.
+Используем xdotool (не wmctrl): он ищет через XQueryTree, не зависит от
+_NET_CLIENT_LIST — работает в том числе в Cinnamon где этот атрибут может
+отсутствовать. Пользователь один — первая активная X11-сессия.
 
-Требует на хосте: wmctrl (`sudo apt-get install wmctrl`).
+Требует на хосте: xdotool (устанавливается автоматически если нет).
 """
 
 from __future__ import annotations
@@ -14,13 +16,37 @@ import shlex
 from . import Modules
 
 
-def _build_close_script(window_name: str, kill_all: bool) -> str:
-    flag = "-a" if not kill_all else ""
-    # wmctrl -c закрывает первое совпадение, -c в цикле — все совпадения.
-    if kill_all:
-        close_cmd = f"wmctrl -l | grep -i {shlex.quote(window_name)} | awk '{{print $1}}' | xargs -I{{}} wmctrl -ic {{}}"
+def _build_close_script(window_name: str, close_all: bool) -> str:
+    name_q = shlex.quote(window_name)
+    name_q_lower = shlex.quote(window_name.lower())
+
+    if close_all:
+        close_block = f"""
+WIDS=$(sudo -u "$NR_USER" env DISPLAY="$NR_DISPLAY" XAUTHORITY="/home/$NR_USER/.Xauthority" \\
+  xdotool search --name {name_q} 2>/dev/null || true)
+COUNT=$(echo "$WIDS" | grep -c '[0-9]' || true)
+if [ "$COUNT" -eq 0 ]; then
+  echo "Окно {name_q} не найдено"
+  exit 0
+fi
+CLOSED=0
+for WID in $WIDS; do
+  sudo -u "$NR_USER" env DISPLAY="$NR_DISPLAY" XAUTHORITY="/home/$NR_USER/.Xauthority" \\
+    xdotool windowclose "$WID" 2>/dev/null && CLOSED=$(( CLOSED + 1 )) || true
+done
+echo "Закрыто окон: $CLOSED из $COUNT"
+"""
     else:
-        close_cmd = f"wmctrl -c {shlex.quote(window_name)}"
+        close_block = f"""
+WID=$(sudo -u "$NR_USER" env DISPLAY="$NR_DISPLAY" XAUTHORITY="/home/$NR_USER/.Xauthority" \\
+  xdotool search --name {name_q} 2>/dev/null | head -1 || true)
+if [ -z "$WID" ]; then
+  echo "Окно {name_q} не найдено"
+  exit 0
+fi
+sudo -u "$NR_USER" env DISPLAY="$NR_DISPLAY" XAUTHORITY="/home/$NR_USER/.Xauthority" \\
+  xdotool windowclose "$WID" 2>/dev/null && echo "Окно {name_q} закрыто (id=$WID)" || echo "[WARN] Не удалось закрыть окно $WID"
+"""
 
     return f"""
 SESSDATA=""
@@ -37,19 +63,11 @@ if [ -z "$SESSDATA" ]; then
 fi
 set -- $SESSDATA
 NR_USER="$1"; NR_DISPLAY="$2"
-if ! command -v wmctrl >/dev/null 2>&1; then
-  sudo apt-get install -y wmctrl >/dev/null 2>&1 || {{ echo "[ERROR] wmctrl не установлен и не удалось установить автоматически"; exit 1; }}
+if ! command -v xdotool >/dev/null 2>&1; then
+  sudo apt-get install -y xdotool >/dev/null 2>&1 \\
+    || {{ echo "[ERROR] xdotool не установлен и не удалось установить автоматически"; exit 1; }}
 fi
-BEFORE=$(sudo -u "$NR_USER" env DISPLAY="$NR_DISPLAY" XAUTHORITY="/home/$NR_USER/.Xauthority" wmctrl -l 2>/dev/null | grep -ic {shlex.quote(window_name)} || true)
-if [ "$BEFORE" -eq 0 ]; then
-  echo "Окно '{window_name}' не найдено (уже закрыто или не запущено)"
-  exit 0
-fi
-sudo -u "$NR_USER" env DISPLAY="$NR_DISPLAY" XAUTHORITY="/home/$NR_USER/.Xauthority" {close_cmd} 2>/dev/null || true
-sleep 0.5
-AFTER=$(sudo -u "$NR_USER" env DISPLAY="$NR_DISPLAY" XAUTHORITY="/home/$NR_USER/.Xauthority" wmctrl -l 2>/dev/null | grep -ic {shlex.quote(window_name)} || true)
-CLOSED=$(( BEFORE - AFTER ))
-echo "Закрыто окон: $CLOSED из $BEFORE (осталось: $AFTER)"
+{close_block.strip()}
 """.strip()
 
 
@@ -70,8 +88,8 @@ class WindowCloseModule:
         self.title = "Закрытие окна приложения"
         self.description = (
             "Закрывает окно приложения на рабочем столе хоста по имени (подстроке). "
-            "Работает через wmctrl и активную X11-сессию пользователя. "
-            "Если wmctrl не установлен — устанавливается автоматически. "
+            "Работает через xdotool и активную X11-сессию пользователя. "
+            "Если xdotool не установлен — устанавливается автоматически. "
             "Возвращает количество закрытых окон."
         )
 
@@ -85,8 +103,8 @@ class WindowCloseModule:
         if not window_name:
             return {**base, "status": "error", "output": "[ERROR] Укажите имя окна"}
 
-        kill_all = str(kwargs.get("close_all") or "false").strip().lower() == "true"
-        script = _build_close_script(window_name, kill_all)
+        close_all = str(kwargs.get("close_all") or "false").strip().lower() == "true"
+        script = _build_close_script(window_name, close_all)
 
         hsvc = getattr(context, "host_service", None)
         if hsvc is not None and hasattr(hsvc, "to_computer"):
