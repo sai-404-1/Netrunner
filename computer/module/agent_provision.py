@@ -109,14 +109,12 @@ class UserModule:
             ssh_username = existing.ssh_username
             public_key = existing.public_key
             token = None  # оставляем прежний (encrypted хранится в existing)
-            create_user = False  # юзер мог пропасть при переустановке ОС — create_user_block всё равно включается (идемпотентен)
         else:
             # Первая установка: генерим секреты.
             secrets_data = agent_svc.provision(host.id)
             ssh_username = secrets_data["ssh_username"]
             public_key = secrets_data["public_key"]
             token = secrets_data["token"]
-            create_user = True
 
         if token is not None:
             config_token = token
