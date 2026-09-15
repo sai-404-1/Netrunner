@@ -28,7 +28,17 @@ def _build_terminal_cmd(host_str: str, port: str, key_path: str | None) -> list[
     key_file = Path(key_path) if key_path else Path(KEY_PATH) / KEY_NAME
     # -tt форсирует выделение псевдотерминала на удалённой стороне, даже если сам
     # процесс NetRunner не подключён к реальному tty (он подключён к нашему PTY).
-    return ["ssh", "-tt", "-p", str(port), *_ssh_common_options(), "-i", str(key_file), host_str]
+    # SetEnv TERM=xterm-256color — форсируем тип терминала, чтобы ncurses-приложения
+    # (nano, vim, htop, btop) корректно рисовали UI. SetEnv работает без AcceptEnv
+    # в sshd_config (требует OpenSSH ≥ 7.8, что выполняется на любом современном дистрибутиве).
+    return [
+        "ssh", "-tt",
+        "-p", str(port),
+        "-o", "SetEnv=TERM=xterm-256color",
+        *_ssh_common_options(),
+        "-i", str(key_file),
+        host_str,
+    ]
 
 
 async def api_terminal_ws(request: web.Request) -> web.WebSocketResponse:
