@@ -215,6 +215,15 @@ if ! python3 -c "import websockets" >/dev/null 2>&1; then
     || echo "[WARN] Не удалось установить пакет websockets - установите вручную"
 fi
 
+# Пакеты для снимков рабочего стола (screenshot_service).
+MISSING_PKGS=""
+command -v scrot    >/dev/null 2>&1 || MISSING_PKGS="$MISSING_PKGS scrot"
+command -v convert  >/dev/null 2>&1 || MISSING_PKGS="$MISSING_PKGS imagemagick"
+if [ -n "$MISSING_PKGS" ]; then
+  sudo apt-get install -y $MISSING_PKGS >/dev/null 2>&1 \\
+    || echo "[WARN] Не удалось установить$MISSING_PKGS — снимки рабочего стола могут не работать"
+fi
+
 sudo systemctl daemon-reload
 sudo systemctl enable --now netrunner-agent.service
 echo "Агент установлен и запущен ({ssh_username}, report-only)."
