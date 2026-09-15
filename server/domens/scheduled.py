@@ -3,7 +3,7 @@ import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from server.tools import _ok, _ctx, _read_json, _safe_int
+from server.tools import _ok, _ctx, _read_json, _safe_int, _error, is_teacher, allowed_host_ids, allowed_group_ids
 from database.repos.schedule_repo import validate_schedule, next_slot_utc_iso
 
 
@@ -96,16 +96,47 @@ def _first_run_at_utc(sched: dict) -> str:
     return run_at
 
 
+def _filter_scheduled_for_user(db, user, tasks: list) -> list:
+    """Оставляет только задачи, чьи цели входят в кабинеты пользователя.
+
+    Суперпользователь видит всё. Учитель видит задачи только на хосты/группы
+    своих кабинетов. Задача с target_type='group' проверяется по allowed_group_ids;
+    target_type='host' — по allowed_host_ids.
+    """
+    if not is_teacher(user):
+        return tasks
+    visible_hosts = allowed_host_ids(db, user)
+    visible_groups = allowed_group_ids(db, user)
+    result = []
+    for t in tasks:
+        ttype = (t.target_type if hasattr(t, "target_type") else t.get("target_type")) or "host"
+        tid = int((t.target_id if hasattr(t, "target_id") else t.get("target_id")) or 0)
+        if ttype == "group":
+            if visible_groups is not None and tid not in visible_groups:
+                continue
+        else:
+            if visible_hosts is not None and tid not in visible_hosts:
+                continue
+        result.append(t)
+    return result
+
+
 async def api_scheduled(request: web.Request) -> web.Response:
-    return _ok(_ctx(request).db.scheduled.all())
+    ctx = _ctx(request)
+    tasks = ctx.db.scheduled.all()
+    return _ok(_filter_scheduled_for_user(ctx.db, request.get("auth_user"), tasks))
 
 
 async def api_active_scheduled(request: web.Request) -> web.Response:
-    return _ok(_ctx(request).db.scheduled.filter(is_enabled=True))
+    ctx = _ctx(request)
+    tasks = ctx.db.scheduled.filter(is_enabled=True)
+    return _ok(_filter_scheduled_for_user(ctx.db, request.get("auth_user"), tasks))
 
 
 async def api_inactive_scheduled(request: web.Request) -> web.Response:
-    return _ok(_ctx(request).db.scheduled.filter(is_enabled=False))
+    ctx = _ctx(request)
+    tasks = ctx.db.scheduled.filter(is_enabled=False)
+    return _ok(_filter_scheduled_for_user(ctx.db, request.get("auth_user"), tasks))
 
 
 async def api_schedule_create(request: web.Request) -> web.Response:
