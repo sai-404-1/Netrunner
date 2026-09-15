@@ -13,6 +13,9 @@ def model_to_dict(value: Any) -> Any:
         data = asdict(value)
         # Никогда не отдаём зашифрованный пароль хоста наружу.
         data.pop("password_encrypted", None)
+        # Путь к файлу скриншота — деталь сервера, клиенту нужен не он, а
+        # /api/hosts/{id}/screenshot; screenshot_captured_at (таймстемп) остаётся.
+        data.pop("screenshot_path", None)
         return data
     if isinstance(value, list):
         return [model_to_dict(item) for item in value]

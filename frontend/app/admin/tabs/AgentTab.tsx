@@ -21,6 +21,12 @@ export function AgentTab() {
   const [coldawnField, setColdawnField] = useState<ExecutionField | null>(null);
   const [execSaving, setExecSaving] = useState(false);
 
+  // Снимки рабочего стола хостов (превью в списке/профиле).
+  const [shotEnabled, setShotEnabled] = useState<boolean>(true);
+  const [shotInterval, setShotInterval] = useState<number>(10);
+  const [shotQuality, setShotQuality] = useState<number>(72);
+  const [shotSaving, setShotSaving] = useState(false);
+
   const loadDefaultCreds = useCallback(async () => {
     try {
       const data = await apiGetClient("/api/default-creds");
@@ -42,8 +48,54 @@ export function AgentTab() {
     }
   }, [showToast]);
 
+  const loadScreenshotSettings = useCallback(async () => {
+    try {
+      const data = await apiGetClient("/api/admin/screenshot-settings");
+      const c = data?.config || {};
+      setShotEnabled(Boolean(c.enabled));
+      setShotInterval(Number(c.interval_seconds ?? 10));
+      setShotQuality(Number(c.jpeg_quality ?? 72));
+    } catch {
+      /* оставляем дефолты */
+    }
+  }, []);
+
   useEffect(() => { loadDefaultCreds(); }, [loadDefaultCreds]);
   useEffect(() => { loadExecutionSettings(); }, [loadExecutionSettings]);
+  useEffect(() => { loadScreenshotSettings(); }, [loadScreenshotSettings]);
+
+  async function toggleScreenshots(enabled: boolean) {
+    const prev = shotEnabled;
+    setShotEnabled(enabled);
+    setShotSaving(true);
+    try {
+      const res = await apiPostClient("/api/admin/screenshot-settings", { enabled });
+      setShotEnabled(Boolean(res?.config?.enabled));
+      showToast(enabled ? "Снимки рабочего стола включены" : "Снимки рабочего стола выключены");
+    } catch (err: any) {
+      setShotEnabled(prev);
+      showToast(err.message, "error");
+    } finally {
+      setShotSaving(false);
+    }
+  }
+
+  async function saveScreenshotParams() {
+    setShotSaving(true);
+    try {
+      const res = await apiPostClient("/api/admin/screenshot-settings", {
+        interval_seconds: shotInterval,
+        jpeg_quality: shotQuality,
+      });
+      setShotInterval(Number(res?.config?.interval_seconds ?? shotInterval));
+      setShotQuality(Number(res?.config?.jpeg_quality ?? shotQuality));
+      showToast("Параметры снимков сохранены");
+    } catch (err: any) {
+      showToast(err.message, "error");
+    } finally {
+      setShotSaving(false);
+    }
+  }
 
   async function saveDefaultCreds(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -169,6 +221,53 @@ export function AgentTab() {
             </label>
             <button className="btn" onClick={saveColdawnRetries} disabled={execSaving}>Сохранить</button>
           </div>
+        </div>
+      </div>
+
+      <div className="panel">
+        <h3 className="font-semibold mb-1">Снимки рабочего стола</h3>
+        <p className="text-sm text-gray-500 mb-4">
+          Периодические превью экранов хостов для просмотра в списке и профиле машины.
+          Выключено — превью не собираются вообще, ни для кого.
+        </p>
+
+        <label className="flex items-center gap-3 text-sm cursor-pointer mb-4">
+          <input
+            type="checkbox"
+            className="w-4 h-4 accent-blue-600"
+            checked={shotEnabled}
+            disabled={shotSaving}
+            onChange={(e) => toggleScreenshots(e.target.checked)}
+          />
+          Собирать снимки рабочего стола
+        </label>
+
+        <div className={`flex items-end gap-3 flex-wrap ${shotEnabled ? "" : "opacity-50 pointer-events-none"}`}>
+          <label className="label w-44">
+            Интервал, с
+            <input
+              type="number"
+              className="input"
+              min={3}
+              max={300}
+              value={shotInterval}
+              disabled={shotSaving}
+              onChange={(e) => setShotInterval(Number(e.target.value))}
+            />
+          </label>
+          <label className="label w-44">
+            Качество JPEG
+            <input
+              type="number"
+              className="input"
+              min={10}
+              max={95}
+              value={shotQuality}
+              disabled={shotSaving}
+              onChange={(e) => setShotQuality(Number(e.target.value))}
+            />
+          </label>
+          <button className="btn" onClick={saveScreenshotParams} disabled={shotSaving}>Сохранить</button>
         </div>
       </div>
     </div>

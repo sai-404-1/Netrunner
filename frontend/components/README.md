@@ -26,6 +26,12 @@
 - `Modal.tsx` — модальные окна: `Modal` (универсальное) и `OutputModal` (показ вывода задач).
 - `DataTable.tsx` — обобщённая таблица `DataTable<T>` с колонками и кастомным рендером ячеек.
 - `Badge.tsx` — бейджи статусов: `StatusBadge`, `BooleanBadge`, `LabelBadge`.
+- `HostScreenshot.tsx` — миниатюра рабочего стола хоста: лениво тянет JPEG с
+  `/api/python/api/hosts/{id}/screenshot` поверх заглушки (иконка `Monitor`), с
+  плавным появлением (fade). `capturedAt` служит cache-key: сменился — картинка
+  перезапрашивается (живое обновление). Используется в `HostStatusGrid` (список
+  хостов, слева от имени, справа от лампочки) и в профиле хоста (`hosts/[id]`,
+  вместо иконки монитора). Скошенные углы `rounded-[10px]`.
 - `HostBoardView.tsx` — режим «Доска» на странице хостов: `HostBoardView` (управление досками).
 - `BoardCanvas.tsx` — холст доски: `BoardCanvas` (drag-and-drop; канва и палитра адаптированы
   под тёмную тему через `useTheme`).

@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS hosts (
     is_active INTEGER NOT NULL DEFAULT 1,
     last_seen_at TEXT,
     password_encrypted TEXT,
+    screenshot_path TEXT,
+    screenshot_captured_at TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (ssh_key_id) REFERENCES ssh_keys(id) ON DELETE SET NULL
@@ -425,6 +427,8 @@ def _migrate_modules(conn) -> None:
 def _migrate_hosts(conn) -> None:
     """Хранит зашифрованный пароль хоста для повторной привязки SSH-ключа."""
     _add_column_if_missing(conn, "hosts", "password_encrypted", "TEXT")
+    _add_column_if_missing(conn, "hosts", "screenshot_path", "TEXT")
+    _add_column_if_missing(conn, "hosts", "screenshot_captured_at", "TEXT")
 
 
 def _create_new_tables(conn) -> None:

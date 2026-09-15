@@ -1,8 +1,37 @@
+from pathlib import Path
+
 from aiohttp import web
 from server.tools import _ctx, _ok, model_to_dict, _read_json, _safe_int, _error, allowed_host_ids, is_teacher, host_visible
 from services.agent_service import _auto_install_agent
 from services.host_service import _provision_ssh_key, _run_background
 from services.secrets import encrypt_secret, decrypt_secret
+
+
+async def api_host_screenshot(request: web.Request) -> web.FileResponse | web.Response:
+    """Текущее превью рабочего стола хоста (JPEG). Один файл, перезаписывается
+    фоновым циклом `_screenshot_loop` (см. `services/screenshot_service.py`).
+
+    404, если: снимки выключены глобально, у хоста ещё нет ни одного снимка,
+    либо (для преподавателя) хост вне его кабинетов — тот же `host_visible`,
+    что и на остальных host-специфичных ручках.
+    """
+    ctx = _ctx(request)
+    host_id = _safe_int(request.match_info["id"])
+    user = request.get("auth_user")
+    if is_teacher(user) and not host_visible(ctx.db, user, host_id):
+        return _error("Нет доступа к этому хосту", status=403)
+    if not ctx.screenshot_settings.get_config()["enabled"]:
+        return _error("Снимки рабочего стола выключены администратором", status=404)
+    host = ctx.db.hosts.get(host_id)
+    if not host or not host.screenshot_path:
+        return _error("Снимок ещё не сделан", status=404)
+    target = Path(host.screenshot_path)
+    if not target.exists():
+        return _error("Снимок отсутствует на диске", status=404)
+    return web.FileResponse(
+        target,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 async def api_hosts(request: web.Request) -> web.Response:
@@ -44,6 +73,7 @@ async def api_hosts_status(request: web.Request) -> web.Response:
             "group_name": h.get("group_name"),
             "is_active": bool(h.get("is_active")),
             "last_seen": h.get("last_seen"),
+            "screenshot_captured_at": h.get("screenshot_captured_at"),
         }
         for h in rows
     ]

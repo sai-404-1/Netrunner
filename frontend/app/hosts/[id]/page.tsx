@@ -5,11 +5,12 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft, Save, TerminalSquare, RefreshCw, Power, RotateCcw, KeyRound,
-  Trash2, Monitor, Clock, HardDrive, ShieldAlert,
+  Trash2, Clock, HardDrive, ShieldAlert,
 } from "lucide-react";
 import { apiGetClient, apiPostClient } from "@/lib/api-client";
 import { useToast } from "@/components/Toast";
 import { formatDate } from "@/lib/utils";
+import { HostScreenshot } from "@/components/HostScreenshot";
 import type { HostMetrics, HostProfile } from "@/lib/host-types";
 import { MetricGauge } from "./MetricGauge";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -276,7 +277,7 @@ export default function HostProfilePage() {
         <div className="space-y-6">
           <div className="panel space-y-4">
             <div className="flex items-center gap-3">
-              <Monitor size={40} className="text-blue-500 shrink-0" />
+              <HostScreenshot hostId={host.id} capturedAt={host.screenshot_captured_at} className="w-[240px] h-[135px]" iconSize={40} />
               <div className="min-w-0 flex-1">
                 <div className="flex">
                 <input

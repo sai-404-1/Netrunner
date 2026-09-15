@@ -31,6 +31,8 @@ from aiohttp import web
 from database import open_database
 from services import HostService
 from services.agent_service import AgentService
+from services.screenshot_settings import ScreenshotSettings
+from services.screenshot_service import ScreenshotService
 from .endpoints.build_app import build_app
 from services.logger import Logger
 
@@ -126,6 +128,55 @@ async def _scheduler_loop(app: web.Application, interval: int = 30):
             logger.warning("Scheduler tick failed: %s", _sched_exc)
 
 
+async def _screenshot_loop(app: web.Application):
+    """Периодически снимает превью рабочего стола хостов (см.
+    `services/screenshot_service.py`). Интервал и включённость перечитываются
+    из ScreenshotSettings перед каждым тиком — правка в админке применяется
+    без перезапуска сервера. Захват только для online-хостов: незачем ждать
+    SSH-таймаут на выключенных машинах. Своё короткоживущее соединение с БД
+    (как у `_periodic_ping`) — гоняет SSH, не должно блокировать общий коннект.
+    """
+    db_path = app["ctx"].db_path
+    while True:
+        interval = 10
+        try:
+            db = open_database(db_path)
+            try:
+                interval = ScreenshotSettings(db).get_config()["interval_seconds"]
+            finally:
+                db.close()
+        except Exception as _cfg_exc:
+            logger.warning("Screenshot loop: не удалось прочитать настройки: %s", _cfg_exc)
+
+        try:
+            await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            break
+
+        try:
+            db = open_database(db_path)
+            try:
+                settings = ScreenshotSettings(db)
+                cfg = settings.get_config()
+                if not cfg["enabled"]:
+                    continue
+                host_service = HostService(db)
+                screenshot_service = ScreenshotService(db, host_service, settings)
+                targets = [h for h in host_service.all_hosts() if h.is_active]
+                if not targets:
+                    continue
+                results = await asyncio.gather(
+                    *(screenshot_service.capture_host(h) for h in targets),
+                    return_exceptions=True,
+                )
+                ok = sum(1 for r in results if r is True)
+                logger.info("Screenshot loop: %d/%d хостов обновили превью", ok, len(targets))
+            finally:
+                db.close()
+        except Exception as _shot_exc:
+            logger.warning("Screenshot loop tick failed: %s", _shot_exc)
+
+
 def run_web_server(
         app_context,
         host: str = "127.0.0.1",
@@ -151,9 +202,10 @@ def run_web_server(
         _app["scheduler_task"] = asyncio.create_task(_scheduler_loop(_app, interval=60))
         _app["update_task"] = asyncio.create_task(_update_monitor(_app))
         _app["telegram_task"] = asyncio.create_task(_telegram_poller(_app))
+        _app["screenshot_task"] = asyncio.create_task(_screenshot_loop(_app))
 
     async def _on_cleanup(_app):
-        for _key in ("ping_task", "scheduler_task", "offline_sweep_task", "update_task", "telegram_task"):
+        for _key in ("ping_task", "scheduler_task", "offline_sweep_task", "update_task", "telegram_task", "screenshot_task"):
             if _key in _app:
                 _app[_key].cancel()
                 try:

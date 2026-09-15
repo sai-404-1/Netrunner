@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { apiGetClient } from "@/lib/api-client";
+import { HostScreenshot } from "@/components/HostScreenshot";
 import type { Host } from "@/lib/host-types";
 
 const POLL_MS = 5000;
@@ -173,6 +174,7 @@ export function HostStatusGrid({ hosts, selectionMode, selectedIds, onToggleSele
         title={selectionMode ? (selected ? "Снять выбор" : "Выбрать") : "Открыть профиль"}
       >
         <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${isOn ? "bg-green-500" : "bg-gray-400"}`} />
+        <HostScreenshot hostId={h.id} capturedAt={h.screenshot_captured_at} className="w-24 h-[54px]" iconSize={16} />
         <span className="min-w-0 flex flex-col">
           <span className="font-semibold text-sm truncate">{h.name}</span>
           <span className="font-mono text-xs text-gray-500 dark:text-gray-400 truncate">{h.address}</span>

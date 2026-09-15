@@ -22,7 +22,10 @@
   `websocket_handler`, `_periodic_ping` (демон проверки хостов),
   `_scheduler_loop` (фоновый цикл планировщика: раз в **60 секунд** `ctx.scheduler.tick_async()`
   — запланированные задачи выполняются сами), `_update_monitor` (демон git-монитора
-  самообновления — кэширует статус в `app["update_status"]`).
+  самообновления — кэширует статус в `app["update_status"]`),
+  `_screenshot_loop` (фоновый цикл снимков рабочего стола хостов: раз в
+  `ScreenshotSettings.interval_seconds` снимает превью online-хостов через
+  `ScreenshotService`; интервал/включённость перечитываются каждый тик).
 - `healthz_handler` — публичный `/healthz` (200) для health-check супервизора.
 - **Загруженные файлы (только админ):** `api_uploads_list/create/download/delete` —
   хранилище файлов для модуля рассылки (`_require_admin`, `_uploads_dir`, `_upload_to_dict`).
@@ -47,6 +50,11 @@
   используя сохранённый или переданный пароль.
   **Права teacher:** `api_hosts`/`_check_all` отдают только его кабинеты; create/delete/reprovision —
   только админ; update/check — только на своих хостах (`host_visible`).
+  `api_host_screenshot` (`GET /api/hosts/{id}/screenshot`) — текущее превью рабочего
+  стола (JPEG из `data/screenshots/`); 404 если снимки выключены/снимка ещё нет;
+  для teacher — только свои хосты (`host_visible`). Путь к файлу (`screenshot_path`)
+  наружу не отдаётся (скрыт в `model_to_dict`), клиенту виден только
+  `screenshot_captured_at` в `/api/hosts` и `/api/hosts/status`.
 - **Группы:** `api_groups`, `api_groups_create/update/delete/add_host`.
   **Права teacher:** `api_groups` отдаёт только его кабинеты; create/update/delete/add_host —
   только админ (`_deny_teacher`).
@@ -83,6 +91,9 @@
 - Доступы: `api_admin_user_modules(+_set)`, `api_admin_user_groups(+_set)`.
 - Бэкап/восстановление БД: `api_admin_db_tables`, `api_admin_backup`, `api_admin_restore`
   (+ `_do_backup`, `_restart_backend`); `_require_superuser`, `_user_safe`.
+- Настройки исполнения: `api_admin_execution_settings(+_set)`.
+- Настройки снимков рабочего стола: `api_admin_screenshot_settings(+_set)`
+  (`GET/POST /api/admin/screenshot-settings`) — `enabled`/интервал/размер/качество.
 
 ### Сценарии (в `server.py`)
 - `api_scenarios_list`, `api_scenarios_create`, `api_scenarios_delete`, `api_scenarios_runs`

@@ -164,6 +164,26 @@
     подпись для формы); `get_config`/`set_config`/`schema`. Перечитывается перед каждым
     запуском; меняется со страницы «Администрирование».
 
+### `screenshot_settings.py` — настройки снимков рабочего стола
+- `class ScreenshotSettings(db)` — тот же паттерн, что `ExecutionSettings` (`FIELDS`
+  в `app_settings`, `get_config`/`set_config`/`schema`): `enabled` (глобальный тумблер),
+  `interval_seconds`, `width`/`height`, `jpeg_quality`. Перечитывается на каждом тике
+  фонового цикла — правка в админке применяется без перезапуска.
+
+### `screenshot_service.py` — снимки рабочего стола хостов (превью)
+- `class ScreenshotService(db, host_service, settings)` — `capture_host(host)` делает
+  снимок экрана хоста и кладёт JPEG в `config.SCREENSHOTS_PATH` (`data/screenshots/
+  host_{id}.jpg`, один файл на хост, перезаписывается), а путь+таймстемп — в колонки
+  `hosts.screenshot_path`/`screenshot_captured_at`.
+- **Не трогает endpoint-агента** (тот report-only, см. `agent/README.md`) и **не
+  открывает портов на хосте**: снимок делается через уже существующий SSH-канал
+  (`host_service.to_computer` → `async_executor_ssh`), один вызов = детект активной
+  X11-сессии через `loginctl` (DE-независимо) → `scrot` от имени юзера сессии
+  (`sudo -u`, с его `DISPLAY`/`XAUTHORITY`) → `convert` масштабирует весь экран в
+  целевой размер с сохранением пропорций (letterbox, без кропа) → `base64` в stdout.
+  Требует на хосте `scrot`, `imagemagick`, `loginctl` (X11; Wayland пока не умеет).
+- Фоновый цикл, который это дёргает, — `_screenshot_loop` в `server/server.py`.
+
 ### `agent_service.py` — обслуживание endpoint-агента
 - `class AgentService` — жизненный цикл endpoint-агента на управляемой машине:
   провижининг/переустановка (под первичным пользователем через `netrunner-svc`,
