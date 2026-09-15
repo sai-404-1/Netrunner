@@ -6,7 +6,21 @@ import Layout from "@/components/Layout";
 import { useAuth } from "@/components/AuthProvider";
 
 const PUBLIC_PATHS = ["/login"];
-const TEACHER_PATHS = ["/", "/hosts", "/login"];
+// Разделы, доступные преподавателю. Хосты (и профиль машины), модули, история,
+// планировщик, сценарии, профиль; плюс терминал и запуск, к которым ведут
+// кнопки из профиля хоста и со страницы модулей. Всё остальное («Обзор»,
+// «Администрирование», управление ключами) закрыто — редирект на /hosts.
+const TEACHER_PATHS = [
+  "/hosts",
+  "/modules",
+  "/history",
+  "/scheduled",
+  "/scenarios",
+  "/account",
+  "/terminal",
+  "/run",
+  "/login",
+];
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -24,7 +38,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   useEffect(() => {
     if (!loading && user?.role === "teacher" && !user?.is_superuser) {
       const allowed = TEACHER_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"));
-      if (!allowed) router.replace("/");
+      if (!allowed) router.replace("/hosts");
     }
   }, [loading, user, pathname, router]);
 

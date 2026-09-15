@@ -2,8 +2,9 @@
 `ssh -tt` в связке с локальным PTY (стандартная библиотека — `pty`/`termios`/
 `fcntl`/`asyncio.loop.add_reader`), без внешних пакетов.
 
-Только суперпользователь: интерактивный shell — самый привилегированный доступ,
-который вообще есть в NetRunner, привилегированнее любого отдельного модуля.
+Интерактивный shell — самый привилегированный доступ, который вообще есть в
+NetRunner, привилегированнее любого отдельного модуля. Доступен суперпользователю
+(любой хост) и преподавателю (только машины его кабинетов).
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from pathlib import Path
 from aiohttp import web
 
 from computer.module.executor_ssh import KEY_NAME, KEY_PATH, _ssh_common_options
+from server.tools import is_teacher, host_visible
 
 
 def _build_terminal_cmd(host_str: str, port: str, key_path: str | None) -> list[str]:
@@ -31,14 +33,20 @@ def _build_terminal_cmd(host_str: str, port: str, key_path: str | None) -> list[
 
 async def api_terminal_ws(request: web.Request) -> web.WebSocketResponse:
     user = request.get("auth_user")
-    if not user or not user.get("is_superuser"):
-        raise web.HTTPForbidden(reason="Только для администратора")
-
     ctx = request.app["ctx"]
     host_id = int(request.query.get("host_id", "0") or "0")
     host = ctx.db.hosts.get(host_id)
     if not host:
         raise web.HTTPNotFound(reason="Хост не найден")
+
+    # Суперпользователю доступен терминал любого хоста; преподавателю — только
+    # машин его кабинетов; остальным ролям терминал закрыт.
+    allowed = bool(user) and (
+        user.get("is_superuser")
+        or (is_teacher(user) and host_visible(ctx.db, user, host_id))
+    )
+    if not allowed:
+        raise web.HTTPForbidden(reason="Нет доступа к терминалу этого хоста")
 
     computer = ctx.host_service.to_computer(host)
     cmd = _build_terminal_cmd(computer.host, computer.port, computer.key_path)

@@ -38,6 +38,7 @@ interface Props {
   onCheckAll: () => void;
   onToggleSelectionMode: () => void;
   onToggleSelect: (id: number) => void;
+  isTeacher?: boolean;
   onAddHost: () => void;
   onInfoHost: (h: Host) => void;
   onEditGroup: (g: Group) => void;
@@ -68,6 +69,7 @@ export function HostList({
                            onCheckAll,
                            onToggleSelectionMode,
                            onToggleSelect,
+                           isTeacher,
                            onAddHost,
                            onInfoHost,
                            onEditGroup,
@@ -155,13 +157,15 @@ export function HostList({
               </div>
             </div>
 
-            <button
-              type="button"
-              className="btn shrink-0"
-              onClick={onAddHost}
-            >
-              <PlusIcon size={16}/>Добавить хост
-            </button>
+            {!isTeacher && (
+              <button
+                type="button"
+                className="btn shrink-0"
+                onClick={onAddHost}
+              >
+                <PlusIcon size={16}/>Добавить хост
+              </button>
+            )}
           </div>
 
           {runPanel}

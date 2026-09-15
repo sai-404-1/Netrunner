@@ -382,6 +382,7 @@ export default function HostsPage() {
         selectionMode={selectionMode}
         selectedIds={selectedIds}
         listTab={listTab}
+        isTeacher={isTeacher}
         onListTab={setListTab}
         runPanel={
           <RunPanel hosts={hosts} groups={groups} />

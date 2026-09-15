@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiGetClient, apiPostClient } from "@/lib/api-client";
 import { useToast } from "@/components/Toast";
+import { useAuth } from "@/components/AuthProvider";
 import { ChevronDown, Play, Plus, X } from "lucide-react";
 import { Scenario, Module, ScenarioRun } from "@/lib/scenario-types";
 import ScenariosList from "./ScenariosList";
@@ -11,6 +12,8 @@ import RunsSidebar from "./RunsSidebar";
 import { CreateScenarioModal } from "./modals/CreateScenarioModal";
 
 export default function ScenariosPage() {
+  const { user } = useAuth();
+  const isTeacher = user?.role === "teacher" && !user?.is_superuser;
   const showToast = useToast();
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [modules, setModules] = useState<Module[]>([]);
@@ -366,7 +369,7 @@ export default function ScenariosPage() {
           scenario={editScenario}
           onClose={() => setEditScenario(null)}
           onSaved={loadData}
-          onDelete={() => handleDelete(editScenario.id)}
+          onDelete={isTeacher ? undefined : () => handleDelete(editScenario.id)}
         />
       )}
     </div>

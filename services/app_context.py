@@ -21,6 +21,8 @@ from services.execution_settings import ExecutionSettings
 from services.report_service import ReportService
 from services.history import HistoryService
 from services.scenario_runner import ScenarioRunner
+from services.screenshot_settings import ScreenshotSettings
+from services.screenshot_service import ScreenshotService
 
 
 # logger = logging.getLogger("netrunner")
@@ -45,6 +47,8 @@ class AppContext:
     scenario_runner: ScenarioRunner
     history: HistoryService
     execution_settings: ExecutionSettings
+    screenshot_settings: ScreenshotSettings
+    screenshot_service: ScreenshotService
     db_path: str
     reports_dir: str
 
@@ -110,6 +114,8 @@ def create_app_context(
     auth_service.create_default_user()
     report_service = ReportService(db=db, reports_dir=reports_dir)
     execution_settings = ExecutionSettings(db)
+    screenshot_settings = ScreenshotSettings(db)
+    screenshot_service = ScreenshotService(db, host_service, screenshot_settings)
     scenario_runner = ScenarioRunner(
         db=db,
         host_service=host_service,
@@ -141,6 +147,8 @@ def create_app_context(
         scenario_runner=scenario_runner,
         history=history,
         execution_settings=execution_settings,
+        screenshot_settings=screenshot_settings,
+        screenshot_service=screenshot_service,
         db_path=db_path,
         reports_dir=reports_dir,
     )

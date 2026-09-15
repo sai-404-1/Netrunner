@@ -20,5 +20,7 @@ class Host(BaseModel):
     is_active: int = 1
     last_seen_at: str | None = None
     password_encrypted: str | None = None
+    screenshot_path: str | None = None
+    screenshot_captured_at: str | None = None
     created_at: str = ''
     updated_at: str = ''

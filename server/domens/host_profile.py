@@ -13,7 +13,7 @@ import json
 
 from aiohttp import web
 
-from server.tools import _ctx, _ok, _error, _read_json, _safe_int, model_to_dict
+from server.tools import _ctx, _ok, _error, _read_json, _safe_int, model_to_dict, allowed_host_ids
 
 # Живая сводка по машине одним SSH-заходом: два среза /proc/stat с паузой дают
 # загрузку CPU, остальное читается один раз. Каждая строка — KEY:value, чтобы
@@ -40,17 +40,14 @@ nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total \
 # --- права ---------------------------------------------------------------
 
 def _host_visible(ctx, user, host_id: int) -> bool:
-    """Виден ли хост пользователю. Совпадает с фильтром в `api_hosts`: если
-    пользователю не выданы группы явно — он видит всё, как и раньше."""
-    if not user or user.get("is_superuser"):
+    """Виден ли хост пользователю. Использует тот же расчёт доступа, что и
+    `api_hosts` (см. `allowed_host_ids`): суперпользователь и «обычный»
+    пользователь без выданных кабинетов видят всё, преподаватель — только
+    хосты из своих кабинетов."""
+    host_ids = allowed_host_ids(ctx.db, user)
+    if host_ids is None:
         return True
-    access_rows = ctx.db.user_group_access.by_user(int(user["id"]))
-    if not access_rows:
-        return True
-    for row in access_rows:
-        if any(h.id == host_id for h in ctx.db.groups.hosts(row.group_id)):
-            return True
-    return False
+    return host_id in host_ids
 
 
 def _host_permissions(ctx, user) -> dict:
@@ -71,7 +68,7 @@ def _host_permissions(ctx, user) -> dict:
         "terminal": is_admin or is_teacher,
         "power": is_admin or is_teacher,
         "run_modules": is_admin or is_teacher,
-        "edit": is_admin,
+        "edit": is_admin or is_teacher,
         "reprovision": is_admin,
         "delete": is_admin,
     }

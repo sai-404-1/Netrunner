@@ -383,3 +383,22 @@ async def api_admin_execution_settings_set(request: web.Request) -> web.Response
     settings = _ctx(request).execution_settings
     config = settings.set_config(**payload)
     return _json_response({"ok": True, "data": {"config": config}})
+
+
+async def api_admin_screenshot_settings(request: web.Request) -> web.Response:
+    """Настройка снимков рабочего стола хостов + описание полей для формы."""
+    _require_superuser(request)
+    settings = _ctx(request).screenshot_settings
+    return _json_response({
+        "ok": True,
+        "data": {"config": settings.get_config(), "schema": settings.schema()},
+    })
+
+
+async def api_admin_screenshot_settings_set(request: web.Request) -> web.Response:
+    """Частичное обновление: приходят только изменённые поля."""
+    _require_superuser(request)
+    payload = await _read_json(request)
+    settings = _ctx(request).screenshot_settings
+    config = settings.set_config(**payload)
+    return _json_response({"ok": True, "data": {"config": config}})

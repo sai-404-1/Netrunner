@@ -13,6 +13,9 @@ export interface Host {
   group_name?: string;
   ssh_key_id?: number;
   description?: string;
+  /** ISO-время последнего снимка экрана (null — ещё не снят). Служит и
+   *  cache-key для миниатюры: меняется — картинка перезапрашивается. */
+  screenshot_captured_at?: string | null;
 }
 
 export interface Group {

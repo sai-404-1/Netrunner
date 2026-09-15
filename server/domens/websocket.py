@@ -79,12 +79,13 @@ async def agent_websocket_handler(request: web.Request) -> web.WebSocketResponse
                 # нельзя (288k записей/сутки при 200 хостах раздуют БД). В историю
                 # идут только значимые события: online, подключение/отключение.
                 if hasattr(ctx, "history") and msg_type != "heartbeat":
+                    _host = ctx.db.hosts.get(host_id)
                     ctx.history.record(
                         source="agent_message",
                         event_type="agent_msg",
                         title=f"Сообщение от агента: {msg_type}",
                         description=json.dumps(data, ensure_ascii=False, default=str)[:4000],
-                        payload={"host_name": f"host-{host_id}", "message_type": msg_type},
+                        payload={"host_name": _host.name if _host else f"#{host_id}", "message_type": msg_type},
                         host_id=host_id,
                         level="info",
                     )

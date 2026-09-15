@@ -1,12 +1,22 @@
 from aiohttp import web
 
-from server.tools import _ctx, _ok, model_to_dict, _read_json, _error, _safe_int
+from server.tools import _ctx, _ok, model_to_dict, _read_json, _error, _safe_int, allowed_group_ids, is_teacher
+
+
+def _deny_teacher(request: web.Request):
+    """403, если запрос от преподавателя: управление кабинетами — админское."""
+    if is_teacher(request.get("auth_user")):
+        return _error("Управление кабинетами доступно только администратору", status=403)
+    return None
 
 
 async def api_groups(request: web.Request) -> web.Response:
     db = _ctx(request).db
+    group_ids = allowed_group_ids(db, request.get("auth_user"))
     groups = []
     for group in db.groups.all():
+        if group_ids is not None and group.id not in group_ids:
+            continue
         item = model_to_dict(group)
         item["hosts"] = db.groups.hosts(group.id)
         groups.append(item)
@@ -15,6 +25,9 @@ async def api_groups(request: web.Request) -> web.Response:
 
 async def api_groups_create(request: web.Request) -> web.Response:
     import sqlite3 as _sqlite3
+    denied = _deny_teacher(request)
+    if denied:
+        return denied
     ctx = _ctx(request)
     payload = await _read_json(request)
     name = str(payload.get("name") or "").strip()
@@ -32,6 +45,9 @@ async def api_groups_create(request: web.Request) -> web.Response:
 
 
 async def api_groups_update(request: web.Request) -> web.Response:
+    denied = _deny_teacher(request)
+    if denied:
+        return denied
     ctx = _ctx(request)
     payload = await _read_json(request)
     group_id = _safe_int(payload.get("id"))
@@ -41,6 +57,9 @@ async def api_groups_update(request: web.Request) -> web.Response:
 
 
 async def api_groups_delete(request: web.Request) -> web.Response:
+    denied = _deny_teacher(request)
+    if denied:
+        return denied
     ctx = _ctx(request)
     payload = await _read_json(request)
     group_id = _safe_int(payload.get("id"))
@@ -49,6 +68,9 @@ async def api_groups_delete(request: web.Request) -> web.Response:
 
 
 async def api_groups_add_host(request: web.Request) -> web.Response:
+    denied = _deny_teacher(request)
+    if denied:
+        return denied
     ctx = _ctx(request)
     payload = await _read_json(request)
     link = ctx.host_service.add_host_to_group(

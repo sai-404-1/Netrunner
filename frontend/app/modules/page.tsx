@@ -7,6 +7,7 @@ import { BooleanBadge } from "@/components/Badge";
 import { DataTable } from "@/components/DataTable";
 import { Modal } from "@/components/Modal";
 import { useToast } from "@/components/Toast";
+import { useAuth } from "@/components/AuthProvider";
 import { Pencil, Trash2, Play, Plus, X, ChevronDown, ChevronUp, ChevronLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -191,6 +192,8 @@ function SchemaBuilder({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ModulesPage() {
+  const { user: authUser } = useAuth();
+  const isTeacher = authUser?.role === "teacher" && !authUser?.is_superuser;
   const showToast = useToast();
   const router = useRouter();
   const [modules, setModules] = useState<Module[]>([]);
@@ -337,6 +340,7 @@ export default function ModulesPage() {
         <p className="text-gray-500">Доступные для исполнения модули</p>
       </div>
 
+      {!isTeacher && (
       <div className="panel">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold">Добавить модуль</h3>
@@ -414,6 +418,7 @@ export default function ModulesPage() {
         </form>
         )}
       </div>
+      )}
 
       <div className="panel">
         <div className="flex items-center gap-1 border-b border-gray-200 dark:border-gray-700 mb-4">
@@ -435,7 +440,7 @@ export default function ModulesPage() {
           </button>
         </div>
         {modTab === "builtin" && <DataTable columns={columns(false)} rows={builtin} />}
-        {modTab === "user" && <DataTable columns={columns(true)} rows={user} />}
+        {modTab === "user" && <DataTable columns={columns(!isTeacher)} rows={user} />}
       </div>
 
       {editModule && (

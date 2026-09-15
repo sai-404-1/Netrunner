@@ -1,8 +1,37 @@
+from pathlib import Path
+
 from aiohttp import web
-from server.tools import _ctx, _ok, model_to_dict, _read_json, _safe_int, _error
+from server.tools import _ctx, _ok, model_to_dict, _read_json, _safe_int, _error, allowed_host_ids, is_teacher, host_visible
 from services.agent_service import _auto_install_agent
 from services.host_service import _provision_ssh_key, _run_background
 from services.secrets import encrypt_secret, decrypt_secret
+
+
+async def api_host_screenshot(request: web.Request) -> web.FileResponse | web.Response:
+    """Текущее превью рабочего стола хоста (JPEG). Один файл, перезаписывается
+    фоновым циклом `_screenshot_loop` (см. `services/screenshot_service.py`).
+
+    404, если: снимки выключены глобально, у хоста ещё нет ни одного снимка,
+    либо (для преподавателя) хост вне его кабинетов — тот же `host_visible`,
+    что и на остальных host-специфичных ручках.
+    """
+    ctx = _ctx(request)
+    host_id = _safe_int(request.match_info["id"])
+    user = request.get("auth_user")
+    if is_teacher(user) and not host_visible(ctx.db, user, host_id):
+        return _error("Нет доступа к этому хосту", status=403)
+    if not ctx.screenshot_settings.get_config()["enabled"]:
+        return _error("Снимки рабочего стола выключены администратором", status=404)
+    host = ctx.db.hosts.get(host_id)
+    if not host or not host.screenshot_path:
+        return _error("Снимок ещё не сделан", status=404)
+    target = Path(host.screenshot_path)
+    if not target.exists():
+        return _error("Снимок отсутствует на диске", status=404)
+    return web.FileResponse(
+        target,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 async def api_hosts(request: web.Request) -> web.Response:
@@ -13,15 +42,9 @@ async def api_hosts(request: web.Request) -> web.Response:
 def _hosts_payload(db, user) -> list:
     """Общий сбор хостов для /api/hosts и /api/hosts/status."""
     all_hosts = db.hosts.all()
-    if user and not user.get("is_superuser"):
-        access_rows = db.user_group_access.by_user(int(user["id"]))
-        if access_rows:
-            allowed_group_ids = {row.group_id for row in access_rows}
-            allowed_host_ids: set[int] = set()
-            for gid in allowed_group_ids:
-                for h in db.groups.hosts(gid):
-                    allowed_host_ids.add(h.id)
-            all_hosts = [h for h in all_hosts if h.id in allowed_host_ids]
+    host_ids = allowed_host_ids(db, user)
+    if host_ids is not None:
+        all_hosts = [h for h in all_hosts if h.id in host_ids]
     hosts = []
     for host in all_hosts:
         item = model_to_dict(host)
@@ -50,6 +73,7 @@ async def api_hosts_status(request: web.Request) -> web.Response:
             "group_name": h.get("group_name"),
             "is_active": bool(h.get("is_active")),
             "last_seen": h.get("last_seen"),
+            "screenshot_captured_at": h.get("screenshot_captured_at"),
         }
         for h in rows
     ]
@@ -58,6 +82,8 @@ async def api_hosts_status(request: web.Request) -> web.Response:
 
 async def api_hosts_create(request: web.Request) -> web.Response:
     ctx = _ctx(request)
+    if is_teacher(request.get("auth_user")):
+        return _error("Добавление хостов доступно только администратору", status=403)
     payload = await _read_json(request)
     ssh_key_id = payload.get("ssh_key_id")
     if ssh_key_id is not None:
@@ -101,6 +127,8 @@ async def api_hosts_update(request: web.Request) -> web.Response:
     ctx = _ctx(request)
     payload = await _read_json(request)
     host_id = _safe_int(payload.get("id"))
+    if is_teacher(request.get("auth_user")) and not host_visible(ctx.db, request.get("auth_user"), host_id):
+        return _error("Нет доступа к этому хосту", status=403)
     password = None
     allowed = {}
     for k, v in payload.items():
@@ -144,6 +172,8 @@ async def api_hosts_update(request: web.Request) -> web.Response:
 
 async def api_hosts_delete(request: web.Request) -> web.Response:
     ctx = _ctx(request)
+    if is_teacher(request.get("auth_user")):
+        return _error("Удаление хостов доступно только администратору", status=403)
     payload = await _read_json(request)
     host_id = _safe_int(payload.get("id"))
     ctx.db.hosts.delete(host_id)
@@ -154,6 +184,8 @@ async def api_hosts_check(request: web.Request) -> web.Response:
     ctx = _ctx(request)
     payload = await _read_json(request)
     host_id = _safe_int(payload.get("id"))
+    if is_teacher(request.get("auth_user")) and not host_visible(ctx.db, request.get("auth_user"), host_id):
+        return _error("Нет доступа к этому хосту", status=403)
     result = await ctx.host_service.check_host_async(host_id)
     host = model_to_dict(ctx.db.hosts.get(host_id))
     host["last_seen"] = host["last_seen_at"]
@@ -166,8 +198,13 @@ async def api_hosts_check_all(request: web.Request) -> web.Response:
     ctx = _ctx(request)
     await _read_json(request)
     result = await ctx.host_service.check_all_hosts_async()
+    # Преподаватель получает в ответе только хосты своих кабинетов — реестр
+    # чужих машин не утекает (сам опрос идёт по всем хостам сервера).
+    visible = allowed_host_ids(ctx.db, request.get("auth_user"))
     hosts = []
     for host in ctx.db.hosts.all():
+        if visible is not None and host.id not in visible:
+            continue
         item = model_to_dict(host)
         item["last_seen"] = host.last_seen_at
         item["group_id"] = ctx.db.groups.first_group_id_for_host(host.id)
@@ -187,6 +224,8 @@ async def api_hosts_reprovision(request: web.Request) -> web.Response:
     бы скопирован другой).
     """
     ctx = _ctx(request)
+    if is_teacher(request.get("auth_user")):
+        return _error("Перепривязка ключа доступна только администратору", status=403)
     payload = await _read_json(request)
     host_id = _safe_int(payload.get("id"))
     host = ctx.db.hosts.get(host_id)
