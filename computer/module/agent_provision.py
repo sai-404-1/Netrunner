@@ -109,7 +109,7 @@ class UserModule:
             ssh_username = existing.ssh_username
             public_key = existing.public_key
             token = None  # оставляем прежний (encrypted хранится в existing)
-            create_user = False  # юзер уже есть, но sudoers всё равно чиним
+            create_user = False  # юзер мог пропасть при переустановке ОС — create_user_block всё равно включается (идемпотентен)
         else:
             # Первая установка: генерим секреты.
             secrets_data = agent_svc.provision(host.id)
@@ -130,10 +130,11 @@ class UserModule:
             "server_ws_url": server_ws_url,
         })
 
-        # Пользователь создаётся только при первой установке (или если пропал).
-        create_user_block = ""
-        if create_user:
-            create_user_block = f"""if ! id {shlex.quote(ssh_username)} >/dev/null 2>&1; then
+        # Блок создания пользователя включается всегда: bash-guard «if ! id ...»
+        # делает его идемпотентным — при повторной установке просто пропустится,
+        # при переустановке на переформатированную машину (юзер пропал, запись в DB
+        # осталась) — восстановит пользователя до chown в pubkey_block.
+        create_user_block = f"""if ! id {shlex.quote(ssh_username)} >/dev/null 2>&1; then
   sudo useradd -m -s /bin/bash {shlex.quote(ssh_username)}
   sudo mkdir -p /home/{ssh_username}/.ssh
   sudo touch /home/{ssh_username}/.ssh/authorized_keys
@@ -142,6 +143,7 @@ class UserModule:
   sudo chmod 600 /home/{ssh_username}/.ssh/authorized_keys
 fi
 """
+        # (блок выше включён безусловно — идемпотентен через «if ! id»)
 
         # Публичный ключ пишется ВСЕГДА: если юзер был пересоздан / ключ сменился —
         # он должен попасть на хост. Директория .ssh создаётся здесь, а не только в
