@@ -7,6 +7,15 @@ from .base import BaseModel
 
 
 @dataclass(slots=True)
+class ScenarioFolder(BaseModel):
+    __table__: ClassVar[str] = 'scenario_folders'
+    id: int | None = None
+    name: str = ''
+    created_at: str = ''
+    updated_at: str = ''
+
+
+@dataclass(slots=True)
 class Scenario(BaseModel):
     __table__: ClassVar[str] = 'scenarios'
     id: int | None = None
@@ -14,6 +23,7 @@ class Scenario(BaseModel):
     description: str | None = None
     target_type: str = 'group'
     target_id: int | None = None
+    folder_id: int | None = None
     created_at: str = ''
     updated_at: str = ''
 

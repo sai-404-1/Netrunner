@@ -96,6 +96,7 @@ async def api_scenarios_create(request: web.Request) -> web.Response:
         name=str(payload.get("name", "")).strip(),
         description=str(payload.get("description", "")).strip() or None,
         target_type="group",
+        folder_id=_safe_int(payload.get("folder_id")) or None,
         created_at=now,
         updated_at=now,
     )
@@ -218,3 +219,109 @@ async def api_scenarios_delete(request: web.Request) -> web.Response:
     scenario_id = _safe_int(payload.get("id"))
     db.scenarios.delete(scenario_id)
     return _ok({"deleted": scenario_id})
+
+
+# --------------------------------------------------------------------------
+# Папки сценариев
+#
+# Читать папки может любой авторизованный пользователь (преподаватель видит
+# ту же структуру, что и администратор) — а создавать, переименовывать,
+# удалять и перекладывать сценарии может только суперпользователь.
+# --------------------------------------------------------------------------
+
+def _folders_admin_guard(request: web.Request):
+    """None, если можно менять папки; иначе готовый ответ 403."""
+    user = request.get("auth_user")
+    if user and user.get("is_superuser"):
+        return None
+    return _error("Управление папками доступно только администратору", status=403)
+
+
+async def api_scenario_folders_list(request: web.Request) -> web.Response:
+    db = _ctx(request).db
+    folders = []
+    for folder in db.scenario_folders.all_sorted():
+        item = model_to_dict(folder)
+        item["scenario_count"] = len(db.scenarios.filter(folder_id=folder.id))
+        folders.append(item)
+    return _ok(folders)
+
+
+async def api_scenario_folders_create(request: web.Request) -> web.Response:
+    denied = _folders_admin_guard(request)
+    if denied:
+        return denied
+    db = _ctx(request).db
+    payload = await _read_json(request)
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        return _error("Укажите название папки")
+    if db.scenario_folders.by_name(name):
+        return _error(f"Папка «{name}» уже существует")
+    now = utcnow_iso()
+    folder = db.scenario_folders.create(name=name, created_at=now, updated_at=now)
+    return _ok(folder)
+
+
+async def api_scenario_folders_update(request: web.Request) -> web.Response:
+    denied = _folders_admin_guard(request)
+    if denied:
+        return denied
+    db = _ctx(request).db
+    payload = await _read_json(request)
+    folder_id = _safe_int(payload.get("id"))
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        return _error("Укажите название папки")
+    if db.scenario_folders.get(folder_id) is None:
+        return _error("Папка не найдена", status=404)
+    existing = db.scenario_folders.by_name(name)
+    if existing and existing.id != folder_id:
+        return _error(f"Папка «{name}» уже существует")
+    folder = db.scenario_folders.update(folder_id, name=name, updated_at=utcnow_iso())
+    return _ok(folder)
+
+
+async def api_scenario_folders_delete(request: web.Request) -> web.Response:
+    """Удаляет папку. Сценарии внутри не удаляются — переезжают в корень."""
+    denied = _folders_admin_guard(request)
+    if denied:
+        return denied
+    db = _ctx(request).db
+    payload = await _read_json(request)
+    folder_id = _safe_int(payload.get("id"))
+    if db.scenario_folders.get(folder_id) is None:
+        return _error("Папка не найдена", status=404)
+    db.scenarios.clear_folder(folder_id)
+    db.scenario_folders.delete(folder_id)
+    return _ok({"deleted": folder_id})
+
+
+async def api_scenarios_move(request: web.Request) -> web.Response:
+    """Перекладывает сценарии в папку. folder_id=null — вынести в корень."""
+    denied = _folders_admin_guard(request)
+    if denied:
+        return denied
+    db = _ctx(request).db
+    payload = await _read_json(request)
+
+    raw_ids = payload.get("scenario_ids")
+    if not isinstance(raw_ids, list):
+        raw_ids = [payload.get("scenario_id")]
+    scenario_ids = [_safe_int(x) for x in raw_ids if _safe_int(x)]
+    if not scenario_ids:
+        return _error("Не указаны сценарии для перемещения")
+
+    raw_folder = payload.get("folder_id")
+    folder_id = _safe_int(raw_folder) or None
+    if folder_id is not None and db.scenario_folders.get(folder_id) is None:
+        return _error("Папка не найдена", status=404)
+
+    now = utcnow_iso()
+    moved = []
+    for scenario_id in scenario_ids:
+        if db.scenarios.get(scenario_id) is None:
+            continue
+        db.scenarios.update(scenario_id, folder_id=folder_id, updated_at=now)
+        moved.append(scenario_id)
+    return _ok({"moved": moved, "folder_id": folder_id})

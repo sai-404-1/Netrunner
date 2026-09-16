@@ -461,12 +461,20 @@ CREATE TABLE IF NOT EXISTS board_hosts (
 );
 CREATE INDEX IF NOT EXISTS idx_bh_board ON board_hosts (board_id);
 
+CREATE TABLE IF NOT EXISTS scenario_folders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS scenarios (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     description TEXT,
     target_type TEXT NOT NULL DEFAULT 'group',
     target_id INTEGER,
+    folder_id INTEGER REFERENCES scenario_folders(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -596,6 +604,18 @@ CREATE TABLE IF NOT EXISTS host_default_credentials (
 );
 """)
 
+def _migrate_scenarios(conn) -> None:
+    """Папки сценариев: ссылка на scenario_folders у существующих баз.
+
+    Вызывается ПОСЛЕ _create_new_tables — таблица scenario_folders должна уже
+    существовать, иначе REFERENCES будет висеть на несуществующей таблице.
+    """
+    _add_column_if_missing(
+        conn, "scenarios", "folder_id",
+        "INTEGER REFERENCES scenario_folders(id) ON DELETE SET NULL",
+    )
+
+
 def create_schema(conn) -> None:
     conn.executescript(SCHEMA_SQL)
     _migrate_ssh_keys(conn)
@@ -605,4 +625,5 @@ def create_schema(conn) -> None:
     _migrate_modules(conn)
     _migrate_hosts(conn)
     _create_new_tables(conn)
+    _migrate_scenarios(conn)
     conn.commit()

@@ -3,9 +3,17 @@ export interface Scenario {
   id: number;
   name: string;
   description: string | null;
+  /** Папка сценария; null — лежит в корне. */
+  folder_id: number | null;
   steps: ScenarioStep[];
   step_count: number;
   run_count: number;
+}
+
+export interface ScenarioFolder {
+  id: number;
+  name: string;
+  scenario_count: number;
 }
 
 export interface ScenarioStep {
