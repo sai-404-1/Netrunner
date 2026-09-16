@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from server.tools import _ok, _ctx, _read_json, _safe_int, _error, is_teacher, allowed_host_ids, allowed_group_ids
-from database.repos.schedule_repo import validate_schedule, next_slot_utc_iso
+from database.repos.schedule_repo import validate_schedule, next_slot_utc_iso, task_target_ids
 
 
 def _to_utc_iso(value) -> str:
@@ -99,25 +99,31 @@ def _first_run_at_utc(sched: dict) -> str:
 def _filter_scheduled_for_user(db, user, tasks: list) -> list:
     """Оставляет только задачи, чьи цели входят в кабинеты пользователя.
 
-    Суперпользователь видит всё. Учитель видит задачи только на хосты/группы
-    своих кабинетов. Задача с target_type='group' проверяется по allowed_group_ids;
-    target_type='host' — по allowed_host_ids.
+    Суперпользователь видит всё. Учитель видит задачу, если хоть одна из её
+    целей (хост или группа) входит в его кабинеты.
+
+    Цели читаются через task_target_ids — тот же разбор, что использует сам
+    планировщик: мульти-выбор (target_host_ids_json/target_group_ids_json)
+    имеет приоритет, legacy-поля target_type/target_id — только фолбэк для
+    задач без мульти-полей. Первая версия фильтра проверяла голые
+    target_type/target_id и для мульти-задач (обычный случай — фронт всегда
+    шлёт host_ids/group_ids) сравнивала с их дефолтными заглушками
+    ("host"/0), из-за чего учитель не видел вообще ни одной мульти-задачи,
+    даже нацеленной на его же кабинет.
     """
     if not is_teacher(user):
         return tasks
     visible_hosts = allowed_host_ids(db, user)
     visible_groups = allowed_group_ids(db, user)
+    if visible_hosts is None and visible_groups is None:
+        return tasks
     result = []
     for t in tasks:
-        ttype = (t.target_type if hasattr(t, "target_type") else t.get("target_type")) or "host"
-        tid = int((t.target_id if hasattr(t, "target_id") else t.get("target_id")) or 0)
-        if ttype == "group":
-            if visible_groups is not None and tid not in visible_groups:
-                continue
-        else:
-            if visible_hosts is not None and tid not in visible_hosts:
-                continue
-        result.append(t)
+        host_ids, group_ids = task_target_ids(t)
+        hosts_ok = visible_hosts is None or any(h in visible_hosts for h in host_ids)
+        groups_ok = visible_groups is None or any(g in visible_groups for g in group_ids)
+        if (host_ids and hosts_ok) or (group_ids and groups_ok):
+            result.append(t)
     return result
 
 
