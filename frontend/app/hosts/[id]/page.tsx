@@ -11,12 +11,42 @@ import { apiGetClient, apiPostClient } from "@/lib/api-client";
 import { useToast } from "@/components/Toast";
 import { formatDate } from "@/lib/utils";
 import { HostScreenshot } from "@/components/HostScreenshot";
-import type { HostMetrics, HostProfile } from "@/lib/host-types";
+import type { HostEvent, HostMetrics, HostProfile } from "@/lib/host-types";
 import { MetricGauge } from "./MetricGauge";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { HostRunPanel } from "./HostRunPanel";
+import { HostWindowsPanel } from "./HostWindowsPanel";
 
 const METRICS_INTERVAL_MS = 5000;
+
+/** Подписи событий журнала машины: в базе хранятся технические типы. */
+const EVENT_LABELS: Record<string, string> = {
+  power_reboot: "Перезагрузка",
+  power_poweroff: "Выключение",
+  window_close: "Закрыто окно",
+  agent_connected: "Агент подключился",
+  agent_disconnected: "Агент отключился",
+  online: "Компьютер включился",
+  heartbeat: "Агент на связи",
+};
+
+/** Кто сделал и с чем — из payload события, если там есть что показать. */
+function eventDetails(e: HostEvent): string {
+  if (!e.payload_json) return "";
+  try {
+    const p = JSON.parse(e.payload_json);
+    const parts: string[] = [];
+    if (e.type === "window_close") {
+      if (p.title) parts.push(`«${p.title}»`);
+      if (p.method === "force") parts.push("принудительно");
+      if (p.closed === false) parts.push("приложение не закрылось");
+    }
+    if (p.by) parts.push(p.by);
+    return parts.join(" · ");
+  } catch {
+    return "";
+  }
+}
 /** Сколько замеров держим для графиков (≈2.5 минуты при шаге 5 с). */
 const HISTORY_LIMIT = 30;
 
@@ -481,6 +511,13 @@ export default function HostProfilePage() {
             )}
           </div>
 
+      {/* Открытые окна на рабочем столе: преподаватель видит и закрывает приложения ученика */}
+      {perms.windows && (
+        <div className="panel">
+          <HostWindowsPanel hostId={host.id} online={Boolean(host.is_active)} />
+        </div>
+      )}
+
       {/* Логирование системы: таймлайн событий хоста */}
       <div className="panel">
         <h3 className="font-semibold mb-3 flex items-center gap-2">
@@ -490,8 +527,13 @@ export default function HostProfilePage() {
           <ul className="divide-y dark:divide-gray-700 text-sm max-h-80 overflow-auto">
             {profile.events.map((e) => (
               <li key={e.id} className="py-2 flex items-start justify-between gap-3">
-                <span className="font-mono text-xs px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700 shrink-0">
-                  {e.type}
+                <span className="min-w-0">
+                  <span className="text-xs px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700">
+                    {EVENT_LABELS[e.type] || e.type}
+                  </span>
+                  {eventDetails(e) && (
+                    <span className="ml-2 text-xs text-gray-600 dark:text-gray-400">{eventDetails(e)}</span>
+                  )}
                 </span>
                 <span className="text-gray-500 text-xs shrink-0">{formatDate(e.created_at)}</span>
               </li>

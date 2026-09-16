@@ -67,6 +67,7 @@ def _host_permissions(ctx, user) -> dict:
         "check": True,
         "terminal": is_admin or is_teacher,
         "power": is_admin or is_teacher,
+        "windows": is_admin or is_teacher,
         "run_modules": is_admin or is_teacher,
         "edit": is_admin or is_teacher,
         "reprovision": is_admin,
@@ -304,3 +305,68 @@ async def api_host_power(request: web.Request) -> web.Response:
     # Машина уходит в оффлайн — не ждём следующей проверки, чтобы показать это.
     ctx.db.hosts.update(host_id, is_active=0)
     return _ok({"action": action, "host_id": host_id, "output": raw})
+
+
+# --- окна приложений ------------------------------------------------------
+
+def _windows_access(ctx, user, host_id: int):
+    """(host, None) или (None, ответ с ошибкой) — общие проверки для окон."""
+    host = ctx.db.hosts.get(host_id)
+    if host is None:
+        return None, _error("Хост не найден", status=404)
+    if not _host_visible(ctx, user, host_id):
+        return None, _error("Нет доступа к этому хосту", status=403)
+    if not _host_permissions(ctx, user)["windows"]:
+        return None, _error("Управление окнами недоступно для вашей роли", status=403)
+    return host, None
+
+
+async def api_host_windows(request: web.Request) -> web.Response:
+    """Открытые окна приложений на рабочем столе машины (с иконками)."""
+    from services.desktop_windows import DesktopWindowsError, list_windows
+
+    ctx = _ctx(request)
+    host, denied = _windows_access(ctx, request.get("auth_user"), _safe_int(request.match_info["id"]))
+    if denied:
+        return denied
+    try:
+        windows = await list_windows(ctx.host_service.to_computer(host))
+    except DesktopWindowsError as exc:
+        return _error(str(exc), status=502)
+    return _ok({"host_id": host.id, "windows": windows})
+
+
+async def api_host_window_close(request: web.Request) -> web.Response:
+    """Закрыть окно: мягко (как «×», приложение может спросить о сохранении)
+    или принудительно (force) — разрыв соединения приложения с X-сервером."""
+    from services.desktop_windows import DesktopWindowsError, close_window
+
+    ctx = _ctx(request)
+    user = request.get("auth_user")
+    host, denied = _windows_access(ctx, user, _safe_int(request.match_info["id"]))
+    if denied:
+        return denied
+    payload = await _read_json(request)
+    window_id = _safe_int(payload.get("window_id"))
+    if window_id <= 0:
+        return _error("Не указано окно", status=400)
+    force = bool(payload.get("force"))
+    try:
+        result = await close_window(ctx.host_service.to_computer(host), window_id, force=force)
+    except DesktopWindowsError as exc:
+        return _error(str(exc), status=502)
+
+    ctx.db.host_events.record(
+        host.id,
+        "window_close",
+        payload_json=json.dumps(
+            {
+                "by": (user or {}).get("username"),
+                "title": result.get("title"),
+                "method": result.get("method"),
+                "closed": result.get("closed"),
+            },
+            ensure_ascii=False,
+        ),
+    )
+    return _ok(result)
