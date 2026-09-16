@@ -20,6 +20,10 @@ export function AgentTab() {
   const [coldawnRetries, setColdawnRetries] = useState<number>(3);
   const [coldawnField, setColdawnField] = useState<ExecutionField | null>(null);
   const [execSaving, setExecSaving] = useState(false);
+  // Адрес сервера, который агент пишет себе в конфиг при установке.
+  const [agentWsUrl, setAgentWsUrl] = useState<string>("");
+  const [agentWsField, setAgentWsField] = useState<ExecutionField | null>(null);
+  const [agentWsSaving, setAgentWsSaving] = useState(false);
 
   // Снимки рабочего стола хостов (превью в списке/профиле).
   const [shotEnabled, setShotEnabled] = useState<boolean>(true);
@@ -43,6 +47,8 @@ export function AgentTab() {
       setSshUserField(data?.schema?.ssh_user_mode || null);
       setColdawnRetries(Number(data?.config?.coldawn_retries ?? 3));
       setColdawnField(data?.schema?.coldawn_retries || null);
+      setAgentWsUrl(data?.config?.agent_ws_url || "");
+      setAgentWsField(data?.schema?.agent_ws_url || null);
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -134,6 +140,29 @@ export function AgentTab() {
     }
   }
 
+  /** Адрес, по которому админ сейчас открыл NetRunner, — его же видят машины той же сети. */
+  function agentWsUrlFromThisPage(): string {
+    const scheme = window.location.protocol === "https:" ? "wss" : "ws";
+    return `${scheme}://${window.location.host}/api/python/agent/ws`;
+  }
+
+  async function saveAgentWsUrl() {
+    setAgentWsSaving(true);
+    try {
+      const res = await saveExecutionSettings({ agent_ws_url: agentWsUrl.trim() });
+      setAgentWsUrl(res?.config?.agent_ws_url ?? "");
+      showToast(
+        res?.config?.agent_ws_url
+          ? "Адрес сохранён. Переустановите агента на хостах, чтобы он подхватил новый адрес"
+          : "Адрес сброшен — будет использоваться переменная окружения",
+      );
+    } catch (err: any) {
+      showToast(err.message, "error");
+    } finally {
+      setAgentWsSaving(false);
+    }
+  }
+
   async function saveColdawnRetries() {
     setExecSaving(true);
     try {
@@ -167,6 +196,38 @@ export function AgentTab() {
             {credsSaving ? "Сохранение..." : "Сохранить"}
           </button>
         </form>
+      </div>
+
+      <div className="panel">
+        <h3 className="font-semibold mb-1">{agentWsField?.label || "Адрес сервера для агента"}</h3>
+        <p className="text-sm text-gray-500 mb-4">
+          {agentWsField?.hint || "WebSocket-адрес, по которому агент на хостах связывается с сервером."}
+        </p>
+        <div className="flex items-end gap-3 flex-wrap max-w-3xl">
+          <label className="label flex-1 min-w-[18rem]">
+            WebSocket-адрес
+            <input
+              className="input font-mono text-sm"
+              value={agentWsUrl}
+              placeholder="ws://IP-сервера:3001/api/python/agent/ws"
+              disabled={agentWsSaving}
+              onChange={(e) => setAgentWsUrl(e.target.value)}
+              autoComplete="off"
+            />
+          </label>
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={agentWsSaving}
+            onClick={() => setAgentWsUrl(agentWsUrlFromThisPage())}
+            title="Адрес, по которому вы сейчас открыли NetRunner"
+          >
+            Подставить адрес этой страницы
+          </button>
+          <button className="btn" onClick={saveAgentWsUrl} disabled={agentWsSaving}>
+            {agentWsSaving ? "Сохранение..." : "Сохранить"}
+          </button>
+        </div>
       </div>
 
       <div className="panel">

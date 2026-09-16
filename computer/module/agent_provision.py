@@ -27,7 +27,6 @@ sudoers-правило для netrunner-svc (NOPASSWD: ALL) и ставится 
 from __future__ import annotations
 
 import json
-import os
 import shlex
 from pathlib import Path
 
@@ -38,17 +37,15 @@ _AGENT_SCRIPT_PATH = _AGENT_DIR / "netrunner_agent.py"
 _SERVICE_UNIT_PATH = _AGENT_DIR / "netrunner-agent.service"
 
 
-def _resolve_agent_ws_url(explicit: str) -> str:
-    """WS-адрес для конфига агента: аргумент > env > автоопределение."""
+def _resolve_agent_ws_url(explicit: str, db=None) -> str:
+    """WS-адрес для конфига агента: аргумент запуска > настройка из
+    Администрирования > env > автоопределение (см. _default_agent_ws_url)."""
     value = (explicit or "").strip()
     if value:
         return value
-    env_url = os.environ.get("NETRUNNER_AGENT_WS_URL", "").strip()
-    if env_url:
-        return env_url
     from server.domens.websocket import _default_agent_ws_url
 
-    return _default_agent_ws_url()
+    return _default_agent_ws_url(db)
 
 
 class UserModule:
@@ -58,7 +55,7 @@ class UserModule:
 
     schema = {
         "placeholders": [
-            ["server_ws_url", "WS-адрес сервера NetRunner (пусто = авто)",
+            ["server_ws_url", "WS-адрес сервера NetRunner (пусто = из Администрирования)",
              "", "text"],
         ]
     }
@@ -90,7 +87,9 @@ class UserModule:
             "username": host.username,
         }
 
-        server_ws_url = _resolve_agent_ws_url(str(kwargs.get("server_ws_url") or ""))
+        server_ws_url = _resolve_agent_ws_url(
+            str(kwargs.get("server_ws_url") or ""), getattr(context, "db", None)
+        )
         if not server_ws_url:
             return {**base, "status": "error", "output": "[ERROR] Не удалось определить WS-адрес сервера"}
 
