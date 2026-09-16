@@ -9,7 +9,7 @@ from .scheduled_task import ScheduledTask
 from .ssh_key import SSHKey
 from .task_run import TaskRun
 from .user import User
-from .scenario import Scenario, ScenarioStep, ScenarioRun, ScenarioStepRun
+from .scenario import Scenario, ScenarioFolder, ScenarioStep, ScenarioRun, ScenarioStepRun
 from .trusted_device import TrustedDevice
 
 __all__ = [
@@ -25,6 +25,7 @@ __all__ = [
     'TaskRun',
     'User',
     'Scenario',
+    'ScenarioFolder',
     'ScenarioStep',
     'ScenarioRun',
     'ScenarioStepRun',

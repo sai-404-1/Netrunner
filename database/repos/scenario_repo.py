@@ -1,12 +1,39 @@
 from __future__ import annotations
 
 from .base import BaseRepository
-from database.models.scenario import Scenario, ScenarioStep, ScenarioRun, ScenarioStepRun
+from database.models.scenario import Scenario, ScenarioFolder, ScenarioStep, ScenarioRun, ScenarioStepRun
+
+
+class ScenarioFolderRepo(BaseRepository):
+    model_cls = ScenarioFolder
+    table_name = 'scenario_folders'
+
+    def all_sorted(self):
+        """Папки по алфавиту. Сортировка в Python: SQLite COLLATE NOCASE
+        сворачивает только латиницу, а имена папок здесь русские."""
+        return sorted(self.all(), key=lambda f: (f.name or "").casefold())
+
+    def by_name(self, name: str):
+        """Поиск по имени без учёта регистра (сравнение в Python — см. all_sorted)."""
+        needle = (name or "").strip().casefold()
+        for folder in self.all():
+            if (folder.name or "").casefold() == needle:
+                return folder
+        return None
 
 
 class ScenarioRepo(BaseRepository):
     model_cls = Scenario
     table_name = 'scenarios'
+
+    def clear_folder(self, folder_id: int) -> None:
+        """Выносит сценарии удалённой папки в корень (ON DELETE SET NULL работает
+        только при включённых FK-прагмах, поэтому чистим явно)."""
+        self.conn.execute(
+            f'UPDATE {self.table_name} SET folder_id = NULL WHERE folder_id = ?',
+            (folder_id,),
+        )
+        self.conn.commit()
 
 
 class ScenarioStepRepo(BaseRepository):

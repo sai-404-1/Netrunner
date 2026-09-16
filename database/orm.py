@@ -25,7 +25,7 @@ from .repos.host_agent_repo import HostAgentRepo
 from .repos.host_event_repo import HostEventRepo
 from .repos.system_log_repo import SystemLogRepo
 from .repos.history_entry_repo import HistoryEntryRepo
-from .repos.scenario_repo import ScenarioRepo, ScenarioStepRepo, ScenarioRunRepo, ScenarioStepRunRepo
+from .repos.scenario_repo import ScenarioRepo, ScenarioFolderRepo, ScenarioStepRepo, ScenarioRunRepo, ScenarioStepRunRepo
 
 
 class Database:
@@ -54,6 +54,7 @@ class Database:
         self.system_logs = SystemLogRepo(self.conn)
         self.history_entries = HistoryEntryRepo(self.conn)
         self.scenarios = ScenarioRepo(self.conn)
+        self.scenario_folders = ScenarioFolderRepo(self.conn)
         self.scenario_steps = ScenarioStepRepo(self.conn)
         self.scenario_runs = ScenarioRunRepo(self.conn)
         self.scenario_step_runs = ScenarioStepRunRepo(self.conn)
@@ -74,6 +75,7 @@ class Database:
             'boards': self.boards,
             'uploaded_files': self.uploaded_files,
             'scenarios': self.scenarios,
+            'scenario_folders': self.scenario_folders,
             'scenario_steps': self.scenario_steps,
             'scenario_runs': self.scenario_runs,
             'scenario_step_runs': self.scenario_step_runs,
