@@ -2,8 +2,25 @@ import json
 
 from aiohttp import web
 
-from server.tools import _ctx, _ok, model_to_dict, _read_json, _safe_int
+from server.tools import _ctx, _ok, _error, model_to_dict, _read_json, _safe_int
 from services.module_registry import _install_uploaded_module
+
+
+def _require_superuser(request: web.Request):
+    """None, если можно менять модули; иначе готовый ответ 403.
+
+    create/update/delete не проверяли роль вовсе — только факт логина.
+    create принимает file_data и исполняет загруженный .py НА СЕРВЕРЕ
+    (_install_uploaded_module делает exec_module сразу), т.е. это
+    исполнение произвольного Python любым залогиненным пользователем,
+    вплоть до "user" без единой привилегии. update/delete прикрыты той же
+    проверкой для единообразия и на будущее — команда в schema_json тоже
+    исполняется, просто не на сервере, а на выбранном пользователем хосте.
+    """
+    user = request.get("auth_user")
+    if user and user.get("is_superuser"):
+        return None
+    return _error("Управление модулями доступно только администратору", status=403)
 
 
 async def api_modules(request: web.Request) -> web.Response:
@@ -33,6 +50,9 @@ async def api_modules(request: web.Request) -> web.Response:
 
 
 async def api_modules_create(request: web.Request) -> web.Response:
+    denied = _require_superuser(request)
+    if denied:
+        return denied
     ctx = _ctx(request)
     payload = await _read_json(request)
     name = str(payload.get("name") or "").strip()
@@ -68,6 +88,9 @@ async def api_modules_create(request: web.Request) -> web.Response:
 
 
 async def api_modules_update(request: web.Request) -> web.Response:
+    denied = _require_superuser(request)
+    if denied:
+        return denied
     ctx = _ctx(request)
     payload = await _read_json(request)
     module_id = _safe_int(payload.get("id"))
@@ -79,6 +102,9 @@ async def api_modules_update(request: web.Request) -> web.Response:
 
 
 async def api_modules_delete(request: web.Request) -> web.Response:
+    denied = _require_superuser(request)
+    if denied:
+        return denied
     ctx = _ctx(request)
     payload = await _read_json(request)
     module_id = _safe_int(payload.get("id"))
