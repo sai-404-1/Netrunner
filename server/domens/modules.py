@@ -42,7 +42,26 @@ async def api_modules(request: web.Request) -> web.Response:
     return _ok(modules)
 
 
+def _require_superuser(request: web.Request):
+    """None, если можно менять модули; иначе готовый ответ 403.
+
+    Раньше create/update/delete не проверяли роль вовсе — не будило вопросов,
+    пока модуль-команда без .py-файла не запускался НИКОГДА (регистрация в
+    реестр появилась только с register_db_command_module). Теперь такой
+    модуль исполняется как обычный, а /api/run авторизует только по доступу к
+    хосту, не по тому, кто его завёл — без этой проверки любой залогиненный
+    "user" мог бы создать команду и выполнить её на доступных ему машинах.
+    """
+    user = request.get("auth_user")
+    if user and user.get("is_superuser"):
+        return None
+    return _error("Управление модулями доступно только администратору", status=403)
+
+
 async def api_modules_create(request: web.Request) -> web.Response:
+    denied = _require_superuser(request)
+    if denied:
+        return denied
     ctx = _ctx(request)
     payload = await _read_json(request)
     name = str(payload.get("name") or "").strip()
@@ -81,6 +100,9 @@ async def api_modules_create(request: web.Request) -> web.Response:
 
 
 async def api_modules_update(request: web.Request) -> web.Response:
+    denied = _require_superuser(request)
+    if denied:
+        return denied
     ctx = _ctx(request)
     payload = await _read_json(request)
     module_id = _safe_int(payload.get("id"))
@@ -101,6 +123,9 @@ async def api_modules_update(request: web.Request) -> web.Response:
 
 
 async def api_modules_delete(request: web.Request) -> web.Response:
+    denied = _require_superuser(request)
+    if denied:
+        return denied
     ctx = _ctx(request)
     payload = await _read_json(request)
     module_id = _safe_int(payload.get("id"))
