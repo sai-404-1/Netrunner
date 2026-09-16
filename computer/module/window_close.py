@@ -11,22 +11,29 @@ _NET_CLIENT_LIST — работает в том числе в Cinnamon где э
 
 from __future__ import annotations
 
+import re
 import shlex
 
 from . import Modules
 
 
 def _build_close_script(window_name: str, close_all: bool) -> str:
-    name_q = shlex.quote(window_name)
-    name_q_lower = shlex.quote(window_name.lower())
+    # xdotool --name матчит POSIX extended regex, а не голую подстроку — не
+    # экранированные "(", ")", ".", "+", "*" и т.п. в заголовке окна (например
+    # "Zoom (Meeting)") либо ломают поиск синтаксической ошибкой regex, либо
+    # меняют смысл совпадения. UI обещает пользователю подстроку, значит нужно
+    # экранировать метасимволы перед тем, как подставлять в xdotool.
+    name_regex_q = shlex.quote(re.escape(window_name))
+    # Для сообщений пользователю — исходное имя, не экранированный regex.
+    name_disp = shlex.quote(window_name)
 
     if close_all:
         close_block = f"""
 WIDS=$(sudo -u "$NR_USER" env DISPLAY="$NR_DISPLAY" XAUTHORITY="/home/$NR_USER/.Xauthority" \\
-  xdotool search --name {name_q} 2>/dev/null || true)
+  xdotool search --name {name_regex_q} 2>/dev/null || true)
 COUNT=$(echo "$WIDS" | grep -c '[0-9]' || true)
 if [ "$COUNT" -eq 0 ]; then
-  echo "Окно {name_q} не найдено"
+  echo "Окно {name_disp} не найдено"
   exit 0
 fi
 CLOSED=0
@@ -39,13 +46,13 @@ echo "Закрыто окон: $CLOSED из $COUNT"
     else:
         close_block = f"""
 WID=$(sudo -u "$NR_USER" env DISPLAY="$NR_DISPLAY" XAUTHORITY="/home/$NR_USER/.Xauthority" \\
-  xdotool search --name {name_q} 2>/dev/null | head -1 || true)
+  xdotool search --name {name_regex_q} 2>/dev/null | head -1 || true)
 if [ -z "$WID" ]; then
-  echo "Окно {name_q} не найдено"
+  echo "Окно {name_disp} не найдено"
   exit 0
 fi
 sudo -u "$NR_USER" env DISPLAY="$NR_DISPLAY" XAUTHORITY="/home/$NR_USER/.Xauthority" \\
-  xdotool windowclose "$WID" 2>/dev/null && echo "Окно {name_q} закрыто (id=$WID)" || echo "[WARN] Не удалось закрыть окно $WID"
+  xdotool windowclose "$WID" 2>/dev/null && echo "Окно {name_disp} закрыто (id=$WID)" || echo "[WARN] Не удалось закрыть окно $WID"
 """
 
     return f"""
