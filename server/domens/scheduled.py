@@ -161,11 +161,22 @@ async def api_schedule_create(request: web.Request) -> web.Response:
     return _ok(scheduled)
 
 
+# Ключи payload, которые не являются колонками scheduled_tasks напрямую — их
+# JSON-эквиваленты (*_json) собирает _multi_params ниже. Если оставить их в
+# updates как есть, db.scheduled.update() попытается UPDATE по несуществующей
+# колонке и упадёт с sqlite3.OperationalError (воспроизведено в логах прода
+# при каждом редактировании задачи с мульти-выбором целей/сценариев).
+_MULTI_PAYLOAD_ONLY_KEYS = ("scenario_ids", "target_host_ids", "target_group_ids")
+
+
 async def api_schedule_update(request: web.Request) -> web.Response:
     ctx = _ctx(request)
     payload = await _read_json(request)
     task_id = _safe_int(payload.get("id"))
-    updates = {k: v for k, v in payload.items() if k != "id" and v is not None}
+    updates = {
+        k: v for k, v in payload.items()
+        if k != "id" and v is not None and k not in _MULTI_PAYLOAD_ONLY_KEYS
+    }
     if "is_enabled" in payload:
         updates["is_enabled"] = 1 if payload["is_enabled"] else 0
     if "scenario_id" in updates:
