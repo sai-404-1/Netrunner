@@ -104,13 +104,27 @@ class TaskRunner:
         targets=None,
     ):
         args = args or {}
-        registry_item = self.module_registry.get(module_slug)
-        module_row = self.db.modules.by_slug(module_slug)
-
-        if not module_row:
-            raise RuntimeError(f"Module '{module_slug}' not found in database")
-        if not module_row.is_enabled:
-            raise RuntimeError(f"Module '{module_slug}' is disabled")
+        try:
+            registry_item = self.module_registry.get(module_slug)
+            module_row = self.db.modules.by_slug(module_slug)
+            if not module_row:
+                raise RuntimeError(f"Module '{module_slug}' not found in database")
+            if not module_row.is_enabled:
+                raise RuntimeError(f"Module '{module_slug}' is disabled")
+        except Exception as exc:
+            # До этой точки task_run ещё "pending" (создан вызывающим кодом с этим
+            # же task_run_id) — без явного finish() он остался бы pending навсегда:
+            # ниже по функции ошибки исполнения ловит уже другой try/except, а этот
+            # выход раньше него, до перевода статуса в "running".
+            if task_run_id is not None:
+                self.db.task_runs.finish(
+                    run_id=task_run_id,
+                    status="error",
+                    stdout_text="",
+                    stderr_text=f"{exc}\n\n{traceback.format_exc()}",
+                    exit_code=1,
+                )
+            raise
 
         if task_run_id is not None:
             task_run = self.db.task_runs.get(task_run_id)
