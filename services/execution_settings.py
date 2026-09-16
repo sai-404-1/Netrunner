@@ -81,6 +81,20 @@ FIELDS: dict[str, dict] = {
         "label": "Одновременно машин",
         "hint": "Потолок параллелизма, когда пакетный режим выключен.",
     },
+    "agent_ws_url": {
+        "key": "agent_ws_url",
+        "type": "ws_url",
+        "default": "",
+        "label": "Адрес сервера для агента",
+        "hint": (
+            "WebSocket-адрес, который endpoint-агент на хостах использует для "
+            "связи с сервером (например ws://180.161.0.3:3001/api/python/agent/ws). "
+            "Записывается в конфиг агента при установке/переустановке. Пусто — "
+            "берётся из переменной окружения NETRUNNER_AGENT_WS_URL, а если и она "
+            "не задана — определяется автоматически (в Docker так не работает). "
+            "После смены адреса агента на хостах нужно переустановить."
+        ),
+    },
     "coldawn_retries": {
         "key": "execution_coldawn_retries",
         "type": "int",
@@ -96,6 +110,13 @@ FIELDS: dict[str, dict] = {
         ),
     },
 }
+
+
+def _is_ws_url(value: str) -> bool:
+    """ws:// или wss:// с непустым хостом — остальное агент всё равно не откроет."""
+    from urllib.parse import urlparse
+    parsed = urlparse(value)
+    return parsed.scheme in ("ws", "wss") and bool(parsed.netloc)
 
 
 class ExecutionSettings:
@@ -134,6 +155,14 @@ class ExecutionSettings:
             spec = FIELDS.get(name)
             if spec is None or raw is None:
                 continue
+            # Адрес с опечаткой молча откатился бы к пустому — админ решил бы, что
+            # сохранил, а агенты продолжили бы ходить по старому адресу.
+            if spec["type"] == "ws_url":
+                value = str(raw).strip().rstrip("/")
+                if value and not _is_ws_url(value):
+                    raise ValueError(
+                        f"{spec['label']}: нужен адрес вида ws://хост:порт/путь или wss://…"
+                    )
             store.set(spec["key"], str(self._coerce(name, raw)))
         return self.get_config()
 
@@ -149,6 +178,10 @@ class ExecutionSettings:
             value = str(raw).strip()
             allowed = {c["value"] for c in spec["choices"]}
             return value if value in allowed else spec["default"]
+
+        if spec["type"] == "ws_url":
+            value = str(raw).strip().rstrip("/")
+            return value if not value or _is_ws_url(value) else spec["default"]
 
         try:
             value = int(float(str(raw).strip()))

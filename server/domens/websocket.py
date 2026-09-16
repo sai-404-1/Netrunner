@@ -96,19 +96,27 @@ async def agent_websocket_handler(request: web.Request) -> web.WebSocketResponse
     return ws
 
 
-def _default_agent_ws_url() -> str:
+def _default_agent_ws_url(db=None) -> str:
     """Определяет ws-адрес сервера для конфига endpoint-агента.
 
     Приоритет:
-      1. Явная настройка из окружения ``NETRUNNER_AGENT_WS_URL`` (полный URL) —
-         самый надёжный способ и ЕДИНСТВЕННО рабочий в Docker: контейнер не видит
-         IP хост-машины, его ``gethostbyname(gethostname())`` даёт внутренний IP
-         (172.x) или 127.0.0.1, недоступные агенту на другом хосте. Поэтому в
-         docker-compose эту переменную задавать обязательно.
-      2. Автоопределение ``gethostbyname(gethostname())`` — правильно для
+      1. Настройка «Адрес сервера для агента» из Администрирования (app_settings,
+         нужен ``db``). Стоит первой, потому что адрес сервера знает админ, а не
+         контейнер: env из docker-compose легко остаётся шаблонным (так на проде
+         годами жил неверный ``192.168.1.100``), а правка compose требует редеплоя.
+      2. Переменная окружения ``NETRUNNER_AGENT_WS_URL`` (полный URL). В Docker
+         автоопределение не работает: контейнер не видит IP хост-машины, его
+         ``gethostbyname(gethostname())`` даёт внутренний 172.x или 127.0.0.1.
+      3. Автоопределение ``gethostbyname(gethostname())`` — правильно для
          не-контейнерного запуска (сервер на обычной машине ЛВС): даёт LAN-IP.
-      3. Крайний фолбэк — 127.0.0.1 (агент на той же машине).
+      4. Крайний фолбэк — 127.0.0.1 (агент на той же машине).
     """
+    if db is not None:
+        from services.execution_settings import ExecutionSettings
+        admin_url = ExecutionSettings(db).get_config().get("agent_ws_url") or ""
+        if admin_url:
+            return admin_url
+
     import os
     env_url = os.environ.get("NETRUNNER_AGENT_WS_URL")
     if env_url:

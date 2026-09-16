@@ -22,6 +22,8 @@ export interface ExecutionConfig {
   max_parallel: number;
   /** Повторы запуска сценария, если он не смог начаться (coldawn). 0 — не повторять. */
   coldawn_retries: number;
+  /** WS-адрес сервера для endpoint-агента. Пусто — env/автоопределение. */
+  agent_ws_url: string;
 }
 
 export interface ExecutionFieldChoice {
@@ -32,7 +34,7 @@ export interface ExecutionFieldChoice {
 /** Описание одного поля настройки — по нему строится форма. */
 export interface ExecutionField {
   key: string;
-  type: "int" | "choice";
+  type: "int" | "choice" | "ws_url";
   default: number | string;
   label: string;
   hint?: string;

@@ -181,7 +181,7 @@ async def _auto_install_agent(app: web.Application, host) -> None:
         logger=logger, task_run_id=0, to_computer=ctx.host_service.to_computer, db=ctx.db,
         host_service=ctx.host_service,
     )
-    server_ws_url = _default_agent_ws_url()
+    server_ws_url = _default_agent_ws_url(ctx.db)
     try:
         result = await agentProvisionModule.run_for_host(module_ctx, host, server_ws_url=server_ws_url)
     except Exception as exc:  # noqa: BLE001 — фон: любая ошибка = запись в лог, не падение сервера

@@ -381,7 +381,10 @@ async def api_admin_execution_settings_set(request: web.Request) -> web.Response
     _require_superuser(request)
     payload = await _read_json(request)
     settings = _ctx(request).execution_settings
-    config = settings.set_config(**payload)
+    try:
+        config = settings.set_config(**payload)
+    except ValueError as exc:
+        return _json_response({"ok": False, "error": str(exc)}, status=400)
     return _json_response({"ok": True, "data": {"config": config}})
 
 
