@@ -4,18 +4,25 @@ import { useCallback, useEffect, useState } from "react";
 import { apiGetClient, apiPostClient } from "@/lib/api-client";
 import { useToast } from "@/components/Toast";
 import { useAuth } from "@/components/AuthProvider";
-import { ChevronDown, Play, Plus, X } from "lucide-react";
-import { Scenario, Module, ScenarioRun } from "@/lib/scenario-types";
+import { ChevronDown, FolderPlus, Play, Plus, X } from "lucide-react";
+import { Scenario, ScenarioFolder, Module, ScenarioRun } from "@/lib/scenario-types";
 import ScenariosList from "./ScenariosList";
 import RunExecution from "./RunExecution";
 import RunsSidebar from "./RunsSidebar";
 import { CreateScenarioModal } from "./modals/CreateScenarioModal";
+import { FolderNameModal } from "./modals/FolderNameModal";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 export default function ScenariosPage() {
   const { user } = useAuth();
   const isTeacher = user?.role === "teacher" && !user?.is_superuser;
   const showToast = useToast();
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
+  const [folders, setFolders] = useState<ScenarioFolder[]>([]);
+  // Диалоги папок: создание (флаг), переименование и удаление (папка-цель).
+  const [folderCreateOpen, setFolderCreateOpen] = useState(false);
+  const [folderRename, setFolderRename] = useState<ScenarioFolder | null>(null);
+  const [folderDelete, setFolderDelete] = useState<ScenarioFolder | null>(null);
   const [modules, setModules] = useState<Module[]>([]);
   const [runs, setRuns] = useState<ScenarioRun[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,13 +51,15 @@ export default function ScenariosPage() {
 
   const loadData = useCallback(async () => {
     try {
-      const [scenariosData, modulesData, hostsData, groupsData] = await Promise.all([
+      const [scenariosData, modulesData, hostsData, groupsData, foldersData] = await Promise.all([
         apiGetClient("/api/scenarios"),
         apiGetClient("/api/modules"),
         apiGetClient("/api/hosts"),
         apiGetClient("/api/groups"),
+        apiGetClient("/api/scenario-folders"),
       ]);
       setScenarios(scenariosData);
+      setFolders(foldersData || []);
       setModules(modulesData.filter((m: Module) => m.supports_task_runner));
       setHosts(hostsData || []);
       setGroups(groupsData || []);
@@ -183,6 +192,58 @@ export default function ScenariosPage() {
         next.delete(id);
         return next;
       });
+      loadData();
+    } catch (err: any) {
+      showToast(err.message, "error");
+    }
+  };
+
+  // --- Папки сценариев (только для администратора) ---
+
+  const handleCreateFolder = async (name: string) => {
+    try {
+      await apiPostClient("/api/scenario-folders", { name });
+      showToast(`Папка «${name}» создана`);
+      loadData();
+    } catch (err: any) {
+      showToast(err.message, "error");
+    }
+  };
+
+  const handleRenameFolder = async (folder: ScenarioFolder, name: string) => {
+    if (name === folder.name) return;
+    try {
+      await apiPostClient("/api/scenario-folders/update", { id: folder.id, name });
+      showToast("Папка переименована");
+      loadData();
+    } catch (err: any) {
+      showToast(err.message, "error");
+    }
+  };
+
+  const handleDeleteFolder = async (folder: ScenarioFolder) => {
+    try {
+      await apiPostClient("/api/scenario-folders/delete", { id: folder.id });
+      showToast("Папка удалена");
+      loadData();
+    } catch (err: any) {
+      showToast(err.message, "error");
+    }
+  };
+
+  /** Перекладывает выбранные сценарии: folderId=null — вынести в общий список. */
+  const handleMoveSelected = async (folderId: number | null) => {
+    if (selectedIds.size === 0) return;
+    try {
+      await apiPostClient("/api/scenarios/move", {
+        scenario_ids: [...selectedIds],
+        folder_id: folderId,
+      });
+      const target = folderId === null
+        ? "в общий список"
+        : `в папку «${folders.find((f) => f.id === folderId)?.name ?? ""}»`;
+      showToast(`Перемещено сценариев: ${selectedIds.size} ${target}`);
+      setSelectedIds(new Set());
       loadData();
     } catch (err: any) {
       showToast(err.message, "error");
@@ -332,12 +393,48 @@ export default function ScenariosPage() {
         />
 
         {/* Scenario list — карточки: клик выбирает (мульти-выбор), карандаш редактирует */}
+        {/* Управление папками — только администратору. Перемещение работает
+            поверх уже существующего мульти-выбора сценариев. */}
+        {!isTeacher && (
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" className="btn-secondary" onClick={() => setFolderCreateOpen(true)}>
+              <FolderPlus size={16} /> Новая папка
+            </button>
+            {selectedIds.size > 0 && (
+              <>
+                <span className="text-sm text-gray-500">
+                  Выбрано: {selectedIds.size} — переместить в:
+                </span>
+                <select
+                  className="input w-auto"
+                  value=""
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === "") return;
+                    handleMoveSelected(v === "root" ? null : Number(v));
+                  }}
+                >
+                  <option value="">Выберите папку…</option>
+                  {folders.map((f) => (
+                    <option key={f.id} value={f.id}>{f.name}</option>
+                  ))}
+                  <option value="root">— Вне папок —</option>
+                </select>
+              </>
+            )}
+          </div>
+        )}
+
         <ScenariosList
           scenarios={scenarios}
+          folders={folders}
           loading={loading}
           selectedIds={selectedIds}
           onToggle={toggleSelect}
           onEdit={setEditScenario}
+          canManageFolders={!isTeacher}
+          onRenameFolder={setFolderRename}
+          onDeleteFolder={setFolderDelete}
         />
         </div>
 
@@ -370,6 +467,32 @@ export default function ScenariosPage() {
           onClose={() => setEditScenario(null)}
           onSaved={loadData}
           onDelete={isTeacher ? undefined : () => handleDelete(editScenario.id)}
+        />
+      )}
+
+      {folderCreateOpen && (
+        <FolderNameModal
+          title="Новая папка"
+          confirmLabel="Создать"
+          onSubmit={handleCreateFolder}
+          onClose={() => setFolderCreateOpen(false)}
+        />
+      )}
+      {folderRename && (
+        <FolderNameModal
+          title="Переименовать папку"
+          initialName={folderRename.name}
+          confirmLabel="Сохранить"
+          onSubmit={(name) => handleRenameFolder(folderRename, name)}
+          onClose={() => setFolderRename(null)}
+        />
+      )}
+      {folderDelete && (
+        <ConfirmDialog
+          title="Удалить папку"
+          message={`Удалить папку «${folderDelete.name}»? Сценарии внутри не удалятся — они вернутся в общий список.`}
+          onConfirm={() => handleDeleteFolder(folderDelete)}
+          onClose={() => setFolderDelete(null)}
         />
       )}
     </div>
