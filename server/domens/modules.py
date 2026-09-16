@@ -1,8 +1,10 @@
 import json
 
+import sqlite3
+
 from aiohttp import web
 
-from server.tools import _ctx, _ok, model_to_dict, _read_json, _safe_int
+from server.tools import _ctx, _ok, _error, model_to_dict, _read_json, _safe_int
 from services.module_registry import _install_uploaded_module
 
 
@@ -26,6 +28,14 @@ async def api_modules(request: web.Request) -> web.Response:
             continue
         item = model_to_dict(row)
         item["supports_task_runner"] = bool(runtime and runtime.supports_task_runner)
+        # Почему модуль (не) попадает в списки запуска на хостах и в сценариях:
+        # страница модулей показывает строки БД, а запуск видит только реестр.
+        if runtime is None:
+            item["run_status"] = "not_loaded"
+        elif not runtime.supports_task_runner:
+            item["run_status"] = "console_only"
+        else:
+            item["run_status"] = "ok"
         item["web_ui_visible"] = getattr(runtime, "web_ui_visible", True) if runtime else True
         item["admin_only"] = admin_only
         modules.append(item)
@@ -63,6 +73,9 @@ async def api_modules_create(request: web.Request) -> web.Response:
             raise web.HTTPBadRequest(
                 body=json.dumps({"ok": False, "error": f"Не удалось загрузить модуль: {exc}"}, ensure_ascii=False)
             )
+    else:
+        # Модуль-команда без файла: сразу делаем запускаемым, без перезапуска.
+        ctx.module_registry.register_db_command_module(module)
 
     return _ok(module)
 
@@ -74,7 +87,16 @@ async def api_modules_update(request: web.Request) -> web.Response:
     updates = {k: v for k, v in payload.items() if k != "id" and v is not None}
     if "is_enabled" in payload:
         updates["is_enabled"] = 1 if payload["is_enabled"] else 0
-    module = ctx.db.modules.update(module_id, **updates)
+    before = ctx.db.modules.get(module_id)
+    try:
+        module = ctx.db.modules.update(module_id, **updates)
+    except sqlite3.IntegrityError:
+        return _error(f"Модуль со slug «{updates.get('slug')}» уже существует")
+    if before is not None and module is not None:
+        if before.slug != module.slug:
+            ctx.module_registry.unregister_db_defined(before.slug)
+        # Правка команды/полей модуля-команды применяется сразу.
+        ctx.module_registry.register_db_command_module(module)
     return _ok(module)
 
 
@@ -82,5 +104,8 @@ async def api_modules_delete(request: web.Request) -> web.Response:
     ctx = _ctx(request)
     payload = await _read_json(request)
     module_id = _safe_int(payload.get("id"))
+    row = ctx.db.modules.get(module_id)
     ctx.db.modules.delete(module_id)
+    if row is not None:
+        ctx.module_registry.unregister_db_defined(row.slug)
     return _ok({"deleted": module_id})

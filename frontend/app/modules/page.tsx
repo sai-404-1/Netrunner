@@ -20,6 +20,8 @@ interface Module {
   is_enabled: boolean;
   supports_task_runner?: boolean;
   web_ui_visible?: boolean;
+  /** ok — можно запускать; not_loaded — кода нет на сервере; console_only — только консольный режим. */
+  run_status?: "ok" | "not_loaded" | "console_only";
   schema_json?: string;
 }
 
@@ -303,6 +305,27 @@ export default function ModulesPage() {
         },
       },
       { title: "Активен", render: (m: Module) => <BooleanBadge value={m.is_enabled} /> },
+      {
+        // Запуск на хостах и в сценариях видит только загруженный код, а эта
+        // таблица — все записи базы. Без пометки непонятно, почему модуля нет
+        // в списке запуска.
+        title: "Запуск",
+        render: (m: Module) =>
+          m.run_status === "not_loaded" ? (
+            <span
+              className="badge badge-error"
+              title="Запись есть в базе, но кода модуля на сервере нет (удалён файл или не выкачена ветка). В списках запуска не показывается."
+            >
+              Нет кода
+            </span>
+          ) : m.run_status === "console_only" ? (
+            <span className="badge badge-warning" title="Модуль работает только в консольном меню, через веб не запускается.">
+              Только консоль
+            </span>
+          ) : (
+            <span className="badge badge-success">Доступен</span>
+          ),
+      },
       {
         title: "",
         render: (m: Module) => (
