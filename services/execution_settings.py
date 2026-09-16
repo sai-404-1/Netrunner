@@ -88,10 +88,11 @@ FIELDS: dict[str, dict] = {
         "label": "Адрес сервера для агента",
         "hint": (
             "WebSocket-адрес, который endpoint-агент на хостах использует для "
-            "связи с сервером (например ws://180.161.0.3:3001/api/python/agent/ws). "
-            "Записывается в конфиг агента при установке/переустановке. Пусто — "
-            "берётся из переменной окружения NETRUNNER_AGENT_WS_URL, а если и она "
-            "не задана — определяется автоматически (в Docker так не работает). "
+            "связи с сервером, например ws://180.161.0.3:3001 — путь /api/python/"
+            "agent/ws дописывается сам, если его не указать. Записывается в "
+            "конфиг агента при установке/переустановке. Пусто — берётся из "
+            "переменной окружения NETRUNNER_AGENT_WS_URL, а если и она не "
+            "задана — определяется автоматически (в Docker так не работает). "
             "После смены адреса агента на хостах нужно переустановить."
         ),
     },
@@ -112,11 +113,37 @@ FIELDS: dict[str, dict] = {
 }
 
 
+# Путь эндпоинта агента на сервере (server/endpoints/api_websocket.py регистрирует
+# голый /agent/ws; наружу он торчит через прокси Next.js под префиксом /api/python/
+# — см. frontend/next.config.js). Самая частая ошибка при ручном вводе адреса —
+# вставить просто "хост:порт" без пути, поэтому недостающий путь дописывается сам.
+_AGENT_WS_PATH = "/api/python/agent/ws"
+
+
 def _is_ws_url(value: str) -> bool:
     """ws:// или wss:// с непустым хостом — остальное агент всё равно не откроет."""
     from urllib.parse import urlparse
     parsed = urlparse(value)
     return parsed.scheme in ("ws", "wss") and bool(parsed.netloc)
+
+
+def _normalize_ws_url(value: str, default: str = "") -> str:
+    """Обрезает пробелы/слэш и дописывает путь агента, если ввели голый хост:порт.
+
+    Невалидное непустое значение откатывается к default — сюда долетают только
+    значения, уже пропущенные валидацией set_config(), но get_config() читает
+    то, что реально лежит в БД, и должен остаться устойчив к ручной правке.
+    """
+    from urllib.parse import urlparse
+    value = value.strip().rstrip("/")
+    if not value:
+        return value
+    if not _is_ws_url(value):
+        return default
+    parsed = urlparse(value)
+    if not parsed.path:
+        value = f"{value}{_AGENT_WS_PATH}"
+    return value
 
 
 class ExecutionSettings:
@@ -158,8 +185,8 @@ class ExecutionSettings:
             # Адрес с опечаткой молча откатился бы к пустому — админ решил бы, что
             # сохранил, а агенты продолжили бы ходить по старому адресу.
             if spec["type"] == "ws_url":
-                value = str(raw).strip().rstrip("/")
-                if value and not _is_ws_url(value):
+                stripped = str(raw).strip().rstrip("/")
+                if stripped and not _is_ws_url(stripped):
                     raise ValueError(
                         f"{spec['label']}: нужен адрес вида ws://хост:порт/путь или wss://…"
                     )
@@ -180,8 +207,7 @@ class ExecutionSettings:
             return value if value in allowed else spec["default"]
 
         if spec["type"] == "ws_url":
-            value = str(raw).strip().rstrip("/")
-            return value if not value or _is_ws_url(value) else spec["default"]
+            return _normalize_ws_url(str(raw), default=spec["default"])
 
         try:
             value = int(float(str(raw).strip()))
