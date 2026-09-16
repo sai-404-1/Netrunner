@@ -23,6 +23,4 @@ from . import apt_package_manager
 from . import file_distribute
 from . import agent_provision
 from . import network_reconfigure
-# try:
-# except Exception as e:
-#     print(e)
+from . import window_close
