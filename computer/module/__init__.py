@@ -24,3 +24,4 @@ from . import file_distribute
 from . import agent_provision
 from . import network_reconfigure
 from . import window_close
+from . import rotate_password
