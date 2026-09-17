@@ -4,11 +4,52 @@ from aiohttp import web
 
 from database.models import BaseModel
 from database.repos import utcnow_iso
-from server.tools import model_to_dict, _safe_int, _ctx, _ok, _read_json, _error
+from server.tools import model_to_dict, _safe_int, _ctx, _ok, _read_json, _error, \
+    is_teacher, allowed_host_ids, allowed_group_ids
 from services.host_service import _run_background
 from services.logger import Logger
 
 logger = Logger()
+
+
+def _admin_only_module_name(ctx, module_id: int) -> str | None:
+    """Имя модуля, если он admin_only, иначе None."""
+    module_row = ctx.db.modules.get(module_id)
+    if not module_row:
+        return None
+    try:
+        runtime = ctx.module_registry.get(module_row.slug)
+    except KeyError:
+        return None
+    if getattr(runtime.instance, "admin_only", False):
+        return module_row.name or module_row.slug
+    return None
+
+
+def _scenario_admin_only_step(ctx, scenario_id: int) -> str | None:
+    """Имя admin_only-модуля среди УЖЕ СОХРАНЁННЫХ шагов сценария, иначе None.
+
+    ScenarioRunner исполняет шаги напрямую, минуя ту же проверку admin_only,
+    что /api/run делает для одиночного запуска (server/domens/tasks.py) —
+    без этой проверки сценарий с шагом agent_provision/file_distribute
+    запускал бы их от имени любой роли с доступом к странице сценариев
+    (включая преподавателя, для которого оба модуля admin_only).
+    """
+    for step in ctx.db.scenario_steps.by_scenario(scenario_id):
+        name = _admin_only_module_name(ctx, step.module_id)
+        if name:
+            return name
+    return None
+
+
+def _payload_admin_only_step(ctx, steps_data: list) -> str | None:
+    """То же самое, но по шагам из тела запроса (для create/update — до записи
+    в БД, чтобы преподаватель не мог даже сохранить такой шаг)."""
+    for step in steps_data:
+        name = _admin_only_module_name(ctx, _safe_int(step.get("module_id")))
+        if name:
+            return name
+    return None
 
 
 def _apply_scenario_steps(db, scenario_id: int, steps_data: list, now: str) -> None:
@@ -89,8 +130,15 @@ async def api_scenarios_runs(request: web.Request) -> web.Response:
 
 
 async def api_scenarios_create(request: web.Request) -> web.Response:
-    db = _ctx(request).db
+    ctx = _ctx(request)
+    db = ctx.db
+    user = request.get("auth_user")
     payload = await _read_json(request)
+    steps_data = payload.get("steps", [])
+    if not (user and user.get("is_superuser")):
+        blocked = _payload_admin_only_step(ctx, steps_data)
+        if blocked:
+            return _error(f"Шаг с модулем «{blocked}» доступен только администратору", status=403)
     now = utcnow_iso()
     sc = db.scenarios.create(
         name=str(payload.get("name", "")).strip(),
@@ -100,20 +148,26 @@ async def api_scenarios_create(request: web.Request) -> web.Response:
         created_at=now,
         updated_at=now,
     )
-    steps_data = payload.get("steps", [])
     _apply_scenario_steps(db, sc.id, steps_data, now)
     return _ok(sc)
 
 async def api_scenarios_update(request: web.Request) -> web.Response:
     """Обновляет сценарий: название, описание и шаги (пересоздаёт порядок модулей)."""
-    db = _ctx(request).db
+    ctx = _ctx(request)
+    db = ctx.db
+    user = request.get("auth_user")
     payload = await _read_json(request)
     scenario_id = _safe_int(payload.get("scenario_id"))
+    steps_data = payload.get("steps", [])
     now = utcnow_iso()
 
     sc = db.scenarios.get(scenario_id)
     if sc is None:
         return _error("Сценарий не найден", status=404)
+    if not (user and user.get("is_superuser")):
+        blocked = _payload_admin_only_step(ctx, steps_data)
+        if blocked:
+            return _error(f"Шаг с модулем «{blocked}» доступен только администратору", status=403)
 
     db.scenarios.update(
         scenario_id,
@@ -121,7 +175,7 @@ async def api_scenarios_update(request: web.Request) -> web.Response:
         description=str(payload.get("description", "")).strip() or None,
         updated_at=now,
     )
-    _apply_scenario_steps(db, scenario_id, payload.get("steps", []), now)
+    _apply_scenario_steps(db, scenario_id, steps_data, now)
     return _ok({"updated": scenario_id})
 
 
@@ -134,6 +188,7 @@ async def api_scenarios_run(request: web.Request) -> web.Response:
     (host_ids + group_ids — смесь конкретных компов и кабинетов).
     """
     ctx = _ctx(request)
+    user = request.get("auth_user")
     payload = await _read_json(request)
     target_type = str(payload.get("target_type", "group")).strip()
     target_id = _safe_int(payload.get("target_id"))
@@ -141,15 +196,21 @@ async def api_scenarios_run(request: web.Request) -> web.Response:
     group_ids = payload.get("group_ids")
     is_multi = (isinstance(host_ids, list) and host_ids) or (isinstance(group_ids, list) and group_ids)
 
-    targets = None
-    effective_target_type = target_type
-    effective_target_id = target_id
-    if is_multi:
-        # Мультивыбор: раскрываем смесь кабинетов/компов в конкретный список хостов.
-        targets = ctx.host_service.resolve_scheduled_targets(host_ids, group_ids)
-        if targets:
-            effective_target_type = "host"
-            effective_target_id = targets[0].id  # совместимость истории/целей
+    if is_teacher(user):
+        # Отказываем целиком, а не молча отфильтровываем чужие цели: иначе
+        # запрос «весь кабинет + один посторонний хост» тихо выполнился бы без
+        # этого хоста, и учитель не понял бы, что часть цели была отклонена.
+        visible_hosts = allowed_host_ids(ctx.db, user) or set()
+        visible_groups = allowed_group_ids(ctx.db, user) or set()
+        req_host_ids = [_safe_int(x) for x in (host_ids or [])] if isinstance(host_ids, list) else []
+        req_group_ids = [_safe_int(x) for x in (group_ids or [])] if isinstance(group_ids, list) else []
+        if not is_multi:
+            if target_type == "host":
+                req_host_ids = [target_id]
+            elif target_type == "group":
+                req_group_ids = [target_id]
+        if any(h not in visible_hosts for h in req_host_ids) or any(g not in visible_groups for g in req_group_ids):
+            return _error("Цель вне ваших кабинетов", status=403)
 
     ids = payload.get("scenario_ids") or []
     if isinstance(ids, (list, tuple)):
@@ -160,6 +221,22 @@ async def api_scenarios_run(request: web.Request) -> web.Response:
 
     if not scenario_ids:
         return _error("Не указан сценарий", status=400)
+
+    if not (user and user.get("is_superuser")):
+        for sid in scenario_ids:
+            blocked = _scenario_admin_only_step(ctx, sid)
+            if blocked:
+                return _error(f"Сценарий использует модуль «{blocked}», доступный только администратору", status=403)
+
+    targets = None
+    effective_target_type = target_type
+    effective_target_id = target_id
+    if is_multi:
+        # Мультивыбор: раскрываем смесь кабинетов/компов в конкретный список хостов.
+        targets = ctx.host_service.resolve_scheduled_targets(host_ids, group_ids)
+        if targets:
+            effective_target_type = "host"
+            effective_target_id = targets[0].id  # совместимость истории/целей
 
     # Создаём run-строки заранее, чтобы вернуть run_id(s) немедленно.
     runs = [
@@ -214,6 +291,11 @@ async def api_scenarios_run_status(request: web.Request) -> web.Response:
 
 
 async def api_scenarios_delete(request: web.Request) -> web.Response:
+    # Фронт уже прячет кнопку удаления от учителя (CreateScenarioModal,
+    # onDelete={isTeacher ? undefined : ...}) — эндпоинт эту границу не держал,
+    # запрос напрямую удалял чужой сценарий с любой ролью.
+    if is_teacher(request.get("auth_user")):
+        return _error("Удаление сценариев доступно только администратору", status=403)
     db = _ctx(request).db
     payload = await _read_json(request)
     scenario_id = _safe_int(payload.get("id"))

@@ -4,7 +4,8 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from server.tools import _ok, _ctx, _read_json, _safe_int, _error, is_teacher, allowed_host_ids, allowed_group_ids
-from database.repos.schedule_repo import validate_schedule, next_slot_utc_iso, task_target_ids
+from server.domens.scenarios import _scenario_admin_only_step
+from database.repos.schedule_repo import validate_schedule, next_slot_utc_iso, task_target_ids, task_target_ids
 
 
 def _to_utc_iso(value) -> str:
@@ -96,6 +97,35 @@ def _first_run_at_utc(sched: dict) -> str:
     return run_at
 
 
+def _teacher_scope_denied(db, user, target_type, target_id, host_ids, group_ids) -> bool:
+    """True, если преподаватель просит цель вне своих кабинетов (мульти- или
+    одиночную). Суперпользователь и не-учитель проходят всегда."""
+    if not is_teacher(user):
+        return False
+    visible_hosts = allowed_host_ids(db, user) or set()
+    visible_groups = allowed_group_ids(db, user) or set()
+    req_hosts = list(host_ids or [])
+    req_groups = list(group_ids or [])
+    if not req_hosts and not req_groups:
+        if target_type == "group":
+            req_groups = [target_id]
+        else:
+            req_hosts = [target_id]
+    return any(h not in visible_hosts for h in req_hosts) or any(g not in visible_groups for g in req_groups)
+
+
+def _admin_only_scenarios_denied(ctx, user, scenario_ids) -> str | None:
+    """Имя admin_only-модуля, если хоть один из сценариев его использует, а
+    пользователь не суперпользователь; иначе None."""
+    if user and user.get("is_superuser"):
+        return None
+    for sid in scenario_ids:
+        blocked = _scenario_admin_only_step(ctx, sid)
+        if blocked:
+            return blocked
+    return None
+
+
 def _filter_scheduled_for_user(db, user, tasks: list) -> list:
     """Оставляет только задачи, чьи цели входят в кабинеты пользователя.
 
@@ -147,6 +177,7 @@ async def api_inactive_scheduled(request: web.Request) -> web.Response:
 
 async def api_schedule_create(request: web.Request) -> web.Response:
     ctx = _ctx(request)
+    user = request.get("auth_user")
     payload = await _read_json(request)
     scenario_ids = _id_list(payload, "scenario_ids")
     legacy_scenario_id = _safe_int(payload.get("scenario_id"))
@@ -155,6 +186,19 @@ async def api_schedule_create(request: web.Request) -> web.Response:
         scenario_ids = [legacy_scenario_id]
     if not scenario_ids:
         raise web.HTTPBadRequest(reason="Не указан сценарий (scenario_ids)")
+
+    # Планировщик исполняет задачу позже, вне контекста текущего запроса —
+    # без этой проверки здесь учитель мог бы обойти те же ограничения, что
+    # /api/scenarios/run проверяет для немедленного запуска (см. scenarios.py).
+    blocked = _admin_only_scenarios_denied(ctx, user, scenario_ids)
+    if blocked:
+        return _error(f"Сценарий использует модуль «{blocked}», доступный только администратору", status=403)
+    if _teacher_scope_denied(
+        ctx.db, user,
+        str(payload.get("target_type") or "host").strip(), _safe_int(payload.get("target_id")),
+        _id_list(payload, "target_host_ids"), _id_list(payload, "target_group_ids"),
+    ):
+        return _error("Цель вне ваших кабинетов", status=403)
 
     sched = _schedule_params(payload)
     if sched:
@@ -208,8 +252,35 @@ _MULTI_PAYLOAD_ONLY_KEYS = ("scenario_ids", "target_host_ids", "target_group_ids
 
 async def api_schedule_update(request: web.Request) -> web.Response:
     ctx = _ctx(request)
+    user = request.get("auth_user")
     payload = await _read_json(request)
     task_id = _safe_int(payload.get("id"))
+
+    current = ctx.db.scheduled.get(task_id)
+    if current is None:
+        return _error("Задача не найдена", status=404)
+
+    # Та же проверка, что при создании (см. api_schedule_create), но по
+    # ИТОГОВОЙ конфигурации: payload может менять только часть полей (например
+    # одно описание), тогда эффективный сценарий/цель — те, что уже в БД.
+    # Если задача и так указывает на admin_only-сценарий или чужой кабинет,
+    # трогать её (даже незначащей правкой) для учителя нельзя — это не его
+    # задача, независимо от того, что именно он пытается изменить.
+    eff_scenario_ids = _id_list(payload, "scenario_ids") or (
+        [current.scenario_id] if getattr(current, "scenario_id", None) else []
+    )
+    blocked = _admin_only_scenarios_denied(ctx, user, eff_scenario_ids)
+    if blocked:
+        return _error(f"Сценарий использует модуль «{blocked}», доступный только администратору", status=403)
+
+    cur_host_ids, cur_group_ids = task_target_ids(current)
+    eff_host_ids = _id_list(payload, "target_host_ids") or cur_host_ids
+    eff_group_ids = _id_list(payload, "target_group_ids") or cur_group_ids
+    eff_target_type = str(payload.get("target_type") or current.target_type or "host").strip()
+    eff_target_id = _safe_int(payload.get("target_id")) if "target_id" in payload else current.target_id
+    if _teacher_scope_denied(ctx.db, user, eff_target_type, eff_target_id, eff_host_ids, eff_group_ids):
+        return _error("Цель вне ваших кабинетов", status=403)
+
     updates = {
         k: v for k, v in payload.items()
         if k != "id" and v is not None and k not in _MULTI_PAYLOAD_ONLY_KEYS
