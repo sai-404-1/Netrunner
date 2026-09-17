@@ -48,6 +48,23 @@ def _resolve_agent_ws_url(explicit: str, db=None) -> str:
     return _default_agent_ws_url(db)
 
 
+def _resolve_agent_ca_pem(context) -> str:
+    """PEM корня сервера из Администрирования ("" — не задан).
+
+    ValueError, если сохранённое значение не проходит проверку: такой текст
+    нельзя подставлять в here-doc удалённого скрипта.
+    """
+    db = getattr(context, "db", None)
+    if db is None:
+        return ""
+    from services.execution_settings import ExecutionSettings, ca_cert_info
+
+    pem = ExecutionSettings(db).get_config().get("agent_ca_cert") or ""
+    if pem:
+        ca_cert_info(pem)
+    return pem
+
+
 class UserModule:
     slug = "agent_provision"
     admin_only = True
@@ -92,6 +109,20 @@ class UserModule:
         )
         if not server_ws_url:
             return {**base, "status": "error", "output": "[ERROR] Не удалось определить WS-адрес сервера"}
+
+        try:
+            ca_pem = _resolve_agent_ca_pem(context)
+        except ValueError as exc:
+            return {**base, "status": "error", "output": f"[ERROR] Корневой сертификат в Администрировании некорректен: {exc}"}
+        if server_ws_url.startswith("wss://") and not ca_pem:
+            return {
+                **base,
+                "status": "error",
+                "output": (
+                    "[ERROR] Адрес агента wss://, но в Администрирование → «Агент» не задан "
+                    "корневой сертификат сервера — без него агент не подключится"
+                ),
+            }
 
         try:
             agent_script = _AGENT_SCRIPT_PATH.read_text(encoding="utf-8")
@@ -189,6 +220,16 @@ sudo chown root:root /etc/sudoers.d/{shlex.quote(ssh_username)}
         sudo_prime = "sudo -S -v -p '' 2>/dev/null\n" if host_password else ""
         stdin_data = (host_password + "\n") if host_password else None
 
+        # PEM прошёл ca_cert_info (base64 и строки BEGIN/END), так что маркер
+        # here-doc в нём встретиться не может.
+        ca_block = (
+            "sudo tee /etc/netrunner-agent/ca.crt > /dev/null << 'CA_EOF'\n"
+            f"{ca_pem}\n"
+            "CA_EOF\n"
+            "sudo chown root:root /etc/netrunner-agent/ca.crt\n"
+            "sudo chmod 644 /etc/netrunner-agent/ca.crt"
+        ) if ca_pem else ""
+
         remote_script = f"""set -e
 {sudo_prime}{create_user_block}
 {pubkey_block}
@@ -199,6 +240,7 @@ sudo tee /etc/netrunner-agent/config.json > /dev/null << 'CONFIG_EOF'
 CONFIG_EOF
 sudo chown root:{shlex.quote(ssh_username)} /etc/netrunner-agent/config.json
 sudo chmod 640 /etc/netrunner-agent/config.json
+{ca_block}
 
 sudo tee /opt/netrunner-agent/netrunner_agent.py > /dev/null << 'AGENT_EOF'
 {agent_script}
@@ -224,7 +266,8 @@ if [ -n "$MISSING_PKGS" ]; then
 fi
 
 sudo systemctl daemon-reload
-sudo systemctl enable --now netrunner-agent.service
+sudo systemctl enable netrunner-agent.service
+sudo systemctl restart netrunner-agent.service
 echo "Агент установлен и запущен ({ssh_username}, report-only)."
 """
 

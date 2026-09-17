@@ -6,6 +6,7 @@ import { apiGetClient, apiPostClient } from "@/lib/api-client";
 import {
   fetchExecutionSettings,
   saveExecutionSettings,
+  type AgentCaCertInfo,
   type ExecutionField,
   type SshUserMode,
 } from "@/lib/execution-settings";
@@ -24,6 +25,11 @@ export function AgentTab() {
   const [agentWsUrl, setAgentWsUrl] = useState<string>("");
   const [agentWsField, setAgentWsField] = useState<ExecutionField | null>(null);
   const [agentWsSaving, setAgentWsSaving] = useState(false);
+  // Корень сервера для wss:// — ставится агенту файлом при установке.
+  const [agentCaPem, setAgentCaPem] = useState<string>("");
+  const [agentCaField, setAgentCaField] = useState<ExecutionField | null>(null);
+  const [agentCaInfo, setAgentCaInfo] = useState<AgentCaCertInfo | null>(null);
+  const [agentCaSaving, setAgentCaSaving] = useState(false);
 
   // Снимки рабочего стола хостов (превью в списке/профиле).
   const [shotEnabled, setShotEnabled] = useState<boolean>(true);
@@ -49,6 +55,9 @@ export function AgentTab() {
       setColdawnField(data?.schema?.coldawn_retries || null);
       setAgentWsUrl(data?.config?.agent_ws_url || "");
       setAgentWsField(data?.schema?.agent_ws_url || null);
+      setAgentCaPem(data?.config?.agent_ca_cert || "");
+      setAgentCaField(data?.schema?.agent_ca_cert || null);
+      setAgentCaInfo(data?.agent_ca_cert_info || null);
     } catch (err: any) {
       showToast(err.message, "error");
     }
@@ -163,6 +172,24 @@ export function AgentTab() {
     }
   }
 
+  async function saveAgentCaCert(pem: string) {
+    setAgentCaSaving(true);
+    try {
+      const res = await saveExecutionSettings({ agent_ca_cert: pem.trim() });
+      setAgentCaPem(res?.config?.agent_ca_cert ?? "");
+      setAgentCaInfo(res?.agent_ca_cert_info || null);
+      showToast(
+        res?.config?.agent_ca_cert
+          ? "Сертификат сохранён. Переустановите агентов, чтобы он попал на хосты"
+          : "Сертификат удалён — агенты с адресом wss:// не смогут установиться",
+      );
+    } catch (err: any) {
+      showToast(err.message, "error");
+    } finally {
+      setAgentCaSaving(false);
+    }
+  }
+
   async function saveColdawnRetries() {
     setExecSaving(true);
     try {
@@ -227,6 +254,54 @@ export function AgentTab() {
           <button className="btn" onClick={saveAgentWsUrl} disabled={agentWsSaving}>
             {agentWsSaving ? "Сохранение..." : "Сохранить"}
           </button>
+        </div>
+        {agentWsUrl.trim().startsWith("wss://") && !agentCaInfo?.sha256 && (
+          <p className="text-sm text-amber-600 mt-3">
+            Адрес wss:// требует корневого сертификата сервера (блок ниже) — без него установка агента завершится ошибкой.
+          </p>
+        )}
+      </div>
+
+      <div className="panel">
+        <h3 className="font-semibold mb-1">{agentCaField?.label || "Корневой сертификат сервера (для wss://)"}</h3>
+        <p className="text-sm text-gray-500 mb-4">
+          {agentCaField?.hint || "PEM корня, которым подписан HTTPS-сертификат сервера."}
+        </p>
+        {agentCaInfo?.error && (
+          <p className="text-sm text-red-600 mb-3">Сохранённое значение некорректно: {agentCaInfo.error}</p>
+        )}
+        {agentCaInfo?.sha256 && (
+          <dl className="text-sm grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 mb-4 max-w-3xl">
+            <dt className="text-gray-500">Кому выдан</dt>
+            <dd className="break-all">{agentCaInfo.subject}</dd>
+            <dt className="text-gray-500">Действует до</dt>
+            <dd>{agentCaInfo.not_after ? new Date(agentCaInfo.not_after).toLocaleDateString("ru-RU") : "—"}</dd>
+            <dt className="text-gray-500">SHA-256</dt>
+            <dd className="font-mono text-xs break-all">{agentCaInfo.sha256}</dd>
+          </dl>
+        )}
+        <textarea
+          className="input font-mono text-xs w-full max-w-3xl h-40"
+          value={agentCaPem}
+          placeholder={"-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"}
+          disabled={agentCaSaving}
+          onChange={(e) => setAgentCaPem(e.target.value)}
+          spellCheck={false}
+        />
+        <div className="flex gap-3 mt-3">
+          <button className="btn" onClick={() => saveAgentCaCert(agentCaPem)} disabled={agentCaSaving}>
+            {agentCaSaving ? "Сохранение..." : "Сохранить"}
+          </button>
+          {agentCaInfo && (
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={agentCaSaving}
+              onClick={() => saveAgentCaCert("")}
+            >
+              Удалить
+            </button>
+          )}
         </div>
       </div>
 
