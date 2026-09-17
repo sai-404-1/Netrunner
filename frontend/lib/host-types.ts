@@ -129,6 +129,7 @@ export interface HostMetrics {
   } | null;
   uptime_seconds?: number | null;
   hostname?: string | null;
+  session_user?: string | null;
 }
 
 /** Окно приложения на рабочем столе машины (см. services/desktop_windows_helper.py). */
