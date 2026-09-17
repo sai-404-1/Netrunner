@@ -18,6 +18,9 @@ class RegisteredModule:
     is_builtin: bool
     supports_task_runner: bool
     web_ui_visible: bool = True
+    # Модуль-команда, заданный только записью в БД (без .py-файла) — см.
+    # register_db_command_module. Код на диске всегда важнее такой записи.
+    db_defined: bool = False
 
 
 class ModuleRegistry:
@@ -88,6 +91,82 @@ class ModuleRegistry:
         for item in items:
             instance = item["exec"]
             self.register_instance(instance=instance, is_builtin=is_builtin)
+
+    def register_db_command_module(self, row) -> RegisteredModule | None:
+        """Делает запускаемым модуль-команду, созданный на странице «Модули» без
+        .py-файла (команда + поля в schema_json).
+
+        Раньше такая запись жила только в БД: страница модулей её показывала, а
+        запуск ищет модуль в реестре по slug — и не находил. Модуль нельзя было
+        выбрать ни на хосте, ни в сценарии. Регистрация идёт только в память:
+        строка БД здесь источник правды, переписывать её нельзя.
+
+        Возвращает запись реестра или None (нет команды / slug занят кодом).
+        """
+        from computer.module.base_module import CommandModule
+
+        slug = getattr(row, "slug", None)
+        if not slug:
+            return None
+        # Встроенный модуль без кода — удалённый/не выкаченный код, а не
+        # модуль-команда из UI. Его schema_json хранит команду прошлого деплоя:
+        # оживлять нельзя, иначе запускалась бы устаревшая версия.
+        if getattr(row, "is_builtin", 0):
+            return None
+        current = self._items.get(slug)
+        if current is not None and not current.db_defined:
+            return None
+
+        try:
+            schema = json.loads(row.schema_json or "{}")
+        except (TypeError, ValueError):
+            schema = {}
+        command = str(schema.get("command") or "").strip() if isinstance(schema, dict) else ""
+        if not command:
+            # Команду стёрли при редактировании — модуль больше не запускаемый.
+            if current is not None:
+                self._items.pop(slug, None)
+            return None
+
+        instance = CommandModule()
+        instance.slug = slug
+        instance.title = row.name or slug
+        instance.description = row.description or ""
+        instance.command = command
+        instance.schema = {"placeholders": schema.get("placeholders") or []}
+
+        record = RegisteredModule(
+            slug=slug,
+            title=instance.title,
+            description=instance.description,
+            instance=instance,
+            is_builtin=False,
+            supports_task_runner=True,
+            db_defined=True,
+        )
+        self._items[slug] = record
+        return record
+
+    def register_db_command_modules(self) -> int:
+        """Регистрирует все модули-команды из БД, у которых нет кода. Вызывается
+        при старте ПОСЛЕ загрузки встроенных и дисковых модулей."""
+        count = 0
+        for row in self.db.modules.all():
+            if row.slug in self._items:
+                continue
+            if self.register_db_command_module(row) is not None:
+                count += 1
+        return count
+
+    def unregister_db_defined(self, slug: str) -> None:
+        """Убирает из памяти модуль-команду (после удаления записи). Модули с
+        кодом не трогает — их удаление из БД на реестр не влияет."""
+        current = self._items.get(slug)
+        if current is not None and current.db_defined:
+            self._items.pop(slug, None)
+
+    def is_loaded(self, slug: str) -> bool:
+        return slug in self._items
 
     def get(self, slug: str) -> RegisteredModule:
         return self._items[slug]

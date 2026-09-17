@@ -100,6 +100,7 @@ def create_app_context(
     module_registry.register_menu_items(builtin_items, is_builtin=True)
     module_registry.register_menu_items(user_items, is_builtin=False)
     _load_user_modules_from_disk(module_registry)
+    module_registry.register_db_command_modules()
 
     history = HistoryService(db)
 
