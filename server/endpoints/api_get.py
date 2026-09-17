@@ -1,7 +1,7 @@
 from aiohttp import web
 
 from server.domens.hosts import api_hosts, api_hosts_status, api_host_screenshot
-from server.domens.host_profile import api_host_profile, api_host_metrics
+from server.domens.host_profile import api_host_profile, api_host_metrics, api_host_windows
 from server.domens.summary import api_summary
 from server.domens.groups import api_groups
 from server.domens.modules import api_modules
@@ -22,6 +22,7 @@ def add_routes(app: web.Application):
     app.router.add_get("/api/hosts/status", api_hosts_status)
     app.router.add_get("/api/hosts/{id}/profile", api_host_profile)
     app.router.add_get("/api/hosts/{id}/metrics", api_host_metrics)
+    app.router.add_get("/api/hosts/{id}/windows", api_host_windows)
     app.router.add_get("/api/hosts/{id}/screenshot", api_host_screenshot)
     app.router.add_get("/api/groups", api_groups)
     app.router.add_get("/api/modules", api_modules)

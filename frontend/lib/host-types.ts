@@ -44,6 +44,8 @@ export interface HostPermissions {
   check: boolean;
   terminal: boolean;
   power: boolean;
+  /** Просмотр и закрытие открытых окон на рабочем столе. */
+  windows?: boolean;
   run_modules: boolean;
   edit: boolean;
   reprovision: boolean;
@@ -127,4 +129,17 @@ export interface HostMetrics {
   } | null;
   uptime_seconds?: number | null;
   hostname?: string | null;
+}
+
+/** Окно приложения на рабочем столе машины (см. services/desktop_windows_helper.py). */
+export interface DesktopWindow {
+  id: number;
+  title: string;
+  wm_class: string;
+  wm_instance: string;
+  pid: number | null;
+  width: number;
+  height: number;
+  /** PNG иконки приложения в base64 или null, если приложение её не отдаёт. */
+  icon_png: string | null;
 }
