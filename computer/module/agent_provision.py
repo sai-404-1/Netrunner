@@ -149,7 +149,9 @@ class UserModule:
         if token is not None:
             config_token = token
         elif existing:
-            config_token = existing.token_encrypted
+            # В базе токен зашифрован — агенту нужен исходный, иначе сервер
+            # отвергает hello (4003) после любой переустановки.
+            config_token = agent_svc.token_for_config(host.id)
         else:
             config_token = ""
         config_json = json.dumps({
@@ -252,8 +254,13 @@ UNIT_EOF
 
 if ! python3 -c "import websockets" >/dev/null 2>&1; then
   sudo apt-get install -y python3-websockets >/dev/null 2>&1 \\
-    || sudo PIP_ROOT_USER_ACTION=ignore python3 -m pip install --break-system-packages --quiet websockets \\
-    || echo "[WARN] Не удалось установить пакет websockets - установите вручную"
+    || {{ sudo apt-get update >/dev/null 2>&1 && sudo apt-get install -y python3-websockets >/dev/null 2>&1; }} \\
+    || sudo PIP_ROOT_USER_ACTION=ignore python3 -m pip install --break-system-packages --quiet websockets >/dev/null 2>&1 \\
+    || true
+fi
+if ! python3 -c "import websockets" >/dev/null 2>&1; then
+  echo "[ERROR] Не удалось установить пакет websockets (apt python3-websockets / pip) — без него агент не запустится"
+  exit 1
 fi
 
 # Пакеты для снимков рабочего стола (screenshot_service).
