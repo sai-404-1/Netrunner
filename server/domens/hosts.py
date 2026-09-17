@@ -25,7 +25,12 @@ async def api_host_screenshot(request: web.Request) -> web.FileResponse | web.Re
     host = ctx.db.hosts.get(host_id)
     if not host or not host.screenshot_path:
         return _error("Снимок ещё не сделан", status=404)
-    target = Path(host.screenshot_path)
+    target = Path(host.screenshot_path).resolve()
+    # Путь берётся из БД — отдаём файл, только если он внутри каталога снимков,
+    # иначе подменённый screenshot_path превращает ручку в чтение любого файла.
+    shots_dir = ctx.screenshot_service.path_for(host_id).parent.resolve()
+    if shots_dir not in target.parents:
+        return _error("Снимок отсутствует на диске", status=404)
     if not target.exists():
         return _error("Снимок отсутствует на диске", status=404)
     return web.FileResponse(
@@ -123,39 +128,86 @@ async def api_hosts_create(request: web.Request) -> web.Response:
     return _ok(host)
 
 
+# Какие поля хоста кто может менять через /api/hosts/update. Всё, чего здесь нет
+# (is_active, last_seen_at, password_encrypted, screenshot_path, …), —
+# системное и через API не пишется никем, включая администратора: раньше
+# update принимал любые колонки, и, например, screenshot_path, подменённый на
+# data/.secret_key, отдавался наружу через /api/hosts/{id}/screenshot.
+_TEACHER_EDITABLE = {"name", "description"}
+_ADMIN_EDITABLE = _TEACHER_EDITABLE | {"address", "port", "username", "ssh_key_id", "password", "group_id"}
+
+
+def _normalize_host_field(key, value):
+    if key in ("ssh_key_id", "group_id"):
+        return int(value) if value else None
+    if key == "port":
+        return _safe_int(value, 22)
+    return value
+
+
 async def api_hosts_update(request: web.Request) -> web.Response:
     ctx = _ctx(request)
+    user = request.get("auth_user")
     payload = await _read_json(request)
     host_id = _safe_int(payload.get("id"))
-    if is_teacher(request.get("auth_user")) and not host_visible(ctx.db, request.get("auth_user"), host_id):
-        return _error("Нет доступа к этому хосту", status=403)
+    current = ctx.db.hosts.get(host_id)
+    if current is None:
+        return _error("Хост не найден", status=404)
+
+    if user and user.get("is_superuser"):
+        editable = _ADMIN_EDITABLE
+    elif is_teacher(user):
+        if not host_visible(ctx.db, user, host_id):
+            return _error("Нет доступа к этому хосту", status=403)
+        editable = _TEACHER_EDITABLE
+    else:
+        return _error("Изменение хостов недоступно для вашей роли", status=403)
+
+    current_group_id = ctx.db.groups.first_group_id_for_host(host_id)
+    denied = []
+    for key, value in payload.items():
+        if key == "id" or key in editable:
+            continue
+        if key not in _ADMIN_EDITABLE:
+            # Системное поле: молча не принимаем ни от кого.
+            continue
+        # Форма редактирования шлёт все поля разом — неизменённое значение
+        # поля, недоступного роли, пропускаем, а попытку изменить — нет.
+        if key == "password":
+            if str(value or "").strip():
+                denied.append(key)
+            continue
+        old = current_group_id if key == "group_id" else getattr(current, key, None)
+        if _normalize_host_field(key, value) != old:
+            denied.append(key)
+    if denied:
+        return _error(f"Недостаточно прав для изменения полей: {', '.join(sorted(denied))}", status=403)
+
     password = None
     allowed = {}
     for k, v in payload.items():
-        if k in ("id", "group_id"):
+        if k not in editable or k in ("id", "group_id"):
             continue
         if k == "password":
             password = str(v or "").strip() or None
             continue
-        if k == "ssh_key_id":
-            allowed[k] = int(v) if v else None
+        if k in ("ssh_key_id", "port"):
+            allowed[k] = _normalize_host_field(k, v)
         elif v is not None:
             allowed[k] = v
     if password:
-        host = ctx.db.hosts.get(host_id)
-        if host:
-            await _provision_ssh_key(
-                ctx,
-                host.username,
-                host.address,
-                host.port,
-                password,
-                allowed.get("ssh_key_id") or host.ssh_key_id,
-            )
+        await _provision_ssh_key(
+            ctx,
+            allowed.get("username") or current.username,
+            allowed.get("address") or current.address,
+            allowed.get("port") or current.port,
+            password,
+            allowed.get("ssh_key_id") or current.ssh_key_id,
+        )
         # Сохраняем пароль (зашифрованным) для будущей перепривязки ключа.
         allowed["password_encrypted"] = encrypt_secret(password)
     host = ctx.db.hosts.update(host_id, **allowed)
-    new_group_id = payload.get("group_id")
+    new_group_id = payload.get("group_id") if "group_id" in editable else None
     if new_group_id is not None:
         new_group_id = int(new_group_id) if new_group_id else None
         old_group_id = ctx.db.groups.first_group_id_for_host(host_id)
