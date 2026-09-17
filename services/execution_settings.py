@@ -96,6 +96,19 @@ FIELDS: dict[str, dict] = {
             "После смены адреса агента на хостах нужно переустановить."
         ),
     },
+    "agent_ca_cert": {
+        "key": "agent_ca_cert",
+        "type": "pem_cert",
+        "default": "",
+        "label": "Корневой сертификат сервера (для wss://)",
+        "hint": (
+            "PEM корня, которым подписан HTTPS-сертификат сервера. При установке "
+            "агента кладётся в /etc/netrunner-agent/ca.crt, и для wss:// агент "
+            "доверяет только ему — системное хранилище машины не используется. "
+            "Нужен, если адрес агента начинается с wss://. Только сертификат: "
+            "закрытый ключ сюда не вставлять. После смены — переустановить агентов."
+        ),
+    },
     "coldawn_retries": {
         "key": "execution_coldawn_retries",
         "type": "int",
@@ -146,6 +159,38 @@ def _normalize_ws_url(value: str, default: str = "") -> str:
     return value
 
 
+def ca_cert_info(pem: str) -> dict:
+    """Проверяет PEM корня для агента и отдаёт сводку для страницы настроек.
+
+    ValueError с понятным текстом, если это не ровно один сертификат УЦ.
+    """
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes
+
+    text = (pem or "").strip()
+    if "PRIVATE KEY" in text:
+        raise ValueError("вставлен закрытый ключ — нужен только сертификат (BEGIN CERTIFICATE)")
+    if text.count("-----BEGIN CERTIFICATE-----") != 1:
+        raise ValueError("нужен ровно один сертификат в формате PEM (-----BEGIN CERTIFICATE-----)")
+    try:
+        cert = x509.load_pem_x509_certificate(text.encode("ascii"))
+    except (ValueError, UnicodeEncodeError):
+        raise ValueError("не удалось разобрать сертификат")
+    try:
+        is_ca = cert.extensions.get_extension_for_class(x509.BasicConstraints).value.ca
+    except x509.ExtensionNotFound:
+        is_ca = False
+    if not is_ca:
+        raise ValueError("это не корневой сертификат (нет CA:TRUE) — нужен корень, которым подписан сертификат сервера")
+    not_after = getattr(cert, "not_valid_after_utc", None) or cert.not_valid_after
+    digest = cert.fingerprint(hashes.SHA256()).hex().upper()
+    return {
+        "subject": cert.subject.rfc4514_string(),
+        "not_after": not_after.isoformat(),
+        "sha256": ":".join(digest[i:i + 2] for i in range(0, len(digest), 2)),
+    }
+
+
 class ExecutionSettings:
     """Чтение и запись настроек темпа выполнения в `app_settings`."""
 
@@ -190,6 +235,11 @@ class ExecutionSettings:
                     raise ValueError(
                         f"{spec['label']}: нужен адрес вида ws://хост:порт/путь или wss://…"
                     )
+            if spec["type"] == "pem_cert" and str(raw).strip():
+                try:
+                    ca_cert_info(str(raw))
+                except ValueError as exc:
+                    raise ValueError(f"{spec['label']}: {exc}")
             store.set(spec["key"], str(self._coerce(name, raw)))
         return self.get_config()
 
@@ -208,6 +258,9 @@ class ExecutionSettings:
 
         if spec["type"] == "ws_url":
             return _normalize_ws_url(str(raw), default=spec["default"])
+
+        if spec["type"] == "pem_cert":
+            return str(raw).strip()
 
         try:
             value = int(float(str(raw).strip()))

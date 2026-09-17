@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isHttpsRequest } from "@/lib/request-security";
 
 const DEVICE_COOKIE = "netrunner_device";
 
@@ -32,7 +33,7 @@ export async function POST(request: NextRequest) {
     name: "netrunner_token",
     value: payload.token,
     httpOnly: true,
-    secure: false,
+    secure: isHttpsRequest(request),
     sameSite: "lax",
     path: "/",
     maxAge: 60 * 60 * 24 * 7,

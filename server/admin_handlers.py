@@ -370,10 +370,23 @@ async def api_admin_execution_settings(request: web.Request) -> web.Response:
     """
     _require_superuser(request)
     settings = _ctx(request).execution_settings
+    config = settings.get_config()
     return _json_response({
         "ok": True,
-        "data": {"config": settings.get_config(), "schema": settings.schema()},
+        "data": {"config": config, "schema": settings.schema(), "agent_ca_cert_info": _ca_info_or_none(config)},
     })
+
+
+def _ca_info_or_none(config: dict) -> dict | None:
+    from services.execution_settings import ca_cert_info
+
+    pem = config.get("agent_ca_cert") or ""
+    if not pem:
+        return None
+    try:
+        return ca_cert_info(pem)
+    except ValueError as exc:
+        return {"error": str(exc)}
 
 
 async def api_admin_execution_settings_set(request: web.Request) -> web.Response:
@@ -385,7 +398,7 @@ async def api_admin_execution_settings_set(request: web.Request) -> web.Response
         config = settings.set_config(**payload)
     except ValueError as exc:
         return _json_response({"ok": False, "error": str(exc)}, status=400)
-    return _json_response({"ok": True, "data": {"config": config}})
+    return _json_response({"ok": True, "data": {"config": config, "agent_ca_cert_info": _ca_info_or_none(config)}})
 
 
 async def api_admin_screenshot_settings(request: web.Request) -> web.Response:

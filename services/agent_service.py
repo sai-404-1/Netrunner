@@ -89,6 +89,26 @@ class AgentService:
             "private_key": private_pem,
         }
 
+    def token_for_config(self, host_id: int) -> str:
+        """Открытый токен агента для записи в его config.json при переустановке.
+
+        В базе токен лежит зашифрованным — в конфиг агента нужен исходный. Если
+        расшифровать не удалось (сменился мастер-ключ), выпускается новый токен:
+        старый всё равно уже нельзя проверить. SSH-ключ агента не трогается.
+        """
+        agent = self.db.host_agents.by_host(host_id)
+        if agent is None:
+            raise LookupError(f"агент для host_id={host_id} не найден")
+        try:
+            token = decrypt_secret(agent.token_encrypted)
+            if token:
+                return token
+        except Exception:  # noqa: BLE001
+            pass
+        token = secrets.token_urlsafe(32)
+        self.db.host_agents.update(agent.id, token_encrypted=encrypt_secret(token))
+        return token
+
     def get_status(self, host_id: int) -> dict | None:
         agent = self.db.host_agents.by_host(host_id)
         if not agent:

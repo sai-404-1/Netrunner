@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Any
 
 CONFIG_PATH = Path("/etc/netrunner-agent/config.json")
+CA_PATH = Path("/etc/netrunner-agent/ca.crt")
 HEARTBEAT_INTERVAL_SEC = 60
 RECONNECT_DELAY_SEC = 15
 
@@ -50,6 +51,22 @@ logging.basicConfig(
     format="%(asctime)s netrunner-agent %(levelname)s %(message)s",
 )
 log = logging.getLogger("netrunner-agent")
+
+
+def _ssl_context(url: str):
+    """SSL-контекст для wss://, доверяющий ТОЛЬКО корню сервера из CA_PATH.
+
+    Системное хранилище сознательно не используется: в нём бывают чужие корни
+    (например, корень провайдера для расшифровки трафика), которыми можно
+    подменить сервер. Для ws:// — None (без шифрования, переходный режим).
+    """
+    if not url.startswith("wss://"):
+        return None
+    if not CA_PATH.is_file():
+        raise FileNotFoundError(str(CA_PATH))
+    import ssl
+    # cafile задан — load_default_certs() не вызывается, системные корни не грузятся.
+    return ssl.create_default_context(cafile=str(CA_PATH))
 
 
 def load_config() -> dict:
@@ -97,8 +114,18 @@ async def run_forever(config: dict) -> None:
         # asyncio.wait_for(...) вместо open_timeout= — переносимо между версиями
         # websockets (некоторые старые не принимают этот именованный аргумент).
         try:
+            ssl_ctx = _ssl_context(config["server_ws_url"])
+        except FileNotFoundError:
+            log.error(
+                "Адрес %s требует %s — корневой сертификат сервера не установлен; "
+                "переустановите агента. Повтор через %ss",
+                config["server_ws_url"], CA_PATH, RECONNECT_DELAY_SEC,
+            )
+            await asyncio.sleep(RECONNECT_DELAY_SEC)
+            continue
+        try:
             ws = await asyncio.wait_for(
-                websockets.connect(config["server_ws_url"]), timeout=10
+                websockets.connect(config["server_ws_url"], ssl=ssl_ctx), timeout=10
             )
         except Exception as exc:  # noqa: BLE001 — сеть нестабильна, просто переподключаемся
             log.warning("Не удалось подключиться (%s), повтор через %ss", exc, RECONNECT_DELAY_SEC)

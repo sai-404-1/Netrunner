@@ -24,6 +24,16 @@ export interface ExecutionConfig {
   coldawn_retries: number;
   /** WS-адрес сервера для endpoint-агента. Пусто — env/автоопределение. */
   agent_ws_url: string;
+  /** PEM корня сервера для wss:// — кладётся агенту в /etc/netrunner-agent/ca.crt. */
+  agent_ca_cert: string;
+}
+
+/** Сводка по сохранённому корню (или текст ошибки, если значение в базе битое). */
+export interface AgentCaCertInfo {
+  subject?: string;
+  not_after?: string;
+  sha256?: string;
+  error?: string;
 }
 
 export interface ExecutionFieldChoice {
@@ -34,7 +44,7 @@ export interface ExecutionFieldChoice {
 /** Описание одного поля настройки — по нему строится форма. */
 export interface ExecutionField {
   key: string;
-  type: "int" | "choice" | "ws_url";
+  type: "int" | "choice" | "ws_url" | "pem_cert";
   default: number | string;
   label: string;
   hint?: string;
@@ -48,6 +58,7 @@ export type ExecutionSchema = Record<keyof ExecutionConfig, ExecutionField>;
 export async function fetchExecutionSettings(): Promise<{
   config: ExecutionConfig;
   schema: ExecutionSchema;
+  agent_ca_cert_info: AgentCaCertInfo | null;
 }> {
   return apiGetClient("/api/admin/execution-settings");
 }
@@ -55,6 +66,6 @@ export async function fetchExecutionSettings(): Promise<{
 /** Частичное обновление: отправляем только изменённые поля. */
 export async function saveExecutionSettings(
   changes: Partial<ExecutionConfig>,
-): Promise<{ config: ExecutionConfig }> {
+): Promise<{ config: ExecutionConfig; agent_ca_cert_info: AgentCaCertInfo | null }> {
   return apiPostClient("/api/admin/execution-settings", changes);
 }
