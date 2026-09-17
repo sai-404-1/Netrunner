@@ -16,8 +16,9 @@ def _require_superuser(request: web.Request):
     (_install_uploaded_module делает exec_module сразу), т.е. это
     исполнение произвольного Python любым залогиненным пользователем,
     вплоть до "user" без единой привилегии. update/delete прикрыты той же
-    проверкой для единообразия и на будущее — команда в schema_json тоже
-    исполняется, просто не на сервере, а на выбранном пользователем хосте.
+    проверкой: модуль-команда из БД (register_db_command_module) исполняется
+    как обычный, а /api/run авторизует только по доступу к хосту — без этой
+    проверки любой "user" создал бы команду и выполнил её на своих машинах.
     """
     user = request.get("auth_user")
     if user and user.get("is_superuser"):
@@ -57,22 +58,6 @@ async def api_modules(request: web.Request) -> web.Response:
         item["admin_only"] = admin_only
         modules.append(item)
     return _ok(modules)
-
-
-def _require_superuser(request: web.Request):
-    """None, если можно менять модули; иначе готовый ответ 403.
-
-    Раньше create/update/delete не проверяли роль вовсе — не будило вопросов,
-    пока модуль-команда без .py-файла не запускался НИКОГДА (регистрация в
-    реестр появилась только с register_db_command_module). Теперь такой
-    модуль исполняется как обычный, а /api/run авторизует только по доступу к
-    хосту, не по тому, кто его завёл — без этой проверки любой залогиненный
-    "user" мог бы создать команду и выполнить её на доступных ему машинах.
-    """
-    user = request.get("auth_user")
-    if user and user.get("is_superuser"):
-        return None
-    return _error("Управление модулями доступно только администратору", status=403)
 
 
 async def api_modules_create(request: web.Request) -> web.Response:
