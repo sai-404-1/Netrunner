@@ -34,6 +34,13 @@ echo "LOAD:$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null)"
 echo "HOSTNAME:$(hostname 2>/dev/null)"
 nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total \
     --format=csv,noheader,nounits 2>/dev/null | head -n1 | sed 's/^/GPU:/'
+for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do
+  eval "$(loginctl show-session "$s" -p Class -p Type -p Name -p State 2>/dev/null)"
+  if [ "$Class" = "user" ] && [ "$Type" = "x11" ] && [ "$State" = "active" ]; then
+    echo "SESSION_USER:$Name"
+    break
+  fi
+done
 """.strip()
 
 
@@ -190,6 +197,7 @@ def _parse_metrics(raw: str) -> dict:
         "gpu": gpu,
         "uptime_seconds": int(_num("UPTIME") or 0) or None,
         "hostname": values.get("HOSTNAME") or None,
+        "session_user": values.get("SESSION_USER") or None,
     }
 
 

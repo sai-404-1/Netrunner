@@ -403,6 +403,17 @@ export default function HostProfilePage() {
             </span>
           </div>
 
+          {metrics?.available && (
+            <p className="text-sm mb-3">
+              За компьютером:{" "}
+              {metrics.session_user ? (
+                <span className="font-medium">{metrics.session_user}</span>
+              ) : (
+                <span className="text-gray-500">никто не залогинен</span>
+              )}
+            </p>
+          )}
+
           {metrics && !metrics.available ? (
             <p className="text-sm text-gray-500">
               Машина не отвечает по SSH — показать загрузку не получится.
